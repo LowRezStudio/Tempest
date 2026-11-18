@@ -2,7 +2,8 @@
 //! when it can run. The key bindings, the command palette (`>`), the menus
 //! and the shortcut list (F1) all read this table, so they never disagree.
 
-use gpui::{div, px, App, Context, KeyBinding, Stateful, Div, Window};
+use gpui::{div, px, App, Context, Div, KeyBinding, Stateful, Window};
+use gpui_component::input::Input;
 use gpui_component::{h_flex, v_flex, ActiveTheme, WindowExt};
 
 use super::*;
@@ -23,6 +24,7 @@ pub enum Cmd {
     Back,
     Forward,
     Commands,
+    CommandList,
     GoToPackage,
     GoToObject,
     SearchAll,
@@ -34,6 +36,7 @@ pub enum Cmd {
     ShowPackages,
     ShowAssembly,
     ShowMod,
+    BuildAndInstall,
     ShowMap,
     MapAddActor,
     MapCollision,
@@ -89,6 +92,7 @@ pub enum Cmd {
     CloseProject,
     WriteToGame,
     CopyPath,
+    QuickGuide,
     Settings,
     Shortcuts,
 }
@@ -118,6 +122,7 @@ impl Cmd {
         Cmd::Back,
         Cmd::Forward,
         Cmd::Commands,
+        Cmd::CommandList,
         Cmd::GoToPackage,
         Cmd::GoToObject,
         Cmd::SearchAll,
@@ -129,6 +134,7 @@ impl Cmd {
         Cmd::ShowPackages,
         Cmd::ShowAssembly,
         Cmd::ShowMod,
+        Cmd::BuildAndInstall,
         Cmd::ShowMap,
         Cmd::MapAddActor,
         Cmd::MapCollision,
@@ -184,6 +190,7 @@ impl Cmd {
         Cmd::CloseProject,
         Cmd::WriteToGame,
         Cmd::CopyPath,
+        Cmd::QuickGuide,
         Cmd::Settings,
         Cmd::Shortcuts,
     ];
@@ -192,8 +199,8 @@ impl Cmd {
         let i = |title, group, keys, detail| Info { title, group, keys, detail };
         match self {
             Cmd::OpenFolder => i("Open game folder…", "File", "", "the Paladins folder, or its ChaosGame/CookedPCConsole folder"),
-            Cmd::HideSide => i("Show or hide the side pane", "View", "⌘B", "the package list, the assembly files, the sound banks or the map's levels; over the view in a narrow window"),
-            Cmd::HideSecond => i("Show or hide the second pane", "View", "⌘J", "the object list, the row pane, the events or the map's inspector"),
+            Cmd::HideSide => i("Show or hide the side pane", "View", "⌘B", "the package list, the game data, the sound banks or the map's levels; over the view in a narrow window"),
+            Cmd::HideSecond => i("Show or hide the second pane", "View", "⌘J", "the object list, event list, row inspector or actor panel"),
             Cmd::NewWindow => i("New window", "File", "⌘⇧N", "another window, for another game folder or mod"),
             Cmd::Create => i("Create…", "Edit", "⌘N", "something new, step by step: a skin, ability, card, item, champion, texture, mesh, material, sound…"),
             Cmd::Save => i("Save the mod", "File", "⌘S", "keep your changes in your mod (name it first when it is still a draft); never touches the game's files"),
@@ -204,18 +211,20 @@ impl Cmd {
             Cmd::Redo => i("Redo", "Edit", "⌘⇧Z", "put back the last change Undo took back"),
             Cmd::Back => i("Back", "Go", "⌥←", ""),
             Cmd::Forward => i("Forward", "Go", "⌥→", ""),
-            Cmd::Commands => i("Commands…", "Go", "⌘K", ""),
-            Cmd::GoToPackage => i("Go to a package or table…", "Go", "⌘P", "a package by name, or a table of the assembly files"),
-            Cmd::GoToObject => i("Go to an object or row…", "Go", "⌘⇧O", "an object of the open package; in the Assembly view, the rows containing a text"),
+            Cmd::Commands => i("Search or run a command…", "Go", "⌘K", "champions, game data tables, game files, UI movies, objects and commands"),
+            Cmd::CommandList => i("Run a command…", "Go", "⌘⇧P", "every Studio command, filtered by name"),
+            Cmd::GoToPackage => i("Go to a package or table…", "Go", "⌘P", "a package by name, or a table of the game data"),
+            Cmd::GoToObject => i("Go to an object or row…", "Go", "⌘⇧O", "an object of the open package; in Game data, the rows containing a text"),
             Cmd::SearchAll => i("Search every package…", "Go", "⌘⇧F", "objects by name, in every package of the folder"),
             Cmd::FindInView => i("Find in this view", "Go", "⌘F", "the filter of what is on screen: the package's objects, the table's rows, the map's actors, the sound events"),
-            Cmd::NewTab => i("New tab", "Go", "⌘T", "a copy of this tab"),
-            Cmd::CloseTab => i("Close the tab", "Go", "⌘W", ""),
-            Cmd::ShowHome => i("Show the start page", "View", "", "what do you want to change: champions' looks, stats, sounds, maps, menus, something new"),
+            Cmd::NewTab => i("New tab", "Window", "⌘T", "a copy of this tab"),
+            Cmd::CloseTab => i("Close the tab", "Window", "⌘W", ""),
+            Cmd::ShowHome => i("Show the start page", "View", "⌥1", "what do you want to change: champions' looks, stats, sounds, maps, menus, something new"),
             Cmd::ShowChampions => i("Show the champions", "View", "⌘1", "each champion's skins, abilities, cards, talents and game files"),
             Cmd::ShowPackages => i("Show the game files", "View", "⌘2", "every package: textures, meshes, materials, sounds, UI, scripts"),
             Cmd::ShowAssembly => i("Show the game data", "View", "⌘3", "the content tables (items, abilities, cards, skins, loot…) and the game's texts"),
-            Cmd::ShowMod => i("Build mod", "View", "⌘6", "what your changes become: details, build, install, publish"),
+            Cmd::ShowMod => i("Build mod", "Mod", "⌘6", "what your changes become: details, build, install, publish"),
+            Cmd::BuildAndInstall => i("Build & install into this game", "Mod", "⌘⇧B", "pack your mod fast and install it into the open game folder"),
             Cmd::ShowMap => i("Show the maps", "View", "⌘5", "a map in 3D with its scripts (Kismet) and cutscenes (Matinee)"),
             Cmd::MapAddActor => i("Add an actor to the map…", "Map", "⇧A", "a copy of an actor of any level, a new one of a class, or a mesh, where the view looks"),
             Cmd::MapCollision => i("Show collision in the map", "Map", "", "volumes' convex hulls and meshes' simple or complex collision, by what they block"),
@@ -223,15 +232,15 @@ impl Cmd {
             Cmd::MapNewMatinee => i("New Matinee", "Map", "", "in the selected actor's level, moving it (or empty when nothing is selected)"),
             Cmd::MapOpenMatinee => i("Open the level's Matinees", "Map", "", "the first Matinee of the selected actor's level (the timeline lists the others)"),
             Cmd::MapMatineeKey => i("Add a Matinee key at the playhead", "Map", "K", "on the selected track; a move key takes where its actor is"),
-            Cmd::AsmNewRow => i("New row", "Assembly", "⌘⇧↩", "an empty row at the end of the table on screen, with a fresh id"),
-            Cmd::AsmNewContent => i("New device, card, item, skin or champion…", "Assembly", "", "from a template row, with new ids and messages in every language"),
-            Cmd::AsmVendor => i("Champion vendor…", "Assembly", "", "which champions the client lists; add an existing champion to it"),
-            Cmd::AsmSkins => i("Skin collections…", "Assembly", "", "which skins the client lists per champion; copy a collection or list a skin"),
-            Cmd::AsmExportMod => i("Export a mod folder of the game data changes (advanced)…", "Assembly", "", "a mod folder with the rows you changed"),
-            Cmd::AsmReload => i("Reload the game data", "Assembly", "", "read assembly.dat and the language files again from the game folder"),
+            Cmd::AsmNewRow => i("New row", "Game data", "⌘⇧↩", "an empty row at the end of the table on screen, with a fresh id"),
+            Cmd::AsmNewContent => i("New device, card, item, skin or champion…", "Game data", "", "from a template row, with new ids and messages in every language"),
+            Cmd::AsmVendor => i("Champion vendor…", "Game data", "", "which champions the client lists; add an existing champion to it"),
+            Cmd::AsmSkins => i("Skin collections…", "Game data", "", "which skins the client lists per champion; copy a collection or list a skin"),
+            Cmd::AsmExportMod => i("Export a mod folder of the game data changes (advanced)…", "Game data", "", "a mod folder with the rows you changed"),
+            Cmd::AsmReload => i("Reload the game data", "Game data", "", "read assembly.dat and the language files again from the game folder"),
             Cmd::OpenFile => i("Open package file…", "File", "⌘O", "a package from anywhere; one outside the game folder joins the list"),
-            Cmd::NextTab => i("Next tab", "Go", "⌃Tab", ""),
-            Cmd::PrevTab => i("Previous tab", "Go", "⌃⇧Tab", ""),
+            Cmd::NextTab => i("Next tab", "Window", "⌃Tab", ""),
+            Cmd::PrevTab => i("Previous tab", "Window", "⌃⇧Tab", ""),
             Cmd::ZoomIn => i("Zoom in", "View", "⌘=", "larger text"),
             Cmd::ZoomOut => i("Zoom out", "View", "⌘−", "smaller text"),
             Cmd::ZoomReset => i("Reset zoom", "View", "⌘0", ""),
@@ -271,6 +280,7 @@ impl Cmd {
             Cmd::CloseProject => i("Close the mod…", "Mod", "", "its changes are unloaded until you open it again"),
             Cmd::WriteToGame => i("Patch this game file (advanced)…", "File", "", "for quick tests: overwrite the game's own file with the changes on screen; only Verify game files puts it back"),
             Cmd::CopyPath => i("Copy the object path", "Object", "⌘⇧C", "Package.Group.Name, as the search and other packages name it"),
+            Cmd::QuickGuide => i("How modding works (quick guide)…", "Help", "", "step-by-step recipes for skins, stats, sounds, maps and safe drafts"),
             Cmd::Settings => i("Settings…", "Help", "⌘,", "theme, text size, the overwrite warning, reopening where you were"),
             Cmd::Shortcuts => i("Keyboard shortcuts", "Help", "F1", ""),
         }
@@ -301,7 +311,7 @@ impl Cmd {
             // There it filters the rows of the table on screen.
             Cmd::GoToObject if s.view == View::Assembly => s.assembly.is_some(),
             Cmd::MapAddActor | Cmd::MapCollision | Cmd::MapBakeLighting | Cmd::MapNewMatinee | Cmd::MapOpenMatinee | Cmd::MapMatineeKey => s.view == View::Map && s.map.is_some(),
-            Cmd::ShowMap | Cmd::ShowHome | Cmd::ShowChampions | Cmd::ShowPackages | Cmd::ShowAssembly | Cmd::ShowMod => s.dir.is_some(),
+            Cmd::ShowMap | Cmd::ShowHome | Cmd::ShowChampions | Cmd::ShowPackages | Cmd::ShowAssembly | Cmd::ShowMod | Cmd::BuildAndInstall => s.dir.is_some(),
             Cmd::Rename | Cmd::CopyPath | Cmd::Duplicate | Cmd::CopyTo | Cmd::Delete | Cmd::ExportObject | Cmd::ReplaceObject | Cmd::ReplaceWith | Cmd::ExtractRaw => object,
             Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject | Cmd::Rewrite | Cmd::PackageInfo => s.open.is_some(),
             Cmd::ExportSources => s.open.as_ref().is_some_and(|t| s.packages.iter().any(|p| p.path == t.path && p.script)),
@@ -344,7 +354,7 @@ impl Studio {
                 Cmd::SaveAll => "Nothing is edited",
                 Cmd::ExportSources => "Open a script package first",
                 Cmd::ProjectFolder => "No project is open",
-                Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload => "Show the assembly tables first",
+                Cmd::AsmNewRow | Cmd::AsmNewContent | Cmd::AsmVendor | Cmd::AsmSkins | Cmd::AsmExportMod | Cmd::AsmReload => "Open Game data first",
                 _ if self.dir.is_none() => "Open a game folder first",
                 _ if self.open.is_none() => "Open a package first",
                 _ => "Select an object first",
@@ -353,7 +363,7 @@ impl Studio {
             return;
         }
         match cmd {
-            Cmd::OpenFolder => self.pick_workspace(cx),
+            Cmd::OpenFolder => self.switch_workspace_or_ask(None, window, cx),
             Cmd::Create => self.open_wizard(None, None, window, cx),
             Cmd::HideSide => self.toggle_pane(false, cx),
             Cmd::HideSecond => self.toggle_pane(true, cx),
@@ -399,8 +409,9 @@ impl Studio {
             Cmd::Redo => self.redo(&Redo, window, cx),
             Cmd::Back => self.back(&Back, window, cx),
             Cmd::Forward => self.forward(&Forward, window, cx),
-            Cmd::Commands => self.open_palette(">", window, cx),
-            Cmd::GoToPackage => self.open_palette("", window, cx),
+            Cmd::Commands => self.open_palette("", window, cx),
+            Cmd::CommandList => self.open_palette(">", window, cx),
+            Cmd::GoToPackage => self.open_palette_files(window, cx),
             Cmd::GoToObject => self.open_palette("@", window, cx),
             Cmd::SearchAll => self.open_palette("#", window, cx),
             Cmd::FindInView => self.find_in_view(window, cx),
@@ -411,6 +422,11 @@ impl Studio {
             Cmd::ShowPackages => self.set_view(View::Packages, window, cx),
             Cmd::ShowAssembly => self.set_view(View::Assembly, window, cx),
             Cmd::ShowMod => self.set_view(View::Mod, window, cx),
+            Cmd::BuildAndInstall => {
+                self.set_view(View::Mod, window, cx);
+                let c = self.cooker_view(window, cx);
+                c.update(cx, |c, cx| c.build_and_install(window, cx));
+            }
             Cmd::ShowMap => self.set_view(View::Map, window, cx),
             Cmd::Duplicate if self.view == View::Map => {
                 if let Some(m) = self.map.clone() {
@@ -485,9 +501,144 @@ impl Studio {
                     self.copy_text(path, "object path", cx);
                 }
             }
+            Cmd::QuickGuide => self.show_quick_guide(window, cx),
             Cmd::Settings => self.show_settings(window, cx),
             Cmd::Shortcuts => self.show_shortcuts(window, cx),
         }
+    }
+
+    pub(super) fn show_quick_guide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let has_dir = self.dir.is_some();
+        let me = cx.entity().downgrade();
+        let topics: [(IconName, &'static str, String, &'static str, &'static str, View); 5] = [
+            (
+                IconName::ShieldCheck,
+                "Safe drafts & your mod",
+                "Every edit stays in memory and autosaves to a recovery draft (or your named mod's .twrk project folder). The game's own files are never touched unless you explicitly choose Patch the game.".to_string(),
+                "guide-mod",
+                "Open Mod view",
+                View::Mod,
+            ),
+            (
+                IconName::Shirt,
+                "Skins, models & textures",
+                format!(
+                    "Open Champions ({}), pick a champion, unfold a skin or Look, click any texture, mesh or material to inspect it in Game files ({}), then click Replace… with your PNG, DDS, glTF or FBX.",
+                    key_hint("⌘1"),
+                    key_hint("⌘2")
+                ),
+                "guide-champions",
+                "Open Champions",
+                View::Champions,
+            ),
+            (
+                IconName::SlidersHorizontal,
+                "Stats, cards, talents & texts",
+                format!(
+                    "Open Game data ({}) or click Open in game data on a champion's ability or skin. Edit damage, cooldowns, loadout cards, prices or localized messages right in the table.",
+                    key_hint("⌘3")
+                ),
+                "guide-assembly",
+                "Open Game data",
+                View::Assembly,
+            ),
+            (
+                IconName::AudioLines,
+                "Voice lines, music & effects",
+                format!(
+                    "Open Sounds ({}), pick a .pck sound bank and event, listen to any clip, and click Replace… with an .ogg, .wav or .wem file.",
+                    key_hint("⌘4")
+                ),
+                "guide-audio",
+                "Open Sounds",
+                View::Audio,
+            ),
+            (
+                IconName::Rocket,
+                "Maps & testing in game",
+                format!(
+                    "Open Maps ({}) to move actors, edit Kismet scripts or Matinee cutscenes, and bake lighting. When ready, press Build & install ({}) in Build mod ({}) and launch from Tempest Launcher.",
+                    key_hint("⌘5"),
+                    key_hint("⌘⇧B"),
+                    key_hint("⌘6")
+                ),
+                "guide-map",
+                "Open Maps",
+                View::Map,
+            ),
+        ];
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let max_w = window.viewport_size().width * 0.94;
+            let theme = cx.theme().clone();
+            let mut body = v_flex()
+                .gap_2p5()
+                .child(div().text_sm().text_color(theme.muted_foreground).whitespace_normal().child(format!(
+                    "Press {} anytime to search champions, game data tables, packages, UI movies and commands in one place.",
+                    key_hint("⌘K")
+                )));
+            for (icon, title, detail, btn_id, btn_label, target_view) in &topics {
+                let me = me.clone();
+                let v = *target_view;
+                let btn_id = *btn_id;
+                let btn_label = *btn_label;
+                body = body.child(
+                    h_flex()
+                        .items_start()
+                        .gap_3()
+                        .p_3()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.sidebar)
+                        .child(div().flex_none().size(px(28.0)).rounded_md().bg(theme.secondary).flex().items_center().justify_center().child(Icon::new(*icon).small().text_color(theme.foreground)))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1p5()
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .flex_wrap()
+                                        .child(div().flex_1().min_w_0().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(*title))
+                                        .child(
+                                            div()
+                                                .relative()
+                                                .flex_none()
+                                                .child(
+                                                    Button::new(btn_id)
+                                                        .xsmall()
+                                                        .icon(Icon::new(IconName::ArrowRight))
+                                                        .label(btn_label)
+                                                        .disabled(!has_dir)
+                                                        .when(!has_dir, |b| b.tooltip("Open a game folder first"))
+                                                        .on_click(move |_, window, cx| {
+                                                            window.close_dialog(cx);
+                                                            let _ = me.update(cx, |this, cx| {
+                                                                if v == View::Assembly && this.assembly.is_none() {
+                                                                    let place = Place::Assembly { file: "assembly".into(), path: Vec::new(), table: Some("DATA_SET_DEVICES".into()), row: Some(0) };
+                                                                    this.record(place.clone());
+                                                                    this.go(place, window, cx);
+                                                                } else {
+                                                                    this.set_view(v, window, cx);
+                                                                }
+                                                            });
+                                                        }),
+                                                )
+                                                .child(crate::driver::probe(btn_id)),
+                                        ),
+                                )
+                                .child(div().text_xs().text_color(theme.muted_foreground).whitespace_normal().child(detail.clone())),
+                        ),
+                );
+            }
+            dialog
+                .title("How modding works")
+                .w(px(620.0))
+                .max_w(max_w)
+                .child(div().id("quick-guide").max_h(px(560.0)).overflow_y_scroll().child(body))
+                .footer(h_flex().w_full().justify_end().child(Button::new("guide-close").primary().label("Got it").on_click(|_, window, cx| window.close_dialog(cx))))
+        });
     }
 
     pub(super) fn show_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -502,25 +653,95 @@ impl Studio {
                 None => groups.push((info.group, vec![(info.title, key_hint(info.keys))])),
             }
         }
-        let extra = [
-            ("Lists", "↑ ↓ Home End: move · ← →: collapse, expand, parent · ⌘-click or middle-click: new tab · right-click: what can be done"),
-            ("Inspector", "click a value to edit it, Enter to apply, Esc to cancel · click a boolean to flip it"),
-            ("3D view", "drag: orbit · wheel: zoom · double-click: fit"),
+        let extra: [(&'static str, &[(&'static str, &'static str)]); 4] = [
+            (
+                "Lists, trees & inspector",
+                &[
+                    ("Move through items", "↑ ↓ · Home · End"),
+                    ("Collapse, expand or go to parent", "← →"),
+                    ("Open in a new tab", "⌘-click · Middle-click"),
+                    ("Edit property or flip boolean", "Click · Enter · Esc"),
+                    ("Context menu", "Right-click"),
+                ],
+            ),
+            (
+                "Game data grid",
+                &[
+                    ("Move between cells", "↑ ↓ ← → · Tab · ⇧Tab"),
+                    ("Extend row selection", "⇧↑ · ⇧↓ · ⌘A"),
+                    ("Edit cell or confirm", "Enter · F2 · Esc"),
+                    ("Copy & paste rows", "⌘C · ⌘V"),
+                ],
+            ),
+            (
+                "Maps & Kismet",
+                &[
+                    ("Move / Rotate / Scale actor", "W / E / R"),
+                    ("Frame selected actor", "F"),
+                    ("Add actor", "⇧A"),
+                    ("Snap to grid", "G"),
+                    ("Fly camera (adapts to AZERTY)", "Right-drag + WASD"),
+                    ("Orbit, pan & zoom", "Drag · Middle-drag · Wheel"),
+                ],
+            ),
+            (
+                "UI Movies (SWF)",
+                &[
+                    ("Select & move on stage", "V"),
+                    ("Free transform on stage", "Q"),
+                    ("Pan stage", "Space + drag"),
+                    ("Fit stage to view", "⌘0"),
+                    ("Nudge movie clip on stage", "↑ ↓ ← → · ⇧×10"),
+                    ("Enter / leave movie clip", "Enter · ⌫"),
+                ],
+            ),
         ];
-        window.open_dialog(cx, move |dialog, _, cx| {
+        for (g, rows) in extra {
+            groups.push((g, rows.iter().map(|(t, k)| (*t, key_hint(k))).collect()));
+        }
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter shortcuts by action, key or view…"));
+        cx.subscribe_in(&filter, window, |_, _, e: &InputEvent, window, _| {
+            if matches!(e, InputEvent::Change) {
+                window.refresh();
+            }
+        })
+        .detach();
+        let first = std::cell::Cell::new(true);
+        window.open_dialog(cx, move |dialog, window, cx| {
+            if first.replace(false) {
+                filter.update(cx, |s, cx| s.focus(window, cx));
+            }
             let theme = cx.theme().clone();
+            let q = filter.read(cx).value().trim().to_ascii_lowercase();
             let mut body = v_flex().gap_3();
+            let mut matched = 0usize;
             for (g, items) in &groups {
+                let hits: Vec<&(&'static str, String)> = items
+                    .iter()
+                    .filter(|(t, k)| q.is_empty() || g.to_ascii_lowercase().contains(&q) || t.to_ascii_lowercase().contains(&q) || k.to_ascii_lowercase().contains(&q))
+                    .collect();
+                if hits.is_empty() {
+                    continue;
+                }
+                matched += hits.len();
                 let mut col = v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_string()));
-                for (t, k) in items {
-                    col = col.child(h_flex().text_sm().child(div().flex_1().min_w_0().child(*t)).child(div().font_family(crate::studio::ui::mono()).text_xs().px_1().rounded_sm().bg(theme.secondary).child(k.clone())));
+                for (t, k) in hits {
+                    col = col.child(h_flex().gap_2().py_0p5().text_sm().child(div().flex_1().min_w_0().child(*t)).child(div().flex_none().font_family(crate::studio::ui::mono()).text_xs().px_1().rounded_sm().border_1().border_color(theme.border).bg(theme.secondary).child(k.clone())));
                 }
                 body = body.child(col);
             }
-            for (g, text) in extra {
-                body = body.child(v_flex().gap_0p5().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(g.to_string())).child(div().text_sm().child(text)));
+            if matched == 0 {
+                body = body.child(div().h(px(180.0)).child(ui::empty(IconName::Search, "No matching shortcuts", "Try searching by action (save, build, orbit, cell) or key.", &theme)));
             }
-            dialog.title("Keyboard shortcuts").w(px(560.0)).child(div().id("shortcuts").max_h(px(560.0)).overflow_y_scroll().child(body))
+            dialog
+                .title("Keyboard shortcuts")
+                .w(px(580.0))
+                .child(
+                    v_flex()
+                        .gap_2p5()
+                        .child(Input::new(&filter).small().cleanable(true).prefix(Icon::new(IconName::Search).small().text_color(theme.muted_foreground)))
+                        .child(div().id("shortcuts").max_h(px(480.0)).overflow_y_scroll().child(body)),
+                )
         });
     }
 
@@ -635,7 +856,7 @@ impl Studio {
             "audio" => {
                 self.set_view(View::Audio, window, cx);
                 let path = self.audio.as_ref().and_then(|a| a.package_path(arg)).ok_or_else(|| format!("no sound file {arg} (yet)"))?;
-                self.audio_open(path, cx);
+                self.user_audio_open(path, true, cx);
             }
             "twrk-save" => self.save_workspace_to(false, Some(arg.to_string()), cx),
             "twrk-open" => self.open_workspace_file(arg.to_string(), cx),
@@ -678,11 +899,13 @@ impl Studio {
             .on_action(cx.listener(|this, _: &Left, _, cx| this.on_left(cx)))
             .on_action(cx.listener(|this, _: &Right, _, cx| this.on_right(cx)))
             .on_action(cx.listener(|this, _: &Commands, window, cx| this.run(Cmd::Commands, window, cx)))
+            .on_action(cx.listener(|this, _: &CommandList, window, cx| this.run(Cmd::CommandList, window, cx)))
             .on_action(cx.listener(|this, _: &GoToPackage, window, cx| this.run(Cmd::GoToPackage, window, cx)))
             .on_action(cx.listener(|this, _: &GoToObject, window, cx| this.run(Cmd::GoToObject, window, cx)))
             .on_action(cx.listener(|this, _: &SearchAll, window, cx| this.run(Cmd::SearchAll, window, cx)))
             .on_action(cx.listener(|this, _: &FindInView, window, cx| this.run(Cmd::FindInView, window, cx)))
             .on_action(cx.listener(|this, _: &Shortcuts, window, cx| this.run(Cmd::Shortcuts, window, cx)))
+            .on_action(cx.listener(|this, _: &QuickGuide, window, cx| this.run(Cmd::QuickGuide, window, cx)))
             .on_action(cx.listener(|this, _: &Settings, window, cx| this.run(Cmd::Settings, window, cx)))
             .on_action(cx.listener(|this, _: &Create, window, cx| this.run(Cmd::Create, window, cx)))
             .on_action(cx.listener(|this, _: &NewWindow, window, cx| this.run(Cmd::NewWindow, window, cx)))
@@ -697,6 +920,7 @@ impl Studio {
             .on_action(cx.listener(|this, _: &ShowPackages, window, cx| this.set_view(View::Packages, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAssembly, window, cx| this.set_view(View::Assembly, window, cx)))
             .on_action(cx.listener(|this, _: &ShowMod, window, cx| this.set_view(View::Mod, window, cx)))
+            .on_action(cx.listener(|this, _: &BuildAndInstall, window, cx| this.run(Cmd::BuildAndInstall, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAudio, window, cx| this.set_view(View::Audio, window, cx)))
             .on_action(cx.listener(|this, _: &ShowMap, window, cx| this.set_view(View::Map, window, cx)))
             .on_action(cx.listener(|this, _: &Rename, window, cx| this.run(Cmd::Rename, window, cx)))
@@ -705,11 +929,15 @@ impl Studio {
             .on_action(cx.listener(|this, _: &Duplicate, window, cx| this.run(Cmd::Duplicate, window, cx)))
             .on_action(cx.listener(|this, _: &Delete, window, cx| this.run(Cmd::Delete, window, cx)))
             .on_action(cx.listener(|this, _: &NewRow, window, cx| this.run(Cmd::AsmNewRow, window, cx)))
-            // Escape leaves a value being edited as it was.
+            // Escape closes the omnibox/overlay or leaves a value being edited as it was.
             .on_action(cx.listener(|this, _: &Cancel, window, cx| {
-                if this.editing.is_some() {
+                if this.palette.is_some() {
+                    this.close_palette(window, cx);
+                } else if this.editing.is_some() {
                     this.cancel_edit(cx);
                     this.focus.focus(window, cx);
+                } else if this.panes.get().overlay {
+                    this.close_overlay(cx);
                 } else {
                     cx.propagate();
                 }
@@ -729,16 +957,19 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(k("mod-shift-z"), Redo, Some("Studio")),
         KeyBinding::new(k("mod-s"), Save, Some("Studio")),
         KeyBinding::new(k("mod-k"), Commands, Some("Studio")),
-        KeyBinding::new(k("mod-shift-p"), Commands, Some("Studio")),
+        KeyBinding::new(k("mod-shift-p"), CommandList, Some("Studio")),
         KeyBinding::new(k("mod-p"), GoToPackage, Some("Studio")),
         KeyBinding::new(k("mod-shift-o"), GoToObject, Some("Studio")),
         KeyBinding::new(k("mod-shift-f"), SearchAll, Some("Studio")),
         KeyBinding::new(k("mod-f"), FindInView, Some("Studio")),
         KeyBinding::new(k("mod-o"), OpenFile, Some("Studio")),
         KeyBinding::new(k("mod-shift-s"), SaveAs, Some("Studio")),
+        KeyBinding::new(k("mod-shift-b"), BuildAndInstall, Some("Studio")),
 
         KeyBinding::new(k("mod-t"), NewTab, Some("Studio")),
         KeyBinding::new(k("mod-w"), CloseTab, Some("Studio")),
+        KeyBinding::new("alt-1", ShowHome, Some("Studio")),
+        KeyBinding::new(k("mod-shift-h"), ShowHome, Some("Studio")),
         KeyBinding::new(k("mod-1"), ShowChampions, Some("Studio")),
         KeyBinding::new(k("mod-2"), ShowPackages, Some("Studio")),
         KeyBinding::new(k("mod-3"), ShowAssembly, Some("Studio")),
@@ -799,7 +1030,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("delete", Delete, Some("Assembly")),
         KeyBinding::new("backspace", Delete, Some("Assembly")),
         KeyBinding::new(k("mod-enter"), CompileSource, Some("SourceEdit")),
-        // Escape in a field being edited (the views decide; else the field's own Escape runs).
+        // Escape in a field being edited, the palette, or a compact overlay.
+        KeyBinding::new("escape", Cancel, Some("Studio")),
         KeyBinding::new("escape", Cancel, Some("Studio > Input")),
         // In a cell's or a field's editor: Tab applies and moves on, Escape leaves it as it was.
         KeyBinding::new("tab", NextCell, Some("AsmEdit > Input")),

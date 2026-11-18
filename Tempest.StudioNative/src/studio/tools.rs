@@ -60,7 +60,7 @@ impl Studio {
         let Some(path) = self.open.as_ref().map(|t| t.path.clone()) else { return };
         let (compress, obscure) = (Rc::new(Cell::new(true)), Rc::new(Cell::new(true)));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
             let (c1, c2, o1, o2) = (compress.clone(), compress.clone(), obscure.clone(), obscure.clone());
             let (me, path) = (me.clone(), path.clone());
@@ -68,18 +68,26 @@ impl Studio {
             dialog
                 .title(format!("Rewrite {}", file_name(&path)))
                 .w(px(480.0))
+                .max_w(window.viewport_size().width * 0.94)
                 .child(
                     v_flex()
                         .gap_3()
                         .child(div().text_sm().text_color(theme.muted_foreground).child("Writes a copy of the file on disk (your changes are not included) in the chosen storage. The game loads both forms; Build mod ships packages compressed and obscured."))
-                        .child(Checkbox::new("rw-compress").label("LZO-compress in cooker-style chunks").checked(c1.get()).on_click(move |v, window, _| {
+                        .child(Checkbox::new("rw-compress").label("Compress in game-ready LZO chunks").checked(c1.get()).on_click(move |v, window, _| {
                             c2.set(*v);
                             window.refresh();
                         }))
-                        .child(Checkbox::new("rw-obscure").label("XOR-obscure the chunks (Hi-Rez flag)").checked(o1.get() && c1.get()).disabled(!c1.get()).on_click(move |v, window, _| {
-                            o2.set(*v);
-                            window.refresh();
-                        })),
+                        .child(
+                            Checkbox::new("rw-obscure")
+                                .label("XOR-obscure the chunks (Hi-Rez flag)")
+                                .checked(o1.get() && c1.get())
+                                .disabled(!c1.get())
+                                .when(!c1.get(), |c| c.tooltip("Turn on compression above first; uncompressed files have no chunks to obscure"))
+                                .on_click(move |v, window, _| {
+                                    o2.set(*v);
+                                    window.refresh();
+                                }),
+                        ),
                 )
                 .footer(dialogs::footer("Write…", false, true, move |window, cx| {
                     window.close_dialog(cx);
@@ -126,7 +134,10 @@ impl Studio {
             };
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
-                Ok(r) => this.toast(Tone::Success, format!("Sources exported: {} classes in {}", r.json["classes"], r.json["dir"].as_str().unwrap_or_default()), cx),
+                Ok(r) => {
+                    let classes = r.json["classes"].as_u64().unwrap_or(0);
+                    this.toast(Tone::Success, format!("Sources exported: {classes} class{} in {}", if classes == 1 { "" } else { "es" }, r.json["dir"].as_str().unwrap_or_default()), cx);
+                }
                 Err(e) => this.toast(Tone::Error, format!("Decompile failed: {e}"), cx),
             });
         })
@@ -151,24 +162,38 @@ impl Studio {
         .detach();
     }
 
-    /// Drop every unsaved edit of the window (packages and assembly files), after asking.
+    /// Drop every unsaved edit of the window (packages, assembly files and unapplied UI movies), after asking.
     pub(super) fn discard_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut files: Vec<String> = self.dirty.iter().cloned().collect();
         files.sort();
         let asm = self.assembly.as_ref().map(|a| a.read(cx).unsaved_files()).unwrap_or_default();
-        let n = files.len() + asm.len();
+        let movies = self.unapplied_movies(cx);
+        let n = files.len() + asm.len() + movies.len();
         if n == 0 {
             self.toast(Tone::Info, "Nothing is edited", cx);
             return;
         }
-        let mut names: Vec<String> = files.iter().chain(asm.iter()).take(12).map(|p| file_name(p)).collect();
+        let mut names: Vec<String> = movies
+            .iter()
+            .map(|(_, _, name, edits, ..)| format!("{name} ({edits} unapplied stage edit{})", if *edits == 1 { "" } else { "s" }))
+            .chain(files.iter().chain(asm.iter()).map(|p| file_name(p)))
+            .take(12)
+            .collect();
         if n > names.len() {
             names.push(format!("… and {} more", n - names.len()));
         }
+        let title = if files.is_empty() && asm.is_empty() {
+            format!("Discard unapplied edits in {n} UI movie{}?", if n == 1 { "" } else { "s" })
+        } else if movies.is_empty() {
+            format!("Discard the changes to {n} file{}?", if n == 1 { "" } else { "s" })
+        } else {
+            format!("Discard all {n} changes?")
+        };
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, format!("Discard the changes to {n} file{}?", if n == 1 { "" } else { "s" }), format!("Every edit is lost and the files are read again from the game folder: {}.", names.join(", ")), "Discard all", true, move |_, cx| {
+        dialogs::confirm(window, cx, title, format!("Every edit is lost and the files are read again from the game folder: {}.", names.join(", ")), "Discard all", true, move |_, cx| {
             let files = files.clone();
             let _ = me.update(cx, |this, cx| {
+                this.discard_unapplied_movies(None, cx);
                 for path in files {
                     this.discard_now(path, cx);
                 }
@@ -201,7 +226,7 @@ impl Studio {
         let (backend, me) = (self.backend.clone(), cx.entity().downgrade());
         let dirty: Vec<String> = self.dirty.iter().cloned().collect();
         let view = cx.new(|cx| ModFolder::new(backend, me, files, dirty, window, cx));
-        window.open_dialog(cx, move |dialog, _, _| dialog.title("Prepare a mod folder").w(px(640.0)).child(view.clone()));
+        window.open_dialog(cx, move |dialog, window, _| dialog.title("Prepare a mod folder").w(px(640.0)).max_w(window.viewport_size().width * 0.94).child(view.clone()));
     }
 
     /// The imports and names of a package, filtered (the Package info dialog's lists).
@@ -209,7 +234,7 @@ impl Studio {
         let backend = self.backend.clone();
         let title = format!("{}: {}", file_name(&path), if names { "names" } else { "imports" });
         let view = cx.new(|cx| NameList::new(backend, path, names, window, cx));
-        window.open_dialog(cx, move |dialog, _, _| dialog.title(title.clone()).w(px(720.0)).child(view.clone()));
+        window.open_dialog(cx, move |dialog, window, _| dialog.title(title.clone()).w(px(720.0)).max_w(window.viewport_size().width * 0.94).child(view.clone()));
     }
 }
 
@@ -351,7 +376,7 @@ impl ModFolder {
                         let deltas = entries.iter().filter(|e| e["mode"] == "delta").count();
                         let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
                         this.done = Some((r.json["dir"].as_str().unwrap_or_default().to_string(), entries));
-                        (Tone::Success, format!("Mod folder ready: {n} files written{}", if deltas > 0 { format!(", {deltas} as deltas") } else { String::new() }))
+                        (Tone::Success, format!("Mod folder ready: {n} file{} written{}", if n == 1 { "" } else { "s" }, if deltas > 0 { format!(", {deltas} as delta{}", if deltas == 1 { "" } else { "s" }) } else { String::new() }))
                     }
                     Err(e) => (Tone::Error, format!("Could not create the mod folder: {e}")),
                 };
@@ -371,7 +396,7 @@ impl Render for ModFolder {
         let muted = theme.muted_foreground;
         let mono = theme.mono_font_family.clone();
         let field = |label: &'static str, input: &Entity<InputState>| v_flex().flex_1().gap_1().child(div().text_xs().text_color(muted).child(label)).child(Input::new(input).small());
-        let badge = |text: &'static str, color: gpui::Hsla| div().flex_none().px_1().rounded_sm().text_xs().bg(color.opacity(0.18)).text_color(color).child(text);
+        let badge = |text: &'static str, color: gpui::Hsla| super::ui::badge(None, text, color, &theme);
         let mut list = v_flex().id("mf-files").max_h(px(160.0)).overflow_y_scroll().p_1().rounded_md().bg(theme.secondary).font_family(mono.clone()).text_xs();
         if self.files.is_empty() {
             list = list.child(div().px_1().py_0p5().text_color(muted).child("no files yet"));
@@ -391,7 +416,11 @@ impl Render for ModFolder {
                             .ghost()
                             .label(if busy { "recording…" } else { "record base" })
                             .disabled(self.recording.is_some())
-                            .tooltip("Take this file as it is now as the base, so later edits ship as a delta (only if it is the game's original)")
+                            .tooltip(if self.recording.is_some() {
+                                "Wait for the current base recording to finish"
+                            } else {
+                                "Take this file as it is now as the base, so later edits ship as a delta (only if it is the game's original)"
+                            })
                             .on_click(cx.listener(move |this, _, _, cx| this.record_base(file.clone(), cx))),
                     );
                 }
@@ -406,7 +435,7 @@ impl Render for ModFolder {
         }
         let mut body = v_flex()
             .gap_3()
-            .child(div().text_xs().text_color(muted).child("Creates manifest.toml and the chosen files, ready for `tempest mod pack` (or the Mod view), which packages and signs it. A package or .dat file saved in place from the Studio ships as a delta: only the objects or rows that changed, applied over the game's file by the launcher, so mods editing different parts of one file work together. A file without a recorded base is copied whole. Save your edited packages first."))
+            .child(div().text_xs().text_color(muted).child("Creates manifest.toml and the chosen files, ready for `tempest mod pack` (or the Mod view), which packages and signs it. A package or .dat file with a recorded base ships as a delta: only the objects or rows that changed, applied over the game's file by the launcher, so mods editing different parts of one file work together. A file without a recorded base is copied whole. In-memory changes are included automatically."))
             .child(h_flex().gap_2().child(field("Mod id", &self.id)).child(field("Display name", &self.name)))
             .child(h_flex().gap_2().child(field("Version", &self.version)).child(field("Author", &self.author)))
             .child(v_flex().gap_1().child(h_flex().child(div().flex_1().min_w_0().text_xs().text_color(muted).child("Files")).child(Button::new("mf-add").xsmall().ghost().label("Add…").on_click(cx.listener(|this, _, _, cx| this.pick_files(cx))))).child(list))
@@ -417,7 +446,10 @@ impl Render for ModFolder {
             let mut out = v_flex().p_2().rounded_md().bg(theme.secondary).font_family(mono).text_xs();
             for e in entries {
                 let what = match e["mode"].as_str() {
-                    Some("delta") => format!("{} changed objects, {}", e["ops"], kb(e["bytes"].as_u64().unwrap_or(0))),
+                    Some("delta") => {
+                        let ops = e["ops"].as_u64().unwrap_or(0);
+                        format!("{ops} changed object{}, {}", if ops == 1 { "" } else { "s" }, kb(e["bytes"].as_u64().unwrap_or(0)))
+                    }
                     Some("copy") => format!("whole file, {}", kb(e["bytes"].as_u64().unwrap_or(0))),
                     _ => "unchanged, skipped".to_string(),
                 };
@@ -427,7 +459,7 @@ impl Render for ModFolder {
                 }
             }
             body = body
-                .child(h_flex().gap_2().p_2().rounded_md().bg(theme.success.opacity(0.15)).text_xs().child(div().flex_1().min_w_0().child(format!("Ready in {dir}. Package and sign it in the Mod view, or with `just mod-pack \"{dir}\" out.tempest`."))).child(Button::new("mf-open").xsmall().label("Open").on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&open)))))
+                .child(h_flex().gap_2().p_2().rounded_md().bg(theme.success.opacity(0.15)).text_xs().child(div().flex_1().min_w_0().child(format!("Ready in {dir}. Package and sign it in the Mod view, or with `tempest mod pack \"{dir}\" -o out.tempest`."))).child(Button::new("mf-open").xsmall().label("Open").on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&open)))))
                 .child(out);
         }
         let ready = self.ready(cx);
@@ -498,7 +530,8 @@ impl NameList {
             .map(|k| {
                 let (i, text, detail) = &self.rows[self.shown[k]];
                 h_flex()
-                    .h(px(22.0))
+                    .min_h(px(22.0))
+                    .py_0p5()
                     .gap_3()
                     .px_2()
                     .text_xs()

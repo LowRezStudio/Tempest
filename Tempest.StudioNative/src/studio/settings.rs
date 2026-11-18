@@ -6,7 +6,7 @@
 use gpui::{div, prelude::*, px, ClipboardItem, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::switch::Switch;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable, WindowExt};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Selectable, Sizable, WindowExt};
 use gpui_kit_assets::IconName;
 
 use super::{prefs, Place, Studio, Tone, View};
@@ -45,6 +45,8 @@ impl Studio {
         let Some(place) = self.history.get(self.history_at).cloned() else { return };
         let f = self.prefs.folder_mut(&dir);
         match place {
+            Place::Home => f.view = Some("home".into()),
+            Place::Champions(_) => f.view = Some("champions".into()),
             Place::Package { package, export, .. } => {
                 f.view = Some("packages".into());
                 if f.recent.first() != Some(&package) {
@@ -56,6 +58,7 @@ impl Studio {
                 f.export = export;
             }
             Place::Assembly { .. } => f.view = Some("assembly".into()),
+            Place::Audio(_) => f.view = Some("audio".into()),
             Place::Mod => f.view = Some("mod".into()),
             Place::Map { .. } => f.view = Some("map".into()),
         }
@@ -112,7 +115,7 @@ impl Studio {
             let hint = |text: &'static str| div().text_xs().text_color(theme.muted_foreground).child(text);
             let theme_button = |id: &'static str, label: &'static str, icon: IconName, value: &'static str| {
                 let me = me.clone();
-                Button::new(id).small().icon(Icon::new(icon)).label(label).when(p.theme == value, |b| b.primary()).on_click(move |_, window, cx| {
+                Button::new(id).small().ghost().selected(p.theme == value).icon(Icon::new(icon)).label(label).on_click(move |_, window, cx| {
                     prefs::theme_mode(value, Some(window), cx);
                     let _ = me.update(cx, |this, _| {
                         this.prefs.theme = value.into();

@@ -7,7 +7,8 @@
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, EventEmitter, Subscription, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
+use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
 use crate::backend::Backend;
@@ -178,10 +179,13 @@ impl Render for PropEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let Some(ins) = &self.ins else {
-            let text = self.error.clone().unwrap_or_else(|| if self.path.is_empty() { String::new() } else { "Reading…".into() });
-            return div().p_2().text_xs().text_color(theme.muted_foreground).child(text).into_any_element();
+            let has_err = self.error.is_some();
+            let text = self.error.as_deref().map(super::ui::explain_error).unwrap_or_else(|| if self.path.is_empty() { String::new() } else { "Reading…".into() });
+            return div().p_2().text_xs().whitespace_normal().text_color(if has_err { theme.danger } else { theme.muted_foreground }).child(text).into_any_element();
         };
         // Structs and arrays fold: nested ones and long arrays start folded.
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         let shown = crate::model::unfolded(&ins.rows, |r| self.open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
         let rows: Vec<AnyElement> = shown
             .into_iter()
@@ -194,55 +198,106 @@ impl Render for PropEditor {
                     match r.edit.clone() {
                         Edit::None => cell.into_any_element(),
                         Edit::Bool(b) => {
-                            let path = r.path.clone();
-                            cell.cursor_pointer().hover(|s| s.bg(theme.list_hover)).on_click(cx.listener(move |this, _, _, cx| this.set(path.clone(), if b { "False" } else { "True" }.into(), cx))).into_any_element()
+                            let (path, path_k) = (r.path.clone(), r.path.clone());
+                            cell.focusable()
+                                .tab_index(0)
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(move |s| s.border_color(ring))
+                                .cursor_pointer()
+                                .hover(move |s| s.bg(hover_bg))
+                                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        this.set(path_k.clone(), if b { "False" } else { "True" }.into(), cx);
+                                    }
+                                }))
+                                .on_click(cx.listener(move |this, _, _, cx| this.set(path.clone(), if b { "False" } else { "True" }.into(), cx)))
+                                .into_any_element()
                         }
                         Edit::Text(draft) => {
-                            let path = r.path.clone();
-                            cell.cursor_text().hover(|s| s.bg(theme.list_hover)).on_click(cx.listener(move |this, _, window, cx| this.start(path.clone(), draft.clone(), window, cx))).into_any_element()
+                            let (path, path_k) = (r.path.clone(), r.path.clone());
+                            let draft_k = draft.clone();
+                            cell.focusable()
+                                .tab_index(0)
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(move |s| s.border_color(ring))
+                                .cursor_text()
+                                .hover(move |s| s.bg(hover_bg))
+                                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        this.start(path_k.clone(), draft_k.clone(), window, cx);
+                                    }
+                                }))
+                                .on_click(cx.listener(move |this, _, window, cx| this.start(path.clone(), draft.clone(), window, cx)))
+                                .into_any_element()
                         }
                     }
                 };
-                let group = format!("pvrow{k}");
-                let mut ops = h_flex().gap_0p5().invisible().group_hover(group.clone(), |s| s.visible());
+                let mut ops = h_flex().gap_0p5();
                 match &r.list {
                     ListRole::Array => {
                         let p = r.path.clone();
-                        ops = ops.child(Button::new(("pv-add", k)).xsmall().ghost().label("+").tooltip("Add an element").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "add", None, cx))));
+                        ops = ops.child(Button::new(("pv-add", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Plus)).tooltip("Add an element").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "add", None, cx))));
                     }
                     ListRole::Element { array, at } => {
                         let (a1, a2, at) = (array.clone(), array.clone(), *at);
                         ops = ops
-                            .child(Button::new(("pv-dup", k)).xsmall().ghost().label("⧉").tooltip("Duplicate the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a1.clone(), "duplicate", Some(at), cx))))
-                            .child(Button::new(("pv-rm", k)).xsmall().ghost().label("−").tooltip("Remove the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a2.clone(), "remove", Some(at), cx))));
+                            .child(Button::new(("pv-dup", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Copy)).tooltip("Duplicate the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a1.clone(), "duplicate", Some(at), cx))))
+                            .child(Button::new(("pv-rm", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Trash)).tooltip("Remove the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a2.clone(), "remove", Some(at), cx))));
                     }
                     ListRole::None => {}
                 }
                 if r.resettable {
                     let p = r.path.clone();
-                    ops = ops.child(Button::new(("pv-reset", k)).xsmall().ghost().label("↺").tooltip("Back to the default (stop storing it)").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "removeProperty", None, cx))));
+                    ops = ops.child(Button::new(("pv-reset", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::RotateCcw)).tooltip("Back to the default (stop storing it)").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "removeProperty", None, cx))));
                 }
                 h_flex()
-                    .group(group)
+                    .min_h(px(20.0))
+                    .py_0p5()
                     .pl(px(r.depth as f32 * 12.0))
                     .gap_1()
                     .text_xs()
                     .child({
                         let foldable = r.children > 0;
                         let open = self.open.get(&r.path).copied().unwrap_or_else(|| r.starts_open());
-                        let path = r.path.clone();
+                        let (path, path_k) = (r.path.clone(), r.path.clone());
+                        let tip = if r.kind.is_empty() { r.path.clone() } else { format!("{} ({})", r.path, r.kind) };
                         h_flex()
                             .id(("pv-name", k))
-                            .w(px(150.0))
+                            .w(gpui::rems(9.5))
+                            .min_w(px(140.0))
+                            .max_w(px(220.0))
                             .flex_none()
                             .gap_0p5()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
                             .when(foldable, |d| {
-                                d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
-                                    this.open.insert(path.clone(), !open);
-                                    cx.notify();
-                                }))
+                                d.focusable()
+                                    .tab_index(0)
+                                    .focus_visible(move |s| s.border_color(ring))
+                                    .cursor_pointer()
+                                    .hover(move |s| s.bg(hover_bg))
+                                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                            window.prevent_default();
+                                            cx.stop_propagation();
+                                            this.open.insert(path_k.clone(), !open);
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open.insert(path.clone(), !open);
+                                        cx.notify();
+                                    }))
                             })
-                            .child(div().w(px(10.0)).flex_none().text_color(theme.muted_foreground).when(foldable, |d| d.child(if open { "▾" } else { "▸" })))
+                            .child(div().w(px(12.0)).flex_none().when(foldable, |d| d.child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).xsmall().text_color(theme.muted_foreground))))
                             .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
                     })
                     .child(value)
@@ -262,17 +317,32 @@ impl Render for PropEditor {
                     .take(200)
                     .enumerate()
                     .map(|(k, (name, ty))| {
-                        let n = name.clone();
+                        let (n, n_k) = (name.clone(), name.clone());
                         h_flex()
                             .id(("pv-missing", k))
+                            .focusable()
+                            .tab_index(0)
+                            .min_h(px(20.0))
+                            .py_0p5()
                             .px_1()
                             .gap_2()
                             .text_xs()
                             .rounded_sm()
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus_visible(move |s| s.border_color(ring))
                             .cursor_pointer()
-                            .hover(|s| s.bg(theme.list_hover))
+                            .hover(move |s| s.bg(hover_bg))
                             .child(div().flex_1().min_w_0().child(name.clone()))
                             .child(div().text_color(theme.muted_foreground).child(ty.clone()))
+                            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.adding = None;
+                                    this.edit("object.addProperty", json!({ "name": n_k.clone() }), format!("Could not add {n_k}"), cx);
+                                }
+                            }))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.adding = None;
                                 this.edit("object.addProperty", json!({ "name": n.clone() }), format!("Could not add {n}"), cx);
@@ -280,7 +350,7 @@ impl Render for PropEditor {
                             .into_any_element()
                     })
                     .collect();
-                body = body.child(v_flex().gap_0p5().child(Input::new(&self.add_filter).xsmall()).child(if list.is_empty() { div().text_xs().text_color(theme.muted_foreground).child("Reading…").into_any_element() } else { v_flex().children(items).into_any_element() }));
+                body = body.child(v_flex().gap_0p5().child(Input::new(&self.add_filter).xsmall().cleanable(true)).child(if list.is_empty() { div().text_xs().text_color(theme.muted_foreground).child("Reading…").into_any_element() } else { v_flex().children(items).into_any_element() }));
             }
         }
         // Escape leaves a value being edited as it was.

@@ -1,5 +1,5 @@
 //! A level's Kismet as a node graph (`kismet.sequences`, `kismet.graph`).
-//! The cooker drops the node positions but keeps every connector's on the
+//! Packaged maps drop the node positions while keeping every connector's on the
 //! editor canvas (`DrawY` of inputs and outputs, `DrawX` of variable and
 //! event connectors), so `layout` rebuilds them from those, then places the
 //! rest next to what they link to; positions the user dragged win (kept in
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use gpui::{canvas, div, point, prelude::*, px, AnyElement, Bounds, Context, Entity, MouseButton, PathBuilder, Pixels, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_component::menu::{DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
@@ -234,11 +234,11 @@ pub struct Kismet {
     drag: Option<KDrag>,
     pub palette: Option<Vec<J>>,
     /// The palette: where it shows (view points) and where the node goes (canvas).
-    adding: Option<(f32, f32, f32, f32)>,
+    pub(super) adding: Option<(f32, f32, f32, f32)>,
     palette_filter: Option<Entity<InputState>>,
     pub node_props: Option<Entity<PropEditor>>,
     bounds: std::rc::Rc<std::cell::Cell<Bounds<Pixels>>>,
-    focus: Option<gpui::FocusHandle>,
+    pub(super) focus: Option<gpui::FocusHandle>,
 }
 
 impl Default for Kismet {
@@ -454,6 +454,7 @@ impl MapEditor {
         let Some(n) = self.kismet.selected.and_then(|e| self.kismet.node(e)) else { return };
         let e = n["export"].as_u64().unwrap_or(0) as usize;
         self.confirm = Some(Confirm { title: format!("Delete {}?", title_of(n)), message: "The node and every link to it are removed from the sequence (⌘Z brings it back).".into(), action: ConfirmAction::RemoveNode(e) });
+        self.focus_modal = true;
         cx.notify();
     }
 
@@ -641,13 +642,86 @@ impl MapEditor {
         cx.notify();
     }
 
+    fn step_kismet_node(&mut self, delta: isize, wrap: bool, cx: &mut Context<Self>) -> bool {
+        let boxes = self.kismet.boxes();
+        let ids = ordered_nodes(self.kismet.nodes(), &boxes);
+        if ids.is_empty() {
+            return false;
+        }
+        let next = match self.kismet.selected.and_then(|s| ids.iter().position(|&id| id == s)) {
+            Some(pos) if wrap => (pos as isize + delta).rem_euclid(ids.len() as isize) as usize,
+            Some(pos) => {
+                let idx = pos as isize + delta;
+                if idx < 0 || idx >= ids.len() as isize {
+                    return false;
+                }
+                idx as usize
+            }
+            None if delta >= 0 => 0,
+            None if wrap => ids.len() - 1,
+            None => return false,
+        };
+        let target = ids[next];
+        self.kismet.selected_link = None;
+        if let Some(b) = boxes.get(&target) {
+            let bounds = self.kismet.bounds.get();
+            let vp = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            self.kismet.pan = pan_to_keep_visible(self.kismet.pan, self.kismet.zoom, vp, b);
+        }
+        self.select_node(Some(target), cx);
+        true
+    }
+
     fn kismet_key(&mut self, e: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = e.keystroke.key.as_str();
-        if e.keystroke.modifiers.platform || e.keystroke.modifiers.control {
+        let m = &e.keystroke.modifiers;
+        if m.platform || m.control {
             return;
         }
+        if self.kismet.adding.is_some() {
+            if k == "escape" {
+                self.kismet.adding = None;
+                if let Some(f) = &self.kismet.focus {
+                    f.focus(window, cx);
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }
+            return;
+        }
+        let graph_focused = self.kismet.focus.as_ref().is_some_and(|f| f.is_focused(window));
         match k {
-            "escape" if self.kismet.adding.is_some() => self.kismet.adding = None,
+            "[" if !m.alt => {
+                if !self.step_kismet_node(-1, true, cx) {
+                    return;
+                }
+                window.prevent_default();
+            }
+            "]" if !m.alt => {
+                if !self.step_kismet_node(1, true, cx) {
+                    return;
+                }
+                window.prevent_default();
+            }
+            "tab" if graph_focused && !m.alt && !m.function => {
+                if !self.step_kismet_node(if m.shift { -1 } else { 1 }, false, cx) {
+                    return;
+                }
+                window.prevent_default();
+            }
+            "enter" if graph_focused && !m.modified() => {
+                let Some(n) = self.kismet.selected else { return };
+                let node = self.kismet.node(n).cloned().unwrap_or_default();
+                let level = self.kismet.level.clone().unwrap_or_default();
+                if node["kind"] == "sequence" {
+                    self.open_kismet(level, Some(n), true, cx);
+                } else if node["class"].as_str().is_some_and(|c| c.eq_ignore_ascii_case("seqact_interp")) {
+                    self.open_matinee(level, n, true, cx);
+                } else {
+                    return;
+                }
+                window.prevent_default();
+            }
             "delete" | "backspace" if self.kismet.selected_link.is_some() => {
                 let boxes = self.kismet.boxes();
                 if let Some(lk) = self.kismet.links(&boxes).into_iter().find(|l| Some(&l.id) == self.kismet.selected_link.as_ref()) {
@@ -656,8 +730,8 @@ impl MapEditor {
                 self.kismet.selected_link = None;
             }
             "delete" | "backspace" if self.kismet.selected.is_some() => self.ask_remove_node(cx),
-            "a" => self.open_node_palette(None, window, cx),
-            "f" => self.fit_graph(),
+            "a" if !m.alt => self.open_node_palette(None, window, cx),
+            "f" if !m.alt => self.fit_graph(),
             _ => return,
         }
         cx.stop_propagation();
@@ -719,7 +793,7 @@ impl MapEditor {
         let me = cx.entity().downgrade();
         let levels: Vec<(String, String)> = self.levels.iter().map(|l| (l.path.clone(), l.name.clone())).collect();
         let current = self.kismet.level.as_ref().and_then(|p| self.level(p)).map(|l| l.name.clone()).unwrap_or_default();
-        let level_menu = Button::new("kis-level").xsmall().ml_2().label(current).dropdown_menu(move |menu, _, _| {
+        let level_menu = Button::new("kis-level").xsmall().ml_2().label(current).dropdown_caret(true).dropdown_menu(move |menu, _, _| {
             let mut menu = menu;
             for (p, n) in &levels {
                 let (me, p) = (me.clone(), p.clone());
@@ -736,14 +810,39 @@ impl MapEditor {
             trail.insert(0, (s["export"].as_u64().unwrap_or(0) as usize, s["title"].as_str().filter(|t| !t.is_empty()).or(s["name"].as_str()).unwrap_or("").to_string()));
             cur = s["parent"].as_u64().and_then(|p| self.kismet.sequences.iter().find(|x| x["export"].as_u64() == Some(p)));
         }
-        let mut crumbs = h_flex().ml_2().gap_1().min_w_0();
+        let ring = theme.ring;
+        let mut crumbs = h_flex().ml_2().items_center().gap_1().min_w_0();
         for (k, (e, name)) in trail.into_iter().enumerate() {
             if k > 0 {
-                crumbs = crumbs.child(div().text_color(theme.muted_foreground).child("›"));
+                crumbs = crumbs.child(Icon::new(IconName::ChevronRight).xsmall().text_color(theme.muted_foreground));
             }
             let level = self.kismet.level.clone().unwrap_or_default();
-            crumbs = crumbs.child(div().id(("kis-crumb", k)).font_family(crate::studio::ui::mono()).cursor_pointer().hover(|s| s.underline()).child(name).on_click(cx.listener(move |this, _, _, cx| this.open_kismet(level.clone(), Some(e), true, cx))));
+            let level_k = level.clone();
+            crumbs = crumbs.child(
+                div()
+                    .id(("kis-crumb", k))
+                    .focusable()
+                    .tab_index(0)
+                    .px_0p5()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(ring))
+                    .font_family(crate::studio::ui::mono())
+                    .cursor_pointer()
+                    .hover(|s| s.underline())
+                    .child(name)
+                    .on_key_down(cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
+                        if (ev.keystroke.key == "enter" || ev.keystroke.key == "space") && !ev.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.open_kismet(level_k.clone(), Some(e), true, cx);
+                        }
+                    }))
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_kismet(level.clone(), Some(e), true, cx))),
+            );
         }
+        let node_count = self.kismet.nodes().len();
         h_flex()
             .gap_1()
             .flex_1()
@@ -751,7 +850,7 @@ impl MapEditor {
             .child(crumbs)
             .child(div().flex_1())
             .child(Button::new("kis-add").xsmall().ghost().icon(Icon::new(IconName::Plus)).label("Node").tooltip("Add a node (A, or right-click the graph)").on_click(cx.listener(|this, _, window, cx| this.open_node_palette(None, window, cx))))
-            .child(div().text_color(theme.muted_foreground).child(format!("{} nodes", self.kismet.nodes().len())))
+            .child(div().text_color(theme.muted_foreground).child(if node_count == 1 { "1 node".to_string() } else { format!("{node_count} nodes") }))
             .into_any_element()
     }
 
@@ -853,7 +952,7 @@ impl MapEditor {
                         .text_size(px(fs * 0.9))
                         .child(crate::driver::probe(format!("kis-node-{e}")))
                         .child(div().px_1().w_full().text_center().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(n["value"].as_str().unwrap_or("?").to_string()))
-                        .child(div().opacity(0.5).child(n["class"].as_str().unwrap_or("").trim_start_matches("SeqVar_").trim_start_matches("seqvar_").to_string()))
+                        .child(div().text_color(theme.muted_foreground).child(n["class"].as_str().unwrap_or("").trim_start_matches("SeqVar_").trim_start_matches("seqvar_").to_string()))
                         .into_any_element(),
                 );
                 continue;
@@ -886,15 +985,15 @@ impl MapEditor {
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .overflow_hidden()
                         .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(title_of(n)))
-                        .when(n["kind"] == "sequence", |d| d.child(div().opacity(0.5).child(format!("{} ›", n["subObjects"])))),
+                        .when(n["kind"] == "sequence", |d| d.child(h_flex().items_center().gap_0p5().text_color(theme.muted_foreground).child(n["subObjects"].to_string()).child(Icon::new(IconName::ChevronRight).xsmall().text_color(theme.muted_foreground)))),
                 );
             for (k, c) in arr(&n["inputs"]).iter().enumerate() {
                 let cy = (TITLE + k as f32 * ROW + ROW / 2.0) * z;
-                node = node.child(h_flex().absolute().left(px(-5.0 * z)).top(px(cy - 7.0 * z)).gap_1().when(c["hidden"] == true, |d| d.opacity(0.4)).child(div().size(px(10.0 * z)).rounded_sm().bg(theme.foreground.opacity(0.7))).child(div().opacity(0.8).child(c["desc"].as_str().unwrap_or("").to_string())));
+                node = node.child(h_flex().absolute().left(px(-5.0 * z)).top(px(cy - 7.0 * z)).gap_1().child(div().size(px(10.0 * z)).rounded_sm().bg(theme.foreground.opacity(if c["hidden"] == true { 0.35 } else { 0.7 }))).child(div().text_color(theme.muted_foreground).child(c["desc"].as_str().unwrap_or("").to_string())));
             }
             for (k, c) in arr(&n["outputs"]).iter().enumerate() {
                 let cy = (TITLE + k as f32 * ROW + ROW / 2.0) * z;
-                node = node.child(h_flex().absolute().right(px(-5.0 * z)).top(px(cy - 7.0 * z)).gap_1().when(c["hidden"] == true, |d| d.opacity(0.4)).child(div().opacity(0.8).child(c["desc"].as_str().unwrap_or("").to_string())).child(div().size(px(10.0 * z)).rounded_sm().bg(theme.foreground.opacity(0.7))));
+                node = node.child(h_flex().absolute().right(px(-5.0 * z)).top(px(cy - 7.0 * z)).gap_1().child(div().text_color(theme.muted_foreground).child(c["desc"].as_str().unwrap_or("").to_string())).child(div().size(px(10.0 * z)).rounded_sm().bg(theme.foreground.opacity(if c["hidden"] == true { 0.35 } else { 0.7 }))));
             }
             let count = arr(&n["variables"]).len() + arr(&n["events"]).len();
             for (k, v) in arr(&n["variables"]).iter().enumerate() {
@@ -906,9 +1005,8 @@ impl MapEditor {
                         .w(px(64.0 * z))
                         .bottom(px(-5.0 * z))
                         .items_center()
-                        .when(v["hidden"] == true, |d| d.opacity(0.4))
-                        .child(div().max_w(px(64.0 * z)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(px(fs * 0.9)).opacity(0.8).child(v["desc"].as_str().unwrap_or("").to_string()))
-                        .child(div().size(px(10.0 * z)).rounded_full().bg(if v["writeable"] == true { theme.warning } else { theme.danger.opacity(0.8) })),
+                        .child(div().max_w(px(64.0 * z)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(px(fs * 0.9)).text_color(theme.muted_foreground).child(v["desc"].as_str().unwrap_or("").to_string()))
+                        .child(div().size(px(10.0 * z)).rounded_full().bg(if v["writeable"] == true { theme.warning } else { theme.danger.opacity(if v["hidden"] == true { 0.4 } else { 0.8 }) })),
                 );
             }
             nodes.push(node.into_any_element());
@@ -918,6 +1016,8 @@ impl MapEditor {
             let q = self.kismet.palette_filter.as_ref().map(|f| f.read(cx).value().to_string()).unwrap_or_default();
             let shown = self.shown_palette(&q);
             let who = self.selected.as_ref().filter(|s| Some(&s.0) == self.kismet.level.as_ref()).and_then(|_| self.actor()).map(|a| a.name.clone());
+            let ring = theme.ring;
+            let hover_bg = theme.list_hover;
             let rows: Vec<AnyElement> = shown
                 .iter()
                 .take(200)
@@ -929,18 +1029,32 @@ impl MapEditor {
                         "variable" => theme.danger.opacity(0.5),
                         _ => theme.info,
                     };
-                    let item = c.clone();
+                    let (item, item_key) = (c.clone(), c.clone());
                     h_flex()
                         .id(("kis-pal", k))
                         .px_2()
+                        .py_0p5()
                         .gap_2()
+                        .rounded_sm()
                         .text_xs()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme.list_hover))
+                        .focusable()
+                        .tab_index(0)
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
+                        .hover(move |s| s.bg(hover_bg))
                         .child(div().size(px(8.0)).rounded_full().bg(color))
                         .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(c["class"].as_str().unwrap_or("").to_string()))
                         .child(div().text_color(theme.muted_foreground).child(c["count"].to_string()))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.pick_node(item_key.clone(), cx);
+                            }
+                        }))
                         .on_click(cx.listener(move |this, _, _, cx| this.pick_node(item.clone(), cx)))
                         .into_any_element()
                 })
@@ -955,17 +1069,17 @@ impl MapEditor {
                 .rounded_md()
                 .border_1()
                 .border_color(theme.border)
-                .bg(theme.background)
-                .shadow_lg()
+                .bg(theme.popover)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_scroll(|_, _, cx| cx.stop_propagation())
-                .children(self.kismet.palette_filter.as_ref().map(|f| div().p_1p5().child(Input::new(f).xsmall())))
+                .children(self.kismet.palette_filter.as_ref().map(|f| div().p_1p5().child(Input::new(f).xsmall().cleanable(true))))
                 .children(who.map(|w| div().px_2().pb_1().text_xs().text_color(theme.muted_foreground).child(format!("Events fire from, and object variables hold, {w} (selected in the scene)."))))
                 .child(div().id("kis-pal-list").flex_1().min_h_0().overflow_y_scroll().pb_1().child(if self.kismet.palette.is_none() { div().p_2().text_xs().text_color(theme.muted_foreground).child("Listing the nodes the game uses…").into_any_element() } else { v_flex().children(rows).into_any_element() }))
                 .into_any_element()
         });
         let focus = self.kismet.focus.clone().expect("made above");
         let empty = self.kismet.nodes().is_empty().then(|| div().absolute().inset_0().flex().items_center().justify_center().text_sm().text_color(theme.muted_foreground).child(if self.kismet.graph.is_some() { "This sequence is empty." } else { "No sequence." }));
+        let canvas_ring = theme.ring;
         let _ = window;
         v_flex()
             .flex_1()
@@ -975,12 +1089,31 @@ impl MapEditor {
                 div()
                     .id("kismet-graph")
                     .track_focus(&focus)
+                    .tab_index(0)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(canvas_ring))
                     .relative()
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
                     .bg(theme.secondary.opacity(0.4))
                     .child(crate::driver::probe("kismet-graph"))
+                    .capture_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                        let m = &e.keystroke.modifiers;
+                        if e.keystroke.key == "tab"
+                            && !m.platform
+                            && !m.control
+                            && !m.alt
+                            && !m.function
+                            && this.kismet.adding.is_none()
+                            && this.kismet.focus.as_ref().is_some_and(|f| f.is_focused(window))
+                            && this.step_kismet_node(if m.shift { -1 } else { 1 }, false, cx)
+                        {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                        }
+                    }))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, e, window, cx| this.kismet_down(e, window, cx)))
                     .on_mouse_down(MouseButton::Right, cx.listener(|this, e, window, cx| this.kismet_down(e, window, cx)))
                     .on_mouse_down(MouseButton::Middle, cx.listener(|this, e, window, cx| this.kismet_down(e, window, cx)))
@@ -991,7 +1124,21 @@ impl MapEditor {
                     .on_key_down(cx.listener(|this, e, window, cx| this.kismet_key(e, window, cx)))
                     .child(painted)
                     .children(nodes)
-                    .child(div().absolute().right(px(8.0)).bottom(px(8.0)).text_xs().font_family(crate::studio::ui::mono()).text_right().text_color(theme.muted_foreground).child("drag background pan · wheel zoom · drag a node to move it · drag a connector to link").child("Alt+click or Delete a link to break it · double-click a sequence to enter · F fit").child("right-click or A to add a node · Delete removes the selected node"))
+                    .child(
+                        h_flex()
+                            .absolute()
+                            .right(px(8.0))
+                            .bottom(px(8.0))
+                            .px_2p5()
+                            .py_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.popover)
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("[ / ] select node · A / Right-click add · Drag / Link pin… wire · Alt+click break · F fit"),
+                    )
                     .children(palette)
                     .children(empty),
             )
@@ -1018,10 +1165,31 @@ impl MapEditor {
             self.kismet.node_props = Some(p);
         }
         let Some(n) = self.kismet.selected.and_then(|e| self.kismet.node(e)).cloned() else {
-            return div().w_full().p_4().text_xs().text_color(theme.muted_foreground).child("Select a node to see and edit its properties. The node positions are rebuilt from the connectors the cooker kept; moving a node only changes this view.").into_any_element();
+            return div().w_full().p_4().text_xs().text_color(theme.muted_foreground).child("Select a node to see and edit its properties. Node positions are rebuilt from the links saved when the map was packaged; moving a node only changes this view.").into_any_element();
         };
+        let from = n["export"].as_u64().unwrap_or(0) as usize;
+        let can_link = (!arr(&n["outputs"]).is_empty() || !arr(&n["variables"]).is_empty())
+            && self.kismet.nodes().iter().any(|m| m["kind"] != "frame" && m["export"].as_u64() != Some(from as u64));
+        let link_btn = can_link.then(|| {
+            let me = cx.entity();
+            div()
+                .relative()
+                .flex_none()
+                .child(
+                    Button::new("kis-link-pin")
+                        .xsmall()
+                        .ghost()
+                        .icon(Icon::new(IconName::Link2))
+                        .label("Link pin…")
+                        .dropdown_caret(true)
+                        .tooltip("Wire or unwire an output or variable pin to another node in this sequence")
+                        .dropdown_menu(move |menu, _, cx| me.update(cx, |this, cx| this.kismet_link_menu(from, menu, cx))),
+                )
+                .child(crate::driver::probe("kis-link-pin"))
+        });
         let origin = n["originator"]["export"].as_u64().map(|e| (e as usize, n["originator"]["path"].as_str().unwrap_or("").rsplit('.').next().unwrap_or("").to_string()));
         let props = self.kismet.node_props.clone().expect("made above");
+        let ring = theme.ring;
         v_flex()
             .size_full()
             .text_xs()
@@ -1031,26 +1199,184 @@ impl MapEditor {
                     .gap_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(div().font_family(crate::studio::ui::mono()).text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title_of(&n)))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title_of(&n)))
+                            .children(link_btn),
+                    )
                     .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family(crate::studio::ui::mono()).child(n["class"].as_str().unwrap_or("").to_string())).child(n["kind"].as_str().unwrap_or("").to_string()).child(format!("export {}", n["export"])))
                     .children(n["comment"].as_str().filter(|c| !c.is_empty()).map(|c| div().text_color(theme.muted_foreground).child(c.to_string())))
                     .children(origin.map(|(e, name)| {
-                        div().id("kis-origin").cursor_pointer().text_color(theme.link).hover(|s| s.underline()).child(format!("Fired by {name}: show it")).on_click(cx.listener(move |this, _, _, cx| {
-                            this.mode = Mode::Scene;
-                            let level = this.kismet.level.clone().unwrap_or_default();
-                            this.select(Some((level, e)), true, cx);
-                            this.frame_selection();
-                        }))
+                        div()
+                            .id("kis-origin")
+                            .focusable()
+                            .tab_index(0)
+                            .px_0p5()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus_visible(move |s| s.border_color(ring))
+                            .cursor_pointer()
+                            .text_color(theme.link)
+                            .hover(|s| s.underline())
+                            .child(format!("Fired by {name}: show it"))
+                            .on_key_down(cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
+                                if (ev.keystroke.key == "enter" || ev.keystroke.key == "space") && !ev.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.mode = Mode::Scene;
+                                    let level = this.kismet.level.clone().unwrap_or_default();
+                                    this.select(Some((level, e)), true, cx);
+                                    this.frame_selection();
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.mode = Mode::Scene;
+                                let level = this.kismet.level.clone().unwrap_or_default();
+                                this.select(Some((level, e)), true, cx);
+                                this.frame_selection();
+                            }))
                     })),
             )
             .child(div().id("kis-props").flex_1().min_h_0().overflow_y_scroll().p_2().child(props))
             .into_any_element()
     }
+
+    fn kismet_link_menu(&self, from: usize, menu: PopupMenu, cx: &mut Context<Self>) -> PopupMenu {
+        let Some(n) = self.kismet.node(from) else { return menu };
+        let me = cx.entity().downgrade();
+        let mut exec_items: Vec<(bool, String, J)> = Vec::new();
+        for (ok, out_pin) in arr(&n["outputs"]).iter().enumerate() {
+            let out_desc = out_pin["desc"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| format!("Out {ok}"));
+            let existing = arr(&out_pin["links"]);
+            for m in self.kismet.nodes() {
+                if m["kind"] == "frame" {
+                    continue;
+                }
+                let to = m["export"].as_u64().unwrap_or(0) as usize;
+                if to == from {
+                    continue;
+                }
+                for (ik, in_pin) in arr(&m["inputs"]).iter().enumerate() {
+                    let in_desc = in_pin["desc"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| format!("In {ik}"));
+                    let already = existing.iter().any(|l| l["op"].as_u64() == Some(to as u64) && l["input"].as_u64().unwrap_or(0) == ik as u64);
+                    let mut payload = json!({ "from": from, "output": ok, "to": to, "input": ik });
+                    if already {
+                        payload["remove"] = json!(true);
+                    }
+                    exec_items.push((already, format!("{out_desc} → {} (#{to}) · {in_desc}", title_of(m)), payload));
+                }
+            }
+        }
+        exec_items.sort_by_key(|(already, _, _)| !*already);
+
+        let mut var_items: Vec<(bool, String, J)> = Vec::new();
+        for (vk, var_pin) in arr(&n["variables"]).iter().enumerate() {
+            let var_desc = var_pin["desc"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| format!("Var {vk}"));
+            let linked = arr(&var_pin["linked"]);
+            for m in self.kismet.nodes() {
+                if m["kind"] != "variable" {
+                    continue;
+                }
+                let to = m["export"].as_u64().unwrap_or(0) as usize;
+                if to == from {
+                    continue;
+                }
+                let already = linked.iter().any(|id| id.as_u64() == Some(to as u64));
+                let val = m["value"].as_str().filter(|s| !s.is_empty()).unwrap_or("?");
+                let cls = m["class"].as_str().unwrap_or("").trim_start_matches("SeqVar_").trim_start_matches("seqvar_");
+                let mut payload = json!({ "from": from, "variable": vk, "to": to });
+                if already {
+                    payload["remove"] = json!(true);
+                }
+                var_items.push((already, format!("{var_desc} → {val} ({cls} #{to})"), payload));
+            }
+        }
+        var_items.sort_by_key(|(already, _, _)| !*already);
+
+        let mut menu = menu.scrollable(true).max_h(px(340.0));
+        if exec_items.is_empty() && var_items.is_empty() {
+            return menu.item(PopupMenuItem::new("No compatible target pins in this sequence").disabled(true));
+        }
+        let has_exec = !exec_items.is_empty();
+        for (already, label, payload) in exec_items.into_iter().take(180) {
+            let me = me.clone();
+            menu = menu.item(PopupMenuItem::new(label).checked(already).on_click(move |_, _, cx| {
+                let _ = me.update(cx, |this, cx| this.link(payload.clone(), cx));
+            }));
+        }
+        if has_exec && !var_items.is_empty() {
+            menu = menu.separator();
+        }
+        for (already, label, payload) in var_items.into_iter().take(120) {
+            let me = me.clone();
+            menu = menu.item(PopupMenuItem::new(label).checked(already).on_click(move |_, _, cx| {
+                let _ = me.update(cx, |this, cx| this.link(payload.clone(), cx));
+            }));
+        }
+        menu
+    }
+}
+
+fn ordered_nodes(nodes: &[J], boxes: &HashMap<usize, Box2>) -> Vec<usize> {
+    let mut ids: Vec<usize> = nodes
+        .iter()
+        .filter(|n| n["kind"] != "frame")
+        .filter_map(|n| n["export"].as_u64().map(|e| e as usize))
+        .filter(|e| boxes.contains_key(e))
+        .collect();
+    ids.sort_by(|a, b| {
+        let (ba, bb) = (&boxes[a], &boxes[b]);
+        ba.x.total_cmp(&bb.x).then_with(|| ba.y.total_cmp(&bb.y)).then_with(|| a.cmp(b))
+    });
+    ids
+}
+
+fn pan_to_keep_visible(pan: (f32, f32), zoom: f32, viewport: (f32, f32), b: &Box2) -> (f32, f32) {
+    let (vw, vh) = viewport;
+    if vw <= 40.0 || vh <= 40.0 {
+        return pan;
+    }
+    let margin = 28.0_f32.min(vw * 0.1).min(vh * 0.1);
+    let (mut px0, mut py0) = pan;
+    let (bw, bh) = (b.w * zoom, b.h * zoom);
+    let (left, top) = (px0 + b.x * zoom, py0 + b.y * zoom);
+    if bw > vw - 2.0 * margin {
+        px0 = vw * 0.5 - (b.x + b.w * 0.5) * zoom;
+    } else if left < margin {
+        px0 += margin - left;
+    } else if left + bw > vw - margin {
+        px0 -= (left + bw) - (vw - margin);
+    }
+    if bh > vh - 2.0 * margin {
+        py0 = vh * 0.5 - (b.y + b.h * 0.5) * zoom;
+    } else if top < margin {
+        py0 += margin - top;
+    } else if top + bh > vh - margin {
+        py0 -= (top + bh) - (vh - margin);
+    }
+    (px0, py0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordered_nodes_and_pan_keep_selected_node_in_view() {
+        let nodes = vec![
+            json!({ "export": 10, "kind": "action", "posX": 400, "posY": 50, "inputs": [], "outputs": [], "variables": [], "events": [] }),
+            json!({ "export": 11, "kind": "frame", "posX": 0, "posY": 0, "inputs": [], "outputs": [], "variables": [], "events": [] }),
+            json!({ "export": 12, "kind": "event", "posX": 50, "posY": 50, "inputs": [], "outputs": [], "variables": [], "events": [] }),
+        ];
+        let boxes = layout(&nodes, &HashMap::new());
+        assert_eq!(ordered_nodes(&nodes, &boxes), vec![12, 10]);
+        let p = pan_to_keep_visible((0.0, 0.0), 1.0, (300.0, 200.0), &boxes[&10]);
+        let right = p.0 + boxes[&10].x + boxes[&10].w;
+        assert!(right <= 300.0 - 19.0);
+    }
 
     #[test]
     fn nodes_without_positions_follow_their_links() {

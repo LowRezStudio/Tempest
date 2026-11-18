@@ -98,7 +98,7 @@ impl Studio {
                         }
                         let text = match r {
                             Ok(r) => r.json.as_str().map(str::to_string).unwrap_or_else(|| r.json.to_string()),
-                            Err(e) => format!("Could not write the object out: {e}"),
+                            Err(e) => format!("Could not write the object out: {}", super::ui::explain_error(&e)),
                         };
                         this.dump = Some(Dump { export: i, text: Some(text), editor: None });
                         cx.notify();
@@ -119,7 +119,7 @@ impl Studio {
                         }
                         match r {
                             Ok(r) => this.deps = Some((i, model::deps(&r.json))),
-                            Err(e) => this.set_status(e, cx),
+                            Err(e) => this.toast(Tone::Error, e, cx),
                         }
                         cx.notify();
                     });
@@ -150,7 +150,7 @@ impl Studio {
                                 let go_to = member.as_ref().and_then(|(_, m)| member_line(&text, m));
                                 this.source = Some(Source { export: i, class, member, original, text: Some(text), editor: None, error: None, go_to, warnings: Vec::new(), modified: draft.is_some(), _sub: None });
                             }
-                            Err(e) => this.set_status(format!("Source: {e}"), cx),
+                            Err(e) => this.toast(Tone::Error, format!("Source: {e}"), cx),
                         }
                         cx.notify();
                     });
@@ -256,7 +256,12 @@ impl Studio {
                 Ok(r) => {
                     this.dirty.insert(path.clone());
                     let warnings: Vec<String> = r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_string)).collect();
-                    let note = if warnings.is_empty() { String::new() } else { format!(", {} warnings", warnings.len()) };
+                    let note = if warnings.is_empty() {
+                        String::new()
+                    } else {
+                        let w = warnings.len();
+                        format!(", {w} warning{}", if w == 1 { "" } else { "s" })
+                    };
                     if let Some(s) = &mut this.source {
                         s.error = None;
                         s.warnings = warnings;
@@ -265,7 +270,8 @@ impl Studio {
                         s.modified = false;
                     }
                     this.drafts.remove(&(path.clone(), class.clone()));
-                    this.toast(Tone::Success, format!("Compiled {class}: {} exports rebuilt in {} ms{note}. Save the package to write it.", r.json["exports"]["names"].as_array().map(|n| n.len()).unwrap_or(0), r.json["compileMs"]), cx);
+                    let updated = r.json["exports"]["names"].as_array().map(|n| n.len()).unwrap_or(0);
+                    this.toast(Tone::Success, format!("Compiled {class} ({updated} object{} updated in your mod{note}).", if updated == 1 { "" } else { "s" }), cx);
                     Some(this.backend.call("package.tables", json!({ "path": path })))
                 }
                 Err(e) => {
@@ -273,11 +279,11 @@ impl Studio {
                         (Some(l), Some(d)) => format!("Line {l}: {d}"),
                         _ => v["message"].as_str().unwrap_or_default().to_string(),
                     });
-                    let msg = msg.unwrap_or_else(|| e.clone());
+                    let msg = msg.unwrap_or_else(|| super::ui::explain_error(e));
                     // The error's line, when it is in this class.
                     let at = e.strip_prefix("compile failed: ").and_then(|j| serde_json::from_str::<J>(j).ok()).filter(|v| v["class"].as_str().is_none_or(|c| c.eq_ignore_ascii_case(&class))).and_then(|v| v["line"].as_u64());
                     if let Some(s) = &mut this.source {
-                        s.error = Some(msg.clone());
+                        s.error = Some(msg);
                         s.warnings.clear();
                         s.go_to = at.map(|l| l.saturating_sub(1) as u32);
                     }
@@ -318,9 +324,10 @@ impl Studio {
             div().relative().child(Button::new(id).xsmall().icon(Icon::new(icon)).label(label).tooltip(if info.detail.is_empty() { info.title } else { info.detail }).on_click(cx.listener(move |this, _, window, cx| this.run(cmd, window, cx)))).child(crate::driver::probe(id))
         };
         let me = cx.entity().downgrade();
+        let is_dump = self.tab == Tab::Dump;
         let more = div()
             .relative()
-            .child(Button::new("more-actions").xsmall().ghost().icon(Icon::new(IconName::Ellipsis)).tooltip("More: rename, duplicate, copy, delete…").dropdown_menu(move |menu, _, _| {
+            .child(Button::new("more-actions").xsmall().ghost().icon(Icon::new(IconName::Ellipsis)).tooltip("More: rename, duplicate, copy, raw bytes, delete…").dropdown_menu(move |menu, _, _| {
                 let item = |label: &str, cmd: Cmd| {
                     let me = me.clone();
                     let keys = super::commands::key_hint(cmd.info().keys);
@@ -329,6 +336,7 @@ impl Studio {
                         let _ = me.update(cx, |this, cx| this.run(cmd, window, cx));
                     })
                 };
+                let me_dump = me.clone();
                 menu.item(item("Rename", Cmd::Rename))
                     .item(item("Duplicate", Cmd::Duplicate))
                     .item(item("Copy to another package…", Cmd::CopyTo))
@@ -336,34 +344,67 @@ impl Studio {
                     .item(item("Copy the object path", Cmd::CopyPath))
                     .item(item("Extract the raw data…", Cmd::ExtractRaw))
                     .separator()
+                    .item(PopupMenuItem::new("Inspect raw bytes").checked(is_dump).on_click(move |_, _, cx| {
+                        let _ = me_dump.update(cx, |this, cx| this.set_tab(Tab::Dump, cx));
+                    }))
+                    .separator()
                     .item(item("Delete…", Cmd::Delete))
             }))
             .child(crate::driver::probe("more-actions"));
         let tools = h_flex().gap_1().child(tool("export", IconName::Download, "Export", Cmd::ExportObject, cx)).child(tool("replace", IconName::Upload, "Replace", Cmd::ReplaceObject, cx)).child(more);
         let movie = super::swf::is_movie(&ins.class);
+        let can_back = self.history_at > 0;
         let tabs = h_flex()
+            .items_center()
             .gap_1()
+            .when(can_back, |d| {
+                d.child(
+                    Button::new("ins-back")
+                        .xsmall()
+                        .ghost()
+                        .icon(Icon::new(IconName::ArrowLeft))
+                        .label("Back")
+                        .tooltip(format!("Back ({})", super::commands::key_hint("⌥←")))
+                        .on_click(cx.listener(|this, _, window, cx| this.back(&super::Back, window, cx))),
+                )
+                .child(div().w(px(1.0)).h(px(14.0)).mx_0p5().bg(theme.border))
+            })
             .when(movie, |d| d.child(tab_button("tab-movie", "Movie", Tab::Movie, self, cx)))
             .child(tab_button("tab-props", "Properties", Tab::Properties, self, cx))
             .child(tab_button("tab-refs", "References", Tab::References, self, cx))
             .when(script, |d| d.child(tab_button("tab-src", "Source", Tab::Source, self, cx)))
-            .child(tab_button("tab-dump", "Raw data", Tab::Dump, self, cx));
+            .when(self.tab == Tab::Dump, |d| d.child(tab_button("tab-dump", "Raw data", Tab::Dump, self, cx)));
         let (group, name) = match ins.path.rsplit_once('.') {
             Some((g, n)) => (g.to_string(), n.to_string()),
             None => (String::new(), ins.path.clone()),
         };
+        let ring = theme.ring;
         let title: AnyElement = if self.editing.as_deref() == Some(actions::RENAME) {
             title
         } else {
             div()
                 .id("ins-title")
+                .focusable()
+                .tab_index(0)
+                .px_0p5()
+                .rounded_sm()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .focus_visible(move |s| s.border_color(ring))
                 .text_lg()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
                 .cursor_pointer()
-                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Double-click to rename").build(window, cx))
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Double-click or press Enter to rename").build(window, cx))
+                .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.run(Cmd::Rename, window, cx);
+                    }
+                }))
                 .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
                     if e.click_count() > 1 {
                         this.run(Cmd::Rename, window, cx);
@@ -404,7 +445,8 @@ impl Studio {
         let mut body = v_flex().id("props").size_full().overflow_y_scroll().px_2().pb_2().gap_2();
         body = body.children(previews);
         if let Some((error, text)) = &ins.note {
-            body = body.child(div().pt_2().text_sm().font_family(theme.mono_font_family.clone()).whitespace_normal().text_color(if *error { theme.danger } else { theme.muted_foreground }).child(text.clone()));
+            let shown = if *error { super::ui::explain_error(text) } else { text.clone() };
+            body = body.child(div().pt_2().text_sm().font_family(theme.mono_font_family.clone()).whitespace_normal().text_color(if *error { theme.danger } else { theme.muted_foreground }).child(shown));
         }
         if let Some(t) = texture {
             body = body.child(t);
@@ -413,6 +455,8 @@ impl Studio {
             body = body.child(super::ui::section("Properties", &theme));
         }
         // Structs and arrays fold: nested ones and long arrays start folded.
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         let shown = model::unfolded(&ins.rows, |r| self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open()));
         let rows = shown.into_iter().map(|k| (k, &ins.rows[k])).map(|(k, r)| {
             let value: AnyElement = if self.editing.as_deref() == Some(r.path.as_str()) {
@@ -422,58 +466,112 @@ impl Studio {
                 match r.edit.clone() {
                     Edit::None => cell.into_any_element(),
                     Edit::Bool(b) => {
-                        let path = r.path.clone();
-                        cell.cursor_pointer().hover(|s| s.bg(theme.list_hover)).on_click(cx.listener(move |this, _, _, cx| this.set_property(path.clone(), if b { "False" } else { "True" }.into(), cx))).into_any_element()
+                        let (path, path_k) = (r.path.clone(), r.path.clone());
+                        cell.focusable()
+                            .tab_index(0)
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus_visible(move |s| s.border_color(ring))
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(hover_bg))
+                            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.set_property(path_k.clone(), if b { "False" } else { "True" }.into(), cx);
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, _, cx| this.set_property(path.clone(), if b { "False" } else { "True" }.into(), cx)))
+                            .into_any_element()
                     }
                     Edit::Text(draft) => {
-                        let path = r.path.clone();
-                        cell.cursor_text().hover(|s| s.bg(theme.list_hover)).on_click(cx.listener(move |this, _, window, cx| this.start_edit(path.clone(), draft.clone(), window, cx))).into_any_element()
+                        let (path, path_k) = (r.path.clone(), r.path.clone());
+                        let draft_k = draft.clone();
+                        cell.focusable()
+                            .tab_index(0)
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus_visible(move |s| s.border_color(ring))
+                            .cursor_text()
+                            .hover(move |s| s.bg(hover_bg))
+                            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.start_edit(path_k.clone(), draft_k.clone(), window, cx);
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, window, cx| this.start_edit(path.clone(), draft.clone(), window, cx)))
+                            .into_any_element()
                     }
                 }
             };
-            // Row operations, shown when the row is hovered.
-            let group = format!("row{k}");
-            let mut ops = h_flex().gap_0p5().invisible().group_hover(group.clone(), |s| s.visible());
+            // Row operations, kept subtly visible so keyboard and mouse users alike can reach them.
+            let mut ops = h_flex().gap_0p5();
             match &r.list {
                 ListRole::Array => {
                     let p = r.path.clone();
-                    ops = ops.child(Button::new(("add", k)).xsmall().ghost().label("+").tooltip("Add an element").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "add", None, cx))));
+                    ops = ops.child(Button::new(("add", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Plus)).tooltip("Add an element").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "add", None, cx))));
                 }
                 ListRole::Element { array, at } => {
                     let (a1, a2, at) = (array.clone(), array.clone(), *at);
                     ops = ops
-                        .child(Button::new(("dup", k)).xsmall().ghost().label("⧉").tooltip("Duplicate the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a1.clone(), "duplicate", Some(at), cx))))
-                        .child(Button::new(("rm", k)).xsmall().ghost().label("−").tooltip("Remove the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a2.clone(), "remove", Some(at), cx))));
+                        .child(Button::new(("dup", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Copy)).tooltip("Duplicate the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a1.clone(), "duplicate", Some(at), cx))))
+                        .child(Button::new(("rm", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Trash)).tooltip("Remove the element").on_click(cx.listener(move |this, _, _, cx| this.list_op(a2.clone(), "remove", Some(at), cx))));
                 }
                 ListRole::None => {}
             }
             if r.is_struct {
                 let p = r.path.clone();
-                ops = ops.child(Button::new(("field", k)).xsmall().ghost().label("+").tooltip("Add a field (it starts at its default)").on_click(cx.listener(move |this, _, window, cx| this.add_field_palette(p.clone(), window, cx))));
+                ops = ops.child(Button::new(("field", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Plus)).tooltip("Add a field (it starts at its default)").on_click(cx.listener(move |this, _, window, cx| this.add_field_palette(p.clone(), window, cx))));
             }
             if r.resettable {
                 let p = r.path.clone();
-                ops = ops.child(Button::new(("reset", k)).xsmall().ghost().label("↺").tooltip("Back to the default (stop storing it)").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "removeProperty", None, cx))));
+                ops = ops.child(Button::new(("reset", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::RotateCcw)).tooltip("Back to the default (stop storing it)").on_click(cx.listener(move |this, _, _, cx| this.list_op(p.clone(), "removeProperty", None, cx))));
             }
             let foldable = r.children > 0;
             let open = self.prop_open.get(&r.path).copied().unwrap_or_else(|| r.starts_open());
-            let fold_path = r.path.clone();
+            let (fold_path, fold_path_k) = (r.path.clone(), r.path.clone());
+            let tip = if r.kind.is_empty() { r.path.clone() } else { format!("{} ({})", r.path, r.kind) };
             let name = h_flex()
                 .id(("prop-name", k))
-                .w(px(200.0))
+                .w(gpui::rems(12.5))
+                .min_w(px(160.0))
+                .max_w(px(260.0))
                 .flex_none()
                 .gap_1()
+                .rounded_sm()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
                 .when(foldable, |d| {
-                    d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
-                        this.prop_open.insert(fold_path.clone(), !open);
-                        cx.notify();
-                    }))
+                    d.focusable()
+                        .tab_index(0)
+                        .focus_visible(move |s| s.border_color(ring))
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(hover_bg))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.prop_open.insert(fold_path_k.clone(), !open);
+                                cx.notify();
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.prop_open.insert(fold_path.clone(), !open);
+                            cx.notify();
+                        }))
                 })
-                .child(div().w(px(12.0)).flex_none().text_color(theme.muted_foreground).when(foldable, |d| d.child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).size_3())))
+                .child(div().w(px(12.0)).flex_none().when(foldable, |d| d.child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).xsmall().text_color(theme.muted_foreground))))
                 .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.name.clone()))
-                .when(foldable && !open && r.value.is_empty(), |d| d.child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} fields", r.children))));
+                .when(foldable && !open && r.value.is_empty(), |d| {
+                    let noun = if r.children == 1 { "field" } else { "fields" };
+                    d.child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(format!("{} {noun}", r.children)))
+                });
             h_flex()
-                .group(group)
+                .min_h(px(22.0))
+                .py_0p5()
                 .pl(px(r.depth as f32 * 14.0))
                 .gap_2()
                 .text_sm()
@@ -506,19 +604,35 @@ impl Studio {
             return div().p_2().text_sm().text_color(theme.muted_foreground).child("Loading…").into_any_element();
         };
         let Deps { links, references, referrers } = deps;
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         let mut k = 0usize;
         let mut row = |label: String, r: &Ref, cx: &mut Context<Self>| {
             k += 1;
-            let target = r.clone();
+            let (target, target_k) = (r.clone(), r.clone());
             let place = if r.index > 0 { "here" } else { "import" };
             h_flex()
                 .id(("ref", k))
+                .focusable()
+                .tab_index(0)
+                .min_h(px(22.0))
+                .py_0p5()
                 .gap_2()
                 .px_1()
                 .text_sm()
                 .rounded_sm()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .focus_visible(move |s| s.border_color(ring))
                 .cursor_pointer()
-                .hover(|s| s.bg(theme.list_hover))
+                .hover(move |s| s.bg(hover_bg))
+                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.follow(target_k.clone(), cx);
+                    }
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| this.follow(target.clone(), cx)))
                 .child(div().w(px(90.0)).flex_none().text_xs().text_color(theme.muted_foreground).child(label))
                 .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(r.path.clone()))
@@ -605,13 +719,13 @@ impl Studio {
                     .gap_2()
                     .child(div().text_sm().font_family(theme.mono_font_family.clone()).font_weight(gpui::FontWeight::SEMIBOLD).child(format!("{}.uc", src.class)))
                     .when_some(member, |d, m| d.child(div().text_xs().font_family(theme.mono_font_family.clone()).text_color(theme.muted_foreground).child(m)))
-                    .when(modified, |d| d.child(div().px_1().rounded_sm().text_xs().bg(theme.warning.opacity(0.2)).text_color(theme.warning).child("modified")))
+                    .when(modified, |d| d.child(super::ui::badge(Some(IconName::Pencil), "modified", theme.warning, &theme)))
                     .child(div().flex_1())
-                    .child(Button::new("revert-src").xsmall().ghost().label("Revert").disabled(!modified).tooltip("Back to the decompiled text").on_click(move |_, window, cx| {
+                    .child(Button::new("revert-src").xsmall().ghost().label("Revert").disabled(!modified).tooltip(if modified { "Back to the decompiled text" } else { "Make an edit first to revert" }).on_click(move |_, window, cx| {
                         let text = original.clone();
                         revert.update(cx, |e, cx| e.replace_all(text, window, cx));
                     }))
-                    .child(Button::new("compile").xsmall().primary().label("Compile").tooltip(format!("Recompile the package with this class ({})", super::commands::key_hint("⌘↩"))).on_click(cx.listener(|this, _, _, cx| this.compile(cx)))),
+                    .child(Button::new("compile").xsmall().label("Compile").tooltip(format!("Recompile this class in your mod ({})", super::commands::key_hint("⌘↩"))).on_click(cx.listener(|this, _, _, cx| this.compile(cx)))),
             )
             .when_some(error, |d, e| d.child(div().px_2().pb_1().text_xs().whitespace_normal().text_color(theme.danger).child(e)))
             .when(!warnings.is_empty(), |d| {

@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, App, Context, Entity, Window};
+use gpui::{div, prelude::*, px, App, Context, Entity, KeyDownEvent, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, WindowExt};
@@ -61,7 +61,7 @@ impl Assembly {
                     }
                 };
                 let me = me.clone();
-                window.open_dialog(cx, move |dialog, _, cx| {
+                window.open_dialog(cx, move |dialog, window, cx| {
                     let theme = cx.theme().clone();
                     let mut list = v_flex().gap_1();
                     let missing = v["missing"].as_array().cloned().unwrap_or_default();
@@ -86,6 +86,7 @@ impl Assembly {
                     dialog
                         .title("Champion vendor")
                         .w(px(620.0))
+                        .max_w(window.viewport_size().width * 0.94)
                         .child(
                             v_flex()
                                 .gap_2()
@@ -137,24 +138,39 @@ impl Assembly {
                 let chosen = Rc::new(RefCell::new(bots.first().map(|b| b.0)));
                 let filter = input(window, cx, String::new(), "Filter champions");
                 let me = me.clone();
-                window.open_dialog(cx, move |dialog, _, cx| {
+                window.open_dialog(cx, move |dialog, window, cx| {
+                    let max_w = window.viewport_size().width * 0.94;
                     let theme = cx.theme().clone();
                     let f = filter.read(cx).value().to_ascii_lowercase();
                     let current = *chosen.borrow();
                     let count = |b: u64| v["collections"].as_array().into_iter().flatten().filter(|c| c["bot"].as_u64() == Some(b)).count();
                     let mut side = v_flex().gap_0p5();
                     for (k, (b, name)) in bots.iter().enumerate().filter(|(_, (_, n))| f.is_empty() || n.to_ascii_lowercase().contains(&f)) {
-                        let (b, ch) = (*b, chosen.clone());
+                        let (b, ch, ch_key) = (*b, chosen.clone(), chosen.clone());
                         side = side.child(
                             h_flex()
                                 .id(("skin-bot", k))
-                                .px_2()
+                                .focusable()
+                                .tab_index(0)
+                                .min_h(px(crate::studio::ui::ROW))
                                 .py_0p5()
+                                .px_2()
                                 .rounded_sm()
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(|s| s.border_color(theme.ring))
                                 .text_sm()
                                 .cursor_pointer()
                                 .when(current == Some(b), |d| d.bg(theme.list_active))
                                 .hover(|s| s.bg(theme.list_hover))
+                                .on_key_down(move |e: &KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        *ch_key.borrow_mut() = Some(b);
+                                        cx.refresh_windows();
+                                    }
+                                })
                                 .on_click(move |_, _, cx| {
                                     *ch.borrow_mut() = Some(b);
                                     cx.refresh_windows();
@@ -207,7 +223,7 @@ impl Assembly {
                                                 let _ = me1.update(cx, |this, cx| this.visit("assembly".into(), Some(t), Some(i), cx));
                                             }
                                         }))
-                                        .child(Button::new(("skin-copy", k)).xsmall().primary().label("Make a copy…").tooltip("A new skin: this collection with every part copied, fresh ids and your names").on_click(move |_, window, cx| {
+                                        .child(Button::new(("skin-copy", k)).xsmall().label("Make a copy…").tooltip("A new skin: this collection with every part copied, fresh ids and your names").on_click(move |_, window, cx| {
                                             window.close_dialog(cx);
                                             let _ = me2.update(cx, |this, cx| this.open_wizard(Some((crate::studio::wizard::Kind::Skin, item as u64, copy_name.clone())), cx));
                                         })),
@@ -217,7 +233,7 @@ impl Assembly {
                     }
                     let loose: Vec<J> = v["loose"].as_array().into_iter().flatten().filter(|c| c["bot"].as_u64() == current).cloned().collect();
                     if !loose.is_empty() {
-                        main = main.child(div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("SKINS NO COLLECTION HOLDS (the client never lists them)"));
+                        main = main.child(div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Unlisted skins (not in any collection)"));
                         for (k, l) in loose.iter().enumerate() {
                             let item = l["item"].as_i64().unwrap_or(0);
                             let name = l["name"].as_str().unwrap_or_default().to_string();
@@ -246,6 +262,7 @@ impl Assembly {
                     dialog
                         .title("Skins")
                         .w(px(860.0))
+                        .max_w(max_w)
                         .child(
                             v_flex()
                                 .gap_2()
@@ -257,7 +274,7 @@ impl Assembly {
                                     h_flex()
                                         .items_start()
                                         .gap_3()
-                                        .child(v_flex().w(px(220.0)).gap_1().child(Input::new(&filter).small()).child(div().id("skin-bots").h(px(440.0)).overflow_y_scroll().child(side)))
+                                        .child(v_flex().w(px(220.0)).gap_1().child(Input::new(&filter).small().cleanable(true)).child(div().id("skin-bots").h(px(440.0)).overflow_y_scroll().child(side)))
                                         .child(div().id("skin-main").flex_1().h(px(472.0)).overflow_y_scroll().child(main)),
                                 ),
                         )
@@ -294,7 +311,7 @@ impl Assembly {
         let devices = input(window, cx, guess.filter(|_| kind == "device").map(|b| b.to_string()).unwrap_or_default(), "DEVICE_IDs, comma separated (optional): script stubs");
         let all = Rc::new(std::cell::Cell::new(false));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
             let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().child(Input::new(i).small()));
             let (set, flag) = (all.clone(), all.clone());
@@ -302,6 +319,7 @@ impl Assembly {
             dialog
                 .title("Export mod folder")
                 .w(px(620.0))
+                .max_w(window.viewport_size().width * 0.94)
                 .child(
                     v_flex()
                         .gap_2()
@@ -349,7 +367,8 @@ impl Assembly {
             let r = backend.call("mcts.scaffold", params).await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
-                    this.toast(Tone::Success, format!("Wrote {} files in {}", r.json["files"].as_array().map(|f| f.len()).unwrap_or(0), dir.display()), cx);
+                    let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
+                    this.toast(Tone::Success, format!("Wrote {} in {}", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, dir.display()), cx);
                     cx.reveal_path(&dir);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not write the mod folder: {e}"), cx),

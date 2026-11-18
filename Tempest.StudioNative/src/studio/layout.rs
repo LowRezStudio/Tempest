@@ -17,7 +17,7 @@ use gpui_component::ActiveTheme;
 const SIDE_KEY: &str = "side";
 
 /// Narrower than this (logical pixels) the window is compact.
-pub const COMPACT_BELOW: f32 = 1100.0;
+pub const COMPACT_BELOW: f32 = 1120.0;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Panes {

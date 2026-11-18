@@ -64,6 +64,50 @@ fn floats(v: &J) -> Vec<f32> {
     v.as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default()
 }
 
+/// 3D wgpu scene marker/brush colours by actor category and team.
+fn actor_scene_color(a: &Actor) -> u32 {
+    const TEAM: [u32; 4] = [0x89b4fa, 0xf38ba8, 0xa6e3a1, 0xf9e2af];
+    if let ("playerstart", Some(t)) = (a.category.as_str(), a.team()) {
+        if t < TEAM.len() {
+            return TEAM[t];
+        }
+    }
+    match a.category.as_str() {
+        "mesh" => 0xa6adc8,
+        "playerstart" => 0x89b4fa,
+        "spawn" => 0x94e2d5,
+        "botfactory" => 0xfab387,
+        "gameplay" | "light" => 0xf9e2af,
+        "trigger" => 0xf5c2e7,
+        "blocking" => 0xf38ba8,
+        "volume" => 0xcba6f7,
+        "sound" => 0xa6e3a1,
+        "emitter" => 0xeba0ac,
+        "navigation" => 0x74c7ec,
+        "info" => 0x7f849c,
+        _ => 0xbac2de,
+    }
+}
+
+/// 3D wgpu collision wireframe/hull colour by collision response.
+pub(super) fn collision_item_color(it: &J) -> u32 {
+    let blocks = it["flags"]["blocks"].as_str().unwrap_or("none");
+    if it["kind"] == "volume" && blocks == "none" {
+        return match it["category"].as_str().unwrap_or("") {
+            "trigger" => 0xa6e3a1,
+            "blocking" => 0xfab387,
+            "navigation" => 0x94e2d5,
+            _ => 0xcba6f7,
+        };
+    }
+    match blocks {
+        "all" => 0xf38ba8,
+        "pawns" => 0xfab387,
+        "shots" => 0x89dceb,
+        _ => 0x7f849c,
+    }
+}
+
 /// A brush part's triangles as a see-through fill and its edges.
 pub fn brush_parts(part: &J, color: u32) -> (Part, Part) {
     let p = floats(&part["positions"]);
@@ -76,7 +120,7 @@ pub fn brush_parts(part: &J, color: u32) -> (Part, Part) {
 impl MapEditor {
     /// What an actor draws, asking for the meshes the scene does not have.
     fn node_of_actor(&mut self, a: &Actor) -> Node {
-        let color = a.color();
+        let color = actor_scene_color(a);
         let mut parts = Vec::new();
         let mut draws = false;
         for p in &a.parts {
@@ -231,6 +275,9 @@ impl MapEditor {
             .map(|(k, &(li, ai))| {
                 let l = &self.levels[li];
                 let a = &l.actors[ai];
+                if self.hidden_actors.contains(&(l.path.clone(), a.export)) {
+                    return false;
+                }
                 let shown = !self.hidden_levels.contains(&l.path) && (!self.hidden_categories.contains(&a.category) || (self.heavy && !a.can_base_on));
                 shown || sel == Some(k)
             })

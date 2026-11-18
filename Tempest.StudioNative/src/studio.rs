@@ -47,7 +47,7 @@ mod settings;
 mod sound;
 mod tabs;
 mod texture;
-mod ui;
+pub(crate) mod ui;
 mod updates;
 mod welcome;
 mod wizard;
@@ -61,7 +61,7 @@ pub use commands::Cmd;
 
 const ROW: f32 = ui::ROW;
 
-actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, ShowHome, ShowChampions, ShowPackages, ShowAssembly, ShowMod, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
+actions!(studio, [CompileSource, OpenFile, SaveAs, FindReplace, NewTab, CloseTab, NextTab, PrevTab, Undo, Redo, Save, Back, Forward, Up, Down, Left, Right, First, Last, Commands, CommandList, GoToPackage, GoToObject, SearchAll, FindInView, Shortcuts, QuickGuide, ShowHome, ShowChampions, ShowPackages, ShowAssembly, ShowMod, BuildAndInstall, ShowAudio, ShowMap, Rename, Duplicate, Delete, SaveWorkspace, OpenWorkspaceFile, Settings, CopyPath, Create, ZoomIn, ZoomOut, ZoomReset, CopyRows, PasteRows, NewWindow, ToggleSide, ToggleSecond, PageUp, PageDown, ExtendUp, ExtendDown, NextCell, PrevCell, Activate, Cancel, SelectAll, NewRow]);
 
 /// The views of the activity bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,10 +99,13 @@ impl View {
 /// Where the user was: what Back/Forward and the tabs return to.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Place {
+    Home,
+    Champions(Option<i64>),
     /// `view`: the movie editor's view (`swf::Node::key`) when the export is a movie.
     Package { package: String, export: Option<usize>, view: Option<String> },
     /// `path`: the rows leading to a nested row set (`table` is then the field holding it).
     Assembly { file: String, path: Vec<(String, usize)>, table: Option<String>, row: Option<usize> },
+    Audio(Option<String>),
     Mod,
     /// The map view: a map, the selected actor, the view (scene, kismet, matinee) and what it shows.
     Map { path: String, level: Option<String>, export: Option<usize>, view: String, sequence: Option<usize>, matinee: Option<(String, usize)> },
@@ -153,6 +156,16 @@ pub struct Studio {
     /// The two lists take the arrow keys when focused.
     packages_focus: FocusHandle,
     exports_focus: FocusHandle,
+    search_focus: FocusHandle,
+    /// Cross-view Undo/Redo tracking for packages, Wwise sound banks and game data.
+    last_edited_package: Option<String>,
+    seen_dirty: HashSet<String>,
+    last_undo_was_assembly: bool,
+    last_undo_was_wwise: bool,
+    /// A package with undone edits to put back, and the edit count then: any later edit may have dropped them.
+    package_redo: Option<(String, usize)>,
+    wwise_undo: Vec<wwise::WwiseStep>,
+    wwise_redo: Vec<wwise::WwiseStep>,
     /// Back/Forward: places visited, and where in them the window is.
     history: Vec<Place>,
     history_at: usize,
@@ -318,6 +331,14 @@ impl Studio {
             dirty: HashSet::new(),
             packages_focus: cx.focus_handle(),
             exports_focus: cx.focus_handle(),
+            search_focus: cx.focus_handle(),
+            last_edited_package: None,
+            seen_dirty: HashSet::new(),
+            last_undo_was_assembly: false,
+            last_undo_was_wwise: false,
+            package_redo: None,
+            wwise_undo: Vec::new(),
+            wwise_redo: Vec::new(),
             history: Vec::new(),
             history_at: 0,
             pending_export: None,
@@ -435,7 +456,8 @@ impl Studio {
     /// A notification (shown at the next frame) and the status line.
     pub(crate) fn toast(&mut self, tone: Tone, text: impl Into<String>, cx: &mut Context<Self>) {
         let text = text.into();
-        let text = if matches!(tone, Tone::Error) { ui::explain_error(&text) } else { text };
+        let already_explained = ["then try again.", "moved or deleted.", "ChaosGame folder inside).", "restart the Studio to go on."].iter().any(|s| text.ends_with(s));
+        let text = if matches!(tone, Tone::Error) && !already_explained { ui::explain_error(&text) } else { text };
         self.status = text.clone().into();
         self.toasts.push((tone, text));
         cx.notify();
@@ -443,7 +465,7 @@ impl Studio {
 
     // ----- workspace -------------------------------------------------------
 
-    fn pick_workspace(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn pick_workspace(&mut self, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Open the game's CookedPCConsole folder".into()) });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(mut p))) = paths.await {
@@ -455,7 +477,7 @@ impl Studio {
         .detach();
     }
 
-    fn open_workspace(&mut self, dir: String, cx: &mut Context<Self>) {
+    pub(super) fn open_workspace(&mut self, dir: String, cx: &mut Context<Self>) {
         // The game folder itself is fine: its CookedPCConsole is meant.
         let dir = {
             let cooked = std::path::Path::new(&dir).join("ChaosGame").join("CookedPCConsole");
@@ -476,12 +498,21 @@ impl Studio {
                     this.selected_package = None;
                     this.selected_export = None;
                     this.dirty.clear();
+                    this.last_edited_package = None;
+                    this.seen_dirty.clear();
+                    this.last_undo_was_assembly = false;
+                    this.last_undo_was_wwise = false;
+                    this.wwise_undo.clear();
+                    this.wwise_redo.clear();
                     this.history.clear();
                     this.history_at = 0;
                     this.tabs.clear();
                     this.assembly = None;
                     this.map = None;
                     this.cooker = None;
+                    this.movies.clear();
+                    this.particles = None;
+                    this.focus_mode = false;
                     remember_workspace(&dir);
                     this.recent = recent_workspaces();
                     this.refilter_packages(cx);
@@ -494,18 +525,25 @@ impl Studio {
                             this.record(place.clone());
                             this.go_later(place, cx);
                         }
-                        None => this.restore_session(cx),
+                        None => {
+                            this.restore_session(cx);
+                            if this.history.is_empty() && this.pending_view.is_none_or(|v| v == View::Home) {
+                                this.history.push(Place::Home);
+                                this.history_at = 0;
+                                this.sync_tab();
+                            }
+                        }
                     }
                     this.check_recovery(cx);
                     let ms = r.json["loadMs"].as_u64().unwrap_or(0);
                     if this.packages.is_empty() {
                         this.toast(Tone::Warning, format!("{dir} holds no packages: pick the game's ChaosGame/CookedPCConsole folder"), cx);
                     } else {
-                        this.set_status(format!("{} packages, opened in {ms} ms", this.packages.len()), cx);
+                        this.set_status(format!("Game folder ready ({ms} ms)"), cx);
                     }
                 }
                 Err(e) => {
-                    this.open_error = Some(format!("{}: {e}", folder_label(&dir)));
+                    this.open_error = Some(format!("{}: {}", folder_label(&dir), ui::explain_error(&e)));
                     this.games = games::find();
                     this.set_status(format!("Could not open {dir}"), cx);
                     cx.notify();
@@ -561,15 +599,37 @@ impl Studio {
     }
 
     pub(crate) fn set_view(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette = None;
         if self.view == view {
             return;
         }
         self.view = view;
         self.sync_side();
-        // The status line spoke of the view left behind.
-        self.status = "".into();
+        self.status = match view {
+            View::Home => format!("Pick a task or press {} to search anything", commands::key_hint("⌘K")).into(),
+            View::Champions => "Pick a champion to view skins, textures and abilities".into(),
+            View::Packages => match &self.open {
+                Some(t) => {
+                    let n = t.exports.len();
+                    format!("{}: {n} object{}", t.name, if n == 1 { "" } else { "s" }).into()
+                }
+                None => "Pick a game file (.upk) to inspect textures, meshes, materials and UI".into(),
+            },
+            View::Assembly => "Pick a game data table to edit stats, abilities, cards, skins or texts".into(),
+            View::Audio => match self.open_audio_path() {
+                Some(p) => file_name(p).into(),
+                None => "Select a sound bank (.pck) to listen or swap audio".into(),
+            },
+            View::Map => "Pick a map to inspect levels, 3D actors, Kismet scripts and Matinees".into(),
+            View::Mod => "Review your changes, fill in mod details, and build or install your mod".into(),
+        };
         match view {
-            View::Home | View::Champions => {}
+            View::Home => self.record(Place::Home),
+            View::Champions => {
+                self.champions_view(window, cx);
+                let bot = self.champions.as_ref().and_then(|c| c.selected_id()).map(|id| id as i64);
+                self.record(Place::Champions(bot));
+            }
             View::Packages => {
                 if let Some(p) = self.selected_package.clone() {
                     self.record(Place::package(p, self.selected_export));
@@ -584,7 +644,11 @@ impl Studio {
                 self.cooker_view(window, cx);
                 self.record(Place::Mod);
             }
-            View::Audio => {}
+            View::Audio => {
+                self.audio_browser(window, cx);
+                let pck = self.open_audio_path().map(str::to_string);
+                self.record(Place::Audio(pck));
+            }
             View::Map => {
                 let m = self.map_view(window, cx);
                 if let Some(place) = m.read(cx).place() {
@@ -657,13 +721,19 @@ impl Studio {
         a
     }
 
-    fn cooker_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<cooker::Cooker> {
-        if let Some(c) = &self.cooker {
-            return c.clone();
+    pub(crate) fn cooker_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Entity<cooker::Cooker> {
+        if let Some(c) = self.cooker.clone() {
+            self.sync_cooker(cx);
+            return c;
         }
         let me = cx.entity().downgrade();
         let project = self.project.clone();
-        let c = cx.new(|cx| cooker::Cooker::new(self.backend.clone(), self.dir.clone().unwrap_or_default(), project, me, window, cx));
+        let movies = self.movies.values().cloned().collect();
+        let particles = self.unapplied_particle_curves();
+        let c = cx.new(|cx| cooker::Cooker::new(self.backend.clone(), self.dir.clone().unwrap_or_default(), project, movies, me, window, cx));
+        if particles > 0 {
+            c.update(cx, |c, cx| c.set_unapplied_particles(particles, cx));
+        }
         self.cooker = Some(c.clone());
         c
     }
@@ -678,8 +748,11 @@ impl Studio {
         // An export picked right after its package replaces the package-only place;
         // a row of the same assembly table replaces the table-only place.
         let refines = match (self.history.get(self.history_at), &place) {
+            (Some(Place::Champions(None)), Place::Champions(Some(_))) => true,
+            (Some(Place::Audio(None)), Place::Audio(Some(_))) => true,
             (Some(Place::Package { package: a, export: None, .. }), Place::Package { package: b, .. }) => a == b,
             (Some(Place::Package { package: a, export: Some(i), view: None }), Place::Package { package: b, export: Some(j), view: Some(_) }) => a == b && i == j,
+            (Some(Place::Assembly { table: None, .. }), Place::Assembly { table: Some(_), .. }) => true,
             (Some(Place::Assembly { file: a, path: pa, table: ta, row: None }), Place::Assembly { file: b, path: pb, table: tb, .. }) => a == b && pa == pb && ta == tb,
             (Some(Place::Map { path: a, export: None, view: va, .. }), Place::Map { path: b, view: vb, .. }) => a == b && va == vb,
             _ => false,
@@ -699,7 +772,25 @@ impl Studio {
     }
 
     pub(crate) fn go(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_side();
         match place {
+            Place::Home => {
+                self.view = View::Home;
+                self.status = format!("Pick a task or press {} to search anything", commands::key_hint("⌘K")).into();
+            }
+            Place::Champions(bot) => {
+                self.view = View::Champions;
+                self.champions_view(window, cx);
+                match bot.and_then(|id| u64::try_from(id).ok()) {
+                    Some(id) => self.select_champion(id, cx),
+                    None => {
+                        if let Some(c) = &mut self.champions {
+                            c.clear_selection();
+                        }
+                        self.status = "Pick a champion to view skins, textures and abilities".into();
+                    }
+                }
+            }
             Place::Package { package, export, view } => {
                 self.view = View::Packages;
                 if self.selected_package.as_deref() == Some(package.as_str()) && self.open.is_some() {
@@ -721,9 +812,30 @@ impl Studio {
                 let a = self.assembly_view(window, cx);
                 a.update(cx, |a, cx| a.visit_path(file, path, table, row, cx));
             }
+            Place::Audio(pck) => {
+                self.view = View::Audio;
+                self.audio_browser(window, cx);
+                match pck {
+                    Some(path) => {
+                        let resolved = self.audio.as_ref().and_then(|a| a.package_path(&path)).unwrap_or(path);
+                        if self.open_audio_path() != Some(resolved.as_str()) {
+                            self.audio_open(resolved, cx);
+                        } else {
+                            self.status = file_name(&resolved).into();
+                        }
+                    }
+                    None => {
+                        if let Some(a) = &mut self.audio {
+                            a.clear_open();
+                        }
+                        self.status = "Select a sound bank (.pck) to listen or swap audio".into();
+                    }
+                }
+            }
             Place::Mod => {
                 self.view = View::Mod;
                 self.cooker_view(window, cx);
+                self.status = "Review your changes, fill in mod details, and build or install your mod".into();
             }
             place @ Place::Map { .. } => {
                 self.view = View::Map;
@@ -745,6 +857,7 @@ impl Studio {
             self.history_at -= 1;
             self.go(self.history[self.history_at].clone(), window, cx);
             self.sync_tab();
+            self.remember_place();
         }
     }
 
@@ -753,6 +866,7 @@ impl Studio {
             self.history_at += 1;
             self.go(self.history[self.history_at].clone(), window, cx);
             self.sync_tab();
+            self.remember_place();
         }
     }
 
@@ -830,61 +944,161 @@ impl Studio {
         self.step(true, window, cx);
     }
 
-    /// Undo (or redo) in the view on screen.
+    fn sync_dirty_tracking(&mut self) {
+        for old in self.seen_dirty.difference(&self.dirty) {
+            if old.to_ascii_lowercase().ends_with(".pck") {
+                self.wwise_undo.retain(|s| !project::same_path(&s.pck, old));
+                self.wwise_redo.retain(|s| !project::same_path(&s.pck, old));
+            }
+        }
+        for p in &self.dirty {
+            if !self.seen_dirty.contains(p) && !p.to_ascii_lowercase().ends_with(".pck") {
+                self.last_edited_package = Some(p.clone());
+                self.last_undo_was_assembly = false;
+                self.last_undo_was_wwise = false;
+            }
+        }
+        if self.last_edited_package.is_none() {
+            self.last_edited_package = self.dirty.iter().find(|p| !p.to_ascii_lowercase().ends_with(".pck")).cloned();
+        }
+        self.seen_dirty = self.dirty.clone();
+    }
+
+    /// Undo (or redo) in the active view, falling back across edited views when on Start, Champions, Sounds or Mod.
     fn step(&mut self, redo: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_dirty_tracking();
         if self.view == View::Assembly {
             if let Some(a) = self.assembly.clone() {
+                self.last_undo_was_assembly = true;
+                self.last_undo_was_wwise = false;
                 a.update(cx, |a, cx| if redo { a.redo(window, cx) } else { a.undo(window, cx) });
                 return;
             }
         }
+        if self.view == View::Audio && self.can_step_wwise(redo) {
+            self.step_wwise(redo, cx);
+            return;
+        }
         // The map's edits, last first (each is an undo step of its level).
         if self.view == View::Map {
             if let Some(m) = self.map.clone().filter(|m| if redo { m.read(cx).can_redo() } else { m.read(cx).can_undo() }) {
+                self.last_undo_was_assembly = false;
+                self.last_undo_was_wwise = false;
                 m.update(cx, |m, cx| if redo { m.redo(cx) } else { m.undo(cx) });
                 return;
             }
         }
-        // A movie's pending edits go first, then the package's undo.
+        // A movie's pending edits go first, then unapplied particle curves, then Wwise, then the package's undo.
         if self.view == View::Packages {
             if let Some(m) = self.shown_movie() {
                 if m.update(cx, |m, cx| if redo { m.redo_edit(cx) } else { m.undo_edit(cx) }) {
+                    self.last_undo_was_assembly = false;
+                    self.last_undo_was_wwise = false;
                     self.set_status(if redo { "Put back the last movie edit" } else { "Took back the last movie edit" }, cx);
                     return;
                 }
             }
+            if !redo && self.unapplied_particle_count() > 0 {
+                self.last_undo_was_assembly = false;
+                self.last_undo_was_wwise = false;
+                self.discard_particle_drafts(cx);
+                self.set_status("Took back the unapplied particle curve edits", cx);
+                return;
+            }
+            if self.wwise.is_some() && self.last_undo_was_wwise && self.can_step_wwise(redo) {
+                self.step_wwise(redo, cx);
+                return;
+            }
+            if let Some(path) = self.open.as_ref().map(|t| t.path.clone()) {
+                self.last_undo_was_assembly = false;
+                self.last_undo_was_wwise = false;
+                self.step_package(path, redo, cx);
+                return;
+            }
         }
-        self.step_package(redo, cx);
+        // Cross-view fallback (`Start`, `Champions`, `Sounds`, `Mod`, or `Packages` with nothing open):
+        if !redo && self.unapplied_particle_count() > 0 {
+            self.last_undo_was_assembly = false;
+            self.last_undo_was_wwise = false;
+            self.discard_particle_drafts(cx);
+            self.set_status("Took back the unapplied particle curve edits", cx);
+            return;
+        }
+        if self.last_undo_was_wwise && self.can_step_wwise(redo) {
+            self.step_wwise(redo, cx);
+            return;
+        }
+        if let Some(a) = self.assembly.clone().filter(|a| if redo { self.last_undo_was_assembly } else { a.read(cx).unsaved_count() > 0 }) {
+            self.last_undo_was_assembly = true;
+            self.last_undo_was_wwise = false;
+            a.update(cx, |a, cx| if redo { a.redo(window, cx) } else { a.undo(window, cx) });
+            return;
+        }
+        if let Some(m) = self.map.clone().filter(|m| if redo { m.read(cx).can_redo() } else { m.read(cx).can_undo() }) {
+            self.last_undo_was_assembly = false;
+            self.last_undo_was_wwise = false;
+            m.update(cx, |m, cx| if redo { m.redo(cx) } else { m.undo(cx) });
+            return;
+        }
+        if self.can_step_wwise(redo) {
+            self.step_wwise(redo, cx);
+            return;
+        }
+        let pkg = self
+            .open
+            .as_ref()
+            .map(|t| t.path.clone())
+            .filter(|p| !p.to_ascii_lowercase().ends_with(".pck") && (redo || self.dirty.contains(p)))
+            .or_else(|| self.last_edited_package.clone().filter(|p| redo || self.dirty.contains(p)))
+            .or_else(|| self.dirty.iter().find(|p| !p.to_ascii_lowercase().ends_with(".pck")).cloned())
+            .or_else(|| self.open.as_ref().map(|t| t.path.clone()).filter(|p| !p.to_ascii_lowercase().ends_with(".pck")));
+        if let Some(path) = pkg {
+            self.last_undo_was_assembly = false;
+            self.last_undo_was_wwise = false;
+            self.step_package(path, redo, cx);
+            return;
+        }
+        self.set_status(if redo { "Nothing to redo" } else { "Nothing to undo" }, cx);
     }
 
-    fn step_package(&mut self, redo: bool, cx: &mut Context<Self>) {
-        let Some(path) = self.open.as_ref().map(|t| t.path.clone()) else { return };
+    fn step_package(&mut self, path: String, redo: bool, cx: &mut Context<Self>) {
         let call = self.backend.call(if redo { "package.redo" } else { "package.undo" }, json!({ "path": path }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let Ok(r) = r else { return };
             let label = r.json["label"].as_str().map(|s| s.to_string());
             let dirty = r.json["dirty"].as_bool().unwrap_or(false);
+            let more_redo = r.json["redo"].as_array().is_some_and(|r| !r.is_empty());
             let Ok(tables) = this.update(cx, |this, cx| {
+                this.package_redo = more_redo.then(|| (path.clone(), crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst)));
                 if dirty {
                     this.dirty.insert(path.clone());
                 } else {
                     this.dirty.remove(&path);
                 }
-                this.set_status(
-                    match (&label, redo) {
-                        (Some(l), false) => format!("Undone: {l}"),
-                        (Some(l), true) => format!("Redone: {l}"),
-                        (None, false) => "Nothing to undo".into(),
-                        (None, true) => "Nothing to redo".into(),
-                    },
-                    cx,
-                );
-                this.backend.call("package.tables", json!({ "path": path }))
+                this.seen_dirty = this.dirty.clone();
+                match (&label, redo) {
+                    (Some(l), false) => {
+                        this.last_edited_package = Some(path.clone());
+                        this.set_status(format!("Undone: {l}"), cx);
+                    }
+                    (Some(l), true) => {
+                        this.last_edited_package = Some(path.clone());
+                        this.set_status(format!("Redone: {l}"), cx);
+                    }
+                    (None, false) => this.set_status("Nothing to undo", cx),
+                    (None, true) => this.set_status("Nothing to redo", cx),
+                }
+                if let Some(c) = this.cooker.clone() {
+                    c.update(cx, |c, cx| c.refresh(cx));
+                }
+                if label.is_some() && this.open.as_ref().map(|t| t.path.as_str()) == Some(path.as_str()) {
+                    Some(this.backend.call("package.tables", json!({ "path": path })))
+                } else {
+                    None
+                }
             }) else { return };
-            if label.is_none() {
-                return;
-            }
+            let Some(tables) = tables else { return };
             let Ok(t) = tables.await else { return };
             let _ = this.update(cx, |this, cx| this.reload_tables(&path, &t.json, None, cx));
         })
@@ -917,16 +1131,16 @@ impl Studio {
             }
         }
         let Some(path) = self.open.as_ref().map(|t| t.path.clone()).filter(|p| self.dirty.contains(p)) else {
-            self.set_status("Nothing to save in this package", cx);
+            self.set_status("This game file has no changes to patch", cx);
             return;
         };
         self.save_packages(vec![path], window, cx);
     }
 
-    /// Save packages in place, after one question.
+    /// Patch packages in place, after one question.
     pub(crate) fn save_packages(&mut self, paths: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
         if paths.is_empty() {
-            self.set_status("Nothing to save", cx);
+            self.set_status("Nothing to patch", cx);
             return;
         }
         if !self.prefs.ask_in_place {
@@ -939,17 +1153,17 @@ impl Studio {
             let theme = cx.theme().clone();
             let (me, paths) = (me.clone(), paths.clone());
             dialog
-                .title(format!("Overwrite {what} in the game folder?"))
+                .title(format!("Patch {what} in place?"))
                 .w(px(520.0))
                 .child(
                     v_flex()
                         .gap_2()
                         .text_sm()
-                        .child("This writes your changes straight into the game's own files, to try them without building a mod.")
+                        .child("This patches the game's own files in place, to test changes without building a mod.")
                         .child(div().text_color(theme.muted_foreground).child("The Studio cannot put the original files back afterwards: your launcher's \"Verify game files\" does. A mod never needs this; Build mod carries your changes without touching the game."))
                         .child(ui::hint("Settings ▸ Ask before overwriting game files turns this question off.", &theme)),
                 )
-                .footer(dialogs::footer("Overwrite", true, true, move |window, cx| {
+                .footer(dialogs::footer("Patch", true, true, move |window, cx| {
                     window.close_dialog(cx);
                     let _ = me.update(cx, |this, cx| this.save_now(paths.clone(), window, cx));
                 }))
@@ -958,17 +1172,18 @@ impl Studio {
 
     fn save_now(&mut self, paths: Vec<String>, _window: &mut Window, cx: &mut Context<Self>) {
         for path in paths {
-            self.set_status(format!("Saving {}…", file_name(&path)), cx);
+            self.set_status(format!("Patching {}…", file_name(&path)), cx);
             let call = self.backend.call("package.save", json!({ "path": path }));
             cx.spawn(async move |this, cx| {
                 let r = call.await;
                 let _ = this.update(cx, |this, cx| match r {
                     Ok(_) => {
                         this.dirty.remove(&path);
+                        this.seen_dirty.remove(&path);
                         this.forget_map_edit(&path, cx);
-                        this.toast(Tone::Success, format!("Wrote {} into the game folder", file_name(&path)), cx);
+                        this.toast(Tone::Success, format!("Patched {} in place (use Verify game files in Launcher to restore)", file_name(&path)), cx);
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not write {} into the game folder: {e}", file_name(&path)), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not patch {}: {}", file_name(&path), ui::explain_error(&e)), cx),
                 });
             })
             .detach();
@@ -979,37 +1194,83 @@ impl Studio {
 
     fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let folder = if self.dir.is_some() { self.game_label() } else { "No game folder".into() };
+        let panes = self.panes.get();
+        let compact = panes.compact;
+        let tight = compact || self.prefs.zoom > 1.15;
+        let side_toggle = if self.dir.is_some() && matches!(self.view, View::Champions | View::Packages | View::Assembly | View::Audio | View::Map) && !panes.side() {
+            let side_noun = match self.view {
+                View::Champions => "champion",
+                View::Packages => "package",
+                View::Assembly => "game data",
+                View::Audio => "sound bank",
+                View::Map => "map",
+                View::Home | View::Mod => "",
+            };
+            let tip = format!("Show or hide the {} list ({})", side_noun, commands::key_hint("⌘B"));
+            Some(
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(
+                        Button::new("toggle-side")
+                            .small()
+                            .ghost()
+                            .icon(Icon::new(IconName::PanelLeft))
+                            .selected(panes.overlay)
+                            .tooltip(tip)
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_pane(false, cx))),
+                    )
+                    .child(crate::driver::probe("toggle-side")),
+            )
+        } else {
+            None
+        };
+        let folder_full = if self.dir.is_some() { self.game_label() } else { "No game folder".into() };
+        let folder = if compact && folder_full.chars().count() > 16 {
+            format!("{}…", folder_full.chars().take(15).collect::<String>())
+        } else {
+            folder_full.clone()
+        };
+        let folder_tip = match &self.dir {
+            Some(d) => format!("{folder_full} ({d}) — switch or open another game folder"),
+            None => "Open a game folder, or pick a recent one".to_string(),
+        };
         let me = cx.entity().downgrade();
         let recent = self.recent.clone();
-        let workspace = Button::new("workspace")
-            .small()
-            .ghost()
-            .icon(Icon::new(IconName::FolderOpen))
-            .label(folder)
-            .tooltip("The game folder: open another, or a recent one")
-            .dropdown_menu(move |menu, _, _| {
-                let mut menu = menu.item(PopupMenuItem::new("Open game folder…").on_click({
-                    let me = me.clone();
-                    move |_, _, cx| {
-                        let _ = me.update(cx, |this, cx| this.pick_workspace(cx));
+        let workspace = div().when(tight, |d| d.max_w(px(136.0)).overflow_hidden()).child(
+            Button::new("workspace")
+                .small()
+                .ghost()
+                .icon(Icon::new(IconName::FolderOpen))
+                .label(folder)
+                .tooltip(folder_tip)
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.item(PopupMenuItem::new("Open game folder…").on_click({
+                        let me = me.clone();
+                        move |_, window, cx| {
+                            let _ = me.update(cx, |this, cx| this.switch_workspace_or_ask(None, window, cx));
+                        }
+                    }));
+                    if !recent.is_empty() {
+                        menu = menu.separator().label("Recent");
+                        for d in recent.iter().take(8) {
+                            let (me, d) = (me.clone(), d.clone());
+                            menu = menu.item(PopupMenuItem::new(folder_label(&d)).on_click(move |_, window, cx| {
+                                let _ = me.update(cx, |this, cx| this.switch_workspace_or_ask(Some(d.clone()), window, cx));
+                            }));
+                        }
                     }
-                }));
-                if !recent.is_empty() {
-                    menu = menu.separator().label("Recent");
-                    for d in recent.iter().take(8) {
-                        let (me, d) = (me.clone(), d.clone());
-                        menu = menu.item(PopupMenuItem::new(folder_label(&d)).on_click(move |_, _, cx| {
-                            let _ = me.update(cx, |this, cx| this.open_workspace(d.clone(), cx));
-                        }));
-                    }
-                }
-                menu
-            });
+                    menu
+                }),
+        );
         let search = h_flex()
             .id("search-field")
-            .w(px(360.0))
-            .h(px(26.0))
+            .track_focus(&self.search_focus)
+            .tab_index(0)
+            .w(px(if tight { 220.0 } else { 320.0 }))
+            .min_w(px(120.0))
+            .flex_shrink(if tight { 2.5 } else { 1.0 })
+            .min_h(px(26.0))
             .px_2()
             .gap_2()
             .rounded_md()
@@ -1020,111 +1281,302 @@ impl Studio {
             .text_color(theme.muted_foreground)
             .cursor_pointer()
             .hover(|s| s.border_color(theme.ring))
+            .focus_visible(|s| s.border_color(theme.ring))
+            .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.open_palette("", window, cx);
+                }
+            }))
             .on_click(cx.listener(|this, _, window, cx| this.open_palette("", window, cx)))
             .child(Icon::new(IconName::Search).small())
-            .child(div().flex_1().child("Go to a package, object or command"))
+            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(if tight { "Search or commands" } else { "Search anything or run a command" }))
             .child(ui::kbd(commands::key_hint("⌘K"), &theme))
             .child(crate::driver::probe("search-field"));
-        let project_chip = self.render_project_chip(cx);
-        let changes = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
+        let project_chip = self.render_project_chip(cx).map(|chip| {
+            div()
+                .min_w_0()
+                .when(tight, |d| d.max_w(px(180.0)))
+                .overflow_hidden()
+                .child(chip)
+        });
+        let changes = self.unsaved_total(cx);
+        let create_tip = if self.dir.is_none() {
+            "Open a game folder first — Create something new".to_string()
+        } else {
+            format!("Make something new: a skin, an ability, a texture, a sound… ({})", commands::key_hint("⌘N"))
+        };
+        let create = Button::new("create")
+            .small()
+            .icon(Icon::new(IconName::Plus))
+            .when(!compact, |b| b.label("Create"))
+            .tooltip(create_tip)
+            .disabled(self.dir.is_none())
+            .on_click(cx.listener(|this, _, window, cx| this.open_wizard(None, None, window, cx)));
+        let back_key = commands::key_hint("⌥←");
+        let back_tip = if self.history_at == 0 { format!("Nothing to go back to ({back_key})") } else { format!("Back ({back_key})") };
+        let fwd_key = commands::key_hint("⌥→");
+        let fwd_tip = if self.history_at + 1 >= self.history.len() { format!("Nothing to go forward to ({fwd_key})") } else { format!("Forward ({fwd_key})") };
         h_flex()
-            .h(px(40.0))
+            .min_h(px(40.0))
+            .py_1()
             .px_2()
+            .when(cfg!(target_os = "macos"), |d| d.pl(px(76.0)))
             .gap_1()
             .bg(theme.title_bar)
             .border_b_1()
             .border_color(theme.title_bar_border)
-            // Three columns: the middle one (Create, search) stays centred whatever the sides hold.
+            // Three equal columns on wide screens; shrink-safe flex_1 columns when compact or zoomed so Build mod never overflows.
             .child(
                 h_flex()
                     .flex_1()
-                    .flex_basis(px(0.0))
+                    .when(!tight, |d| d.flex_basis(px(0.0)))
                     .min_w_0()
                     .overflow_hidden()
                     .gap_1()
-                    .child(Button::new("back").small().ghost().icon(Icon::new(IconName::ArrowLeft)).tooltip("Back (⌥←)").disabled(self.history_at == 0).on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))))
-                    .child(Button::new("forward").small().ghost().icon(Icon::new(IconName::ArrowRight)).tooltip("Forward (⌥→)").disabled(self.history_at + 1 >= self.history.len()).on_click(cx.listener(|this, _, window, cx| this.forward(&Forward, window, cx))))
+                    .child(Button::new("back").small().ghost().icon(Icon::new(IconName::ArrowLeft)).tooltip(back_tip).disabled(self.history_at == 0).on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))))
+                    .child(Button::new("forward").small().ghost().icon(Icon::new(IconName::ArrowRight)).tooltip(fwd_tip).disabled(self.history_at + 1 >= self.history.len()).on_click(cx.listener(|this, _, window, cx| this.forward(&Forward, window, cx))))
+                    .children(side_toggle)
                     .child(workspace)
                     .children(project_chip),
             )
-            .child(div().relative().child(Button::new("create").small().icon(Icon::new(IconName::Plus)).label("Create").tooltip(format!("Make something new: a skin, an ability, a texture, a sound… ({})", commands::key_hint("⌘N"))).disabled(self.dir.is_none()).on_click(cx.listener(|this, _, window, cx| this.open_wizard(None, None, window, cx)))).child(crate::driver::probe("create")))
+            .child(div().flex_none().relative().child(create).child(crate::driver::probe("create")))
             .child(search)
             .child(
                 h_flex()
                     .flex_1()
-                    .flex_basis(px(0.0))
+                    .when(!tight, |d| d.flex_basis(px(0.0)))
+                    .when(tight, |d| d.flex_shrink(0.2))
                     .min_w_0()
+                    .overflow_hidden()
                     .gap_1()
                     .pl_1()
-                    .child(Button::new("undo").small().ghost().icon(Icon::new(IconName::Undo2)).tooltip(format!("Undo ({})", commands::key_hint("⌘Z"))).on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx))))
-                    .child(Button::new("redo").small().ghost().icon(Icon::new(IconName::Redo2)).tooltip(format!("Redo ({})", commands::key_hint("⌘⇧Z"))).on_click(cx.listener(|this, _, window, cx| this.redo(&Redo, window, cx))))
+                    .child({
+                        let can_undo = self.dir.is_some()
+                            && (changes > 0
+                                || self.can_step_wwise(false)
+                                || self.map.as_ref().is_some_and(|m| m.read(cx).can_undo())
+                                || self.shown_movie().is_some_and(|m| m.read(cx).has_unapplied())
+                                || self.unapplied_particle_count() > 0);
+                        let undo_key = commands::key_hint("⌘Z");
+                        let undo_tip = if can_undo { format!("Undo ({undo_key})") } else { format!("Nothing to undo ({undo_key})") };
+                        Button::new("undo")
+                            .small()
+                            .ghost()
+                            .icon(Icon::new(IconName::Undo2))
+                            .tooltip(undo_tip)
+                            .disabled(!can_undo)
+                            .on_click(cx.listener(|this, _, window, cx| this.undo(&Undo, window, cx)))
+                    })
+                    .child({
+                        let edits = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
+                        let can_redo = self.dir.is_some()
+                            && (self.can_step_wwise(true)
+                                || self.map.as_ref().is_some_and(|m| m.read(cx).can_redo())
+                                || self.package_redo.as_ref().is_some_and(|(_, at)| *at == edits)
+                                || self.assembly.as_ref().is_some_and(|a| a.read(cx).can_redo())
+                                || self.shown_movie().is_some_and(|m| m.read(cx).can_redo()));
+                        let redo_key = commands::key_hint("⌘⇧Z");
+                        let redo_tip = if can_redo { format!("Redo ({redo_key})") } else { format!("Nothing to redo ({redo_key})") };
+                        Button::new("redo")
+                            .small()
+                            .ghost()
+                            .icon(Icon::new(IconName::Redo2))
+                            .tooltip(redo_tip)
+                            .disabled(!can_redo)
+                            .on_click(cx.listener(|this, _, window, cx| this.redo(&Redo, window, cx)))
+                    })
                     .child(div().flex_1())
                     .when(changes > 0, |d| {
                         d.child(
-                            div().relative().child(
-                                Button::new("unsaved")
-                                    .small()
-                                    .ghost()
-                                    .label(format!("Changes ({changes})"))
-                                    .tooltip("What you changed: open a file, or throw its changes away")
-                                    .on_click(cx.listener(|this, _, window, cx| this.show_unsaved(window, cx))),
-                            )
-                            .child(crate::driver::probe("unsaved")),
+                            div()
+                                .relative()
+                                .flex_none()
+                                .child(
+                                    Button::new("unsaved")
+                                        .small()
+                                        .ghost()
+                                        .label(format!("Changes ({changes})"))
+                                        .tooltip("What you changed: open a file, or throw its changes away")
+                                        .on_click(cx.listener(|this, _, window, cx| this.show_changes(window, cx))),
+                                )
+                                .child(crate::driver::probe("unsaved")),
                         )
                     })
-                    .when(self.dir.is_some() && self.view != View::Mod, |d| d.child(Button::new("build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").tooltip(format!("Turn your changes into a mod you can install and share ({})", commands::key_hint("⌘6"))).on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx))))),
+                    .when(self.dir.is_some() && self.view != View::Mod, |d| {
+                        let has_mod_work = changes > 0 || self.project.is_some();
+                        let mod_key = commands::key_hint("⌘6");
+                        let mod_tip = if has_mod_work {
+                            format!("Turn your changes into a mod you can install and share ({mod_key})")
+                        } else {
+                            format!("Open your mod workspace ({mod_key}) — change anything first and Build mod lights up")
+                        };
+                        d.child(
+                            div().flex_none().child(
+                                Button::new("build")
+                                    .small()
+                                    .when(has_mod_work, |b| b.primary())
+                                    .icon(Icon::new(IconName::Hammer))
+                                    .label("Build mod")
+                                    .tooltip(mod_tip)
+                                    .on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx))),
+                            ),
+                        )
+                    }),
             )
     }
 
     fn render_activity(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let open = self.dir.is_some();
-        let item = |id: &'static str, icon: IconName, tip: String, active: bool, cx: &mut Context<Self>, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
-            div()
+        let item = |id: &'static str, icon: IconName, short: &'static str, tip: String, enabled: bool, cx: &mut Context<Self>, f: fn(&mut Studio, &mut Window, &mut Context<Studio>)| {
+            let tip = if enabled { tip } else { format!("Open a game folder first — {tip}") };
+            v_flex()
+                .id(id)
                 .relative()
-                .child(Button::new(id).ghost().icon(Icon::new(icon)).tooltip(tip).selected(active).on_click(cx.listener(move |this, _, window, cx| f(this, window, cx))))
+                .w(px(52.0))
+                .py_1()
+                .px_0p5()
+                .gap_0p5()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .text_color(theme.muted_foreground)
+                .when(!enabled, |d| d.opacity(0.45))
+                .when(enabled, |d| {
+                    d.focusable()
+                        .tab_index(0)
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.secondary).text_color(theme.foreground))
+                        .focus_visible(|s| s.border_color(theme.ring))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                f(this, window, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| f(this, window, cx)))
+                })
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                .child(Icon::new(icon).small())
+                .child(
+                    div()
+                        .max_w_full()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(px(10.0))
+                        .line_height(px(12.0))
+                        .child(short),
+                )
                 .child(crate::driver::probe(id))
         };
         // The views need a game folder; without one only the welcome screen shows.
-        let view = |id: &'static str, icon: IconName, name: &str, cmd: Cmd, v: View, cx: &mut Context<Self>| {
+        let view = |id: &'static str, icon: IconName, short: &'static str, name: &str, cmd: Cmd, v: View, cx: &mut Context<Self>| {
             let keys = cmd.info().keys;
             let tip = if keys.is_empty() { name.to_string() } else { format!("{name} ({})", commands::key_hint(keys)) };
-            div()
+            let tip = if open { tip } else { format!("Open a game folder first — {tip}") };
+            let active = open && self.view == v;
+            let fg = if active { theme.foreground } else { theme.muted_foreground };
+            v_flex()
+                .id(id)
                 .relative()
-                .child(Button::new(id).ghost().icon(Icon::new(icon)).tooltip(tip).selected(open && self.view == v).disabled(!open).on_click(cx.listener(move |this, _, window, cx| this.set_view(v, window, cx))))
+                .w(px(52.0))
+                .py_1()
+                .px_0p5()
+                .gap_0p5()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .text_color(fg)
+                .when(active, |d| d.bg(theme.secondary))
+                .when(open && !active, |d| d.hover(|s| s.bg(theme.secondary).text_color(theme.foreground)))
+                .when(!open, |d| d.opacity(0.45))
+                .when(open, |d| {
+                    d.focusable()
+                        .tab_index(0)
+                        .cursor_pointer()
+                        .focus_visible(|s| s.border_color(theme.ring))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.set_view(v, window, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| this.set_view(v, window, cx)))
+                })
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                .child(Icon::new(icon).small())
+                .child(
+                    div()
+                        .max_w_full()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_size(px(10.0))
+                        .line_height(px(12.0))
+                        .when(active, |d| d.font_weight(gpui::FontWeight::MEDIUM))
+                        .child(short),
+                )
                 .child(crate::driver::probe(id))
         };
+        let rule = || div().w(px(36.0)).h(px(1.0)).my_0p5().bg(theme.border);
         v_flex()
-            .w(px(44.0))
+            .w(px(60.0))
+            .flex_none()
             .h_full()
             .py_1()
-            .gap_1()
+            .gap_0p5()
             .items_center()
             .border_r_1()
             .border_color(theme.title_bar_border)
             .bg(theme.title_bar)
-            .child(view("view-home", IconName::House, "Start: what do you want to change?", Cmd::ShowHome, View::Home, cx))
-            .child(view("view-champions", IconName::Users, "Champions: skins, abilities, cards and game files of each", Cmd::ShowChampions, View::Champions, cx))
-            .child(view("view-packages", IconName::Package, "Game files: textures, meshes, materials, UI, scripts", Cmd::ShowPackages, View::Packages, cx))
-            .child(view("view-assembly", IconName::Database, "Game data: items, abilities, cards, skins, loot and texts", Cmd::ShowAssembly, View::Assembly, cx))
-            .child(view("view-audio", IconName::Volume2, "Sounds: voice lines, music and effects", Cmd::ShowAudio, View::Audio, cx))
-            .child(view("view-map", IconName::Map, "Maps: in 3D, with their scripts and cutscenes", Cmd::ShowMap, View::Map, cx))
-            .child(div().w(px(24.0)).h(px(1.0)).my_1().bg(theme.border))
-            .child(view("view-mod", IconName::Hammer, "Build mod: what your changes become", Cmd::ShowMod, View::Mod, cx))
+            .child(view("view-home", IconName::House, "Start", "Start: what do you want to change?", Cmd::ShowHome, View::Home, cx))
+            .child(view("view-champions", IconName::Users, "Champs", "Champions: skins, abilities, cards and game files of each", Cmd::ShowChampions, View::Champions, cx))
+            .child(rule())
+            .child(view("view-packages", IconName::Package, "Files", "Game files: textures, meshes, materials, UI, scripts", Cmd::ShowPackages, View::Packages, cx))
+            .child(view("view-assembly", IconName::Database, "Data", "Game data: items, abilities, cards, skins, loot and texts", Cmd::ShowAssembly, View::Assembly, cx))
+            .child(view("view-audio", IconName::Volume2, "Sounds", "Sounds: voice lines, music and effects", Cmd::ShowAudio, View::Audio, cx))
+            .child(view("view-map", IconName::Map, "Maps", "Maps: in 3D, with their scripts and cutscenes", Cmd::ShowMap, View::Map, cx))
+            .child(rule())
+            .child(view("view-mod", IconName::Hammer, "Mod", "Build mod: what your changes become", Cmd::ShowMod, View::Mod, cx))
             .child(div().flex_1())
-            .child(item("view-search", IconName::Search, format!("Search every package ({})", commands::key_hint("⌘⇧F")), false, cx, |s, w, cx| s.open_palette("#", w, cx)))
-            .child(item("view-shortcuts", IconName::Keyboard, "Keyboard shortcuts (F1)".into(), false, cx, |s, w, cx| s.show_shortcuts(w, cx)))
-            .child(item("view-settings", IconName::Settings, format!("Settings ({})", commands::key_hint("⌘,")), false, cx, |s, w, cx| s.show_settings(w, cx)))
+            .child(item("view-shortcuts", IconName::Keyboard, "Keys", "Keyboard shortcuts (F1)".into(), true, cx, |s, w, cx| s.show_shortcuts(w, cx)))
+            .child(item("view-settings", IconName::Settings, "Settings", format!("Settings ({})", commands::key_hint("⌘,")), true, cx, |s, w, cx| s.show_settings(w, cx)))
     }
 
     fn render_status(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let right = match (&self.dir, &self.open) {
-            (Some(_), Some(t)) if self.view == View::Packages => format!("{} · {} objects", t.name, t.exports.len()),
-            (Some(_), _) => format!("{} packages", self.packages.len()),
+            (Some(_), Some(t)) if self.view == View::Packages => {
+                let n = t.exports.len();
+                format!("{} · {n} object{}", t.name, if n == 1 { "" } else { "s" })
+            }
+            (Some(_), _) => {
+                let n = self.packages.len();
+                format!("{n} package{}", if n == 1 { "" } else { "s" })
+            }
             _ => String::new(),
         };
-        h_flex().h(px(24.0)).px_2().gap_2().bg(theme.status_bar).border_t_1().border_color(theme.status_bar_border).text_xs().text_color(theme.muted_foreground).child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.status.clone())).child(right)
+        h_flex()
+            .min_h(px(24.0))
+            .py_0p5()
+            .px_2()
+            .gap_2()
+            .bg(theme.status_bar)
+            .border_t_1()
+            .border_color(theme.status_bar_border)
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.status.clone()))
+            .child(div().flex_none().child(right))
     }
 }
 
@@ -1132,6 +1584,7 @@ impl Render for Studio {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         self.sync_compact(window);
+        self.sync_dirty_tracking();
         for (tone, text) in std::mem::take(&mut self.toasts) {
             let n = match tone {
                 Tone::Info => Notification::info(text),
@@ -1139,7 +1592,7 @@ impl Render for Studio {
                 Tone::Warning => Notification::warning(text),
                 Tone::Error => Notification::error(text),
             };
-            window.push_notification(n, cx);
+            window.push_notification(n.placement(gpui::Anchor::BottomRight), cx);
         }
         if let Some(pick) = self.pending_pick.take() {
             self.open_picker(pick, window, cx);
@@ -1189,6 +1642,7 @@ impl Render for Studio {
                 },
             }
         };
+        self.sync_palette(cx);
         let palette = self.render_palette(cx);
         let tab_bar = self.render_tabs(cx);
         let header = self.render_header(cx);
@@ -1230,7 +1684,13 @@ pub(crate) fn pretty_class(class: &str) -> String {
         ("akbank", "Wwise bank"),
         ("animsequence", "Animation"),
         ("animset", "Animation set"),
+        ("animtree", "Anim tree"),
+        ("animnodesequence", "Anim node"),
+        ("animnotify_akevent", "Anim sound cue"),
+        ("animnotify_playparticleeffect", "Anim particle cue"),
+        ("animnotify_script", "Anim script cue"),
         ("swfmovie", "UI movie"),
+        ("gfxmovieinfo", "UI movie"),
         ("particlesystem", "Particle system"),
         ("physicsasset", "Physics asset"),
         ("package", "Group"),
@@ -1243,7 +1703,8 @@ pub(crate) fn pretty_class(class: &str) -> String {
     if let Some((_, p)) = known.iter().find(|(k, _)| class.eq_ignore_ascii_case(k)) {
         return p.to_string();
     }
-    let mut c = class.chars();
+    let spaced = class.replace('_', " ");
+    let mut c = spaced.chars();
     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
 }
 
@@ -1262,7 +1723,7 @@ pub(crate) fn class_icon(class: &str) -> IconName {
         IconName::Music
     } else if c.starts_with("anim") {
         IconName::Film
-    } else if c == "swfmovie" {
+    } else if c == "swfmovie" || c == "gfxmovieinfo" {
         IconName::Layers
     } else if c.starts_with("particle") {
         IconName::Sparkles
@@ -1347,13 +1808,22 @@ static WINDOWS: std::sync::Mutex<Vec<gpui::AnyWindowHandle>> = std::sync::Mutex:
 
 /// A Studio window with its own backend (a backend holds one game folder).
 pub fn open_window(start: Option<String>, cx: &mut App) -> Option<Entity<Studio>> {
-    use gpui::{size, Bounds, WindowBounds, WindowOptions};
+    use gpui::{point, size, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
     let (backend, events) = crate::backend::Backend::start();
     let n = WINDOWS.lock().map(|w| w.len()).unwrap_or(0) as f32;
     let mut bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
     bounds.origin.x += px(28.0 * n);
     bounds.origin.y += px(28.0 * n);
-    let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_min_size: Some(size(px(960.0), px(640.0))),
+        titlebar: Some(TitlebarOptions {
+            title: Some("Tempest Studio".into()),
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(12.0), px(12.0))),
+        }),
+        ..Default::default()
+    };
     let mut studio = None;
     let window = cx
         .open_window(options, |window, cx| {
@@ -1390,5 +1860,8 @@ pub fn init(cx: &mut App) {
     menus::set(cx);
     let prefs = prefs::Prefs::load();
     prefs::theme_mode(&prefs.theme, None, cx);
+    let notif = &mut gpui_component::Theme::global_mut(cx).notification;
+    notif.placement = gpui::Anchor::BottomRight;
+    notif.margins.bottom = px(34.0);
     crate::game_material::set_sm3(prefs.sm3);
 }

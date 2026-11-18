@@ -277,6 +277,7 @@ pub struct Matinee {
     pub key: Option<KeyRef>,
     pub group: Option<usize>,
     pub track: Option<usize>,
+    selected_curve: Option<String>,
     pub looping: bool,
     pub section_only: bool,
     pub rate: Option<f64>,
@@ -297,7 +298,7 @@ pub struct Matinee {
 
 impl Matinee {
     pub fn new(_window: &mut Window, _cx: &mut Context<MapEditor>) -> Matinee {
-        Matinee { at: None, tl: None, time: 0.0, playing: false, key: None, group: None, track: None, looping: true, section_only: false, rate: None, curve: None, list: None, list_for: None, preview: Preview::default(), show_settings: false, add_track_for: None, track_class: 0, track_property: String::new(), lane: Default::default(), drag: None, curve_view: Default::default(), play_seq: 0 }
+        Matinee { at: None, tl: None, time: 0.0, playing: false, key: None, group: None, track: None, selected_curve: None, looping: true, section_only: false, rate: None, curve: None, list: None, list_for: None, preview: Preview::default(), show_settings: false, add_track_for: None, track_class: 0, track_property: String::new(), lane: Default::default(), drag: None, curve_view: Default::default(), play_seq: 0 }
     }
 
     pub fn close(&mut self) {
@@ -305,6 +306,7 @@ impl Matinee {
         self.tl = None;
         self.playing = false;
         self.key = None;
+        self.selected_curve = None;
         self.curve = None;
         self.list = None;
         self.list_for = None;
@@ -509,6 +511,7 @@ impl MapEditor {
     fn select_key(&mut self, r: Option<KeyRef>) {
         if let Some(r) = &r {
             self.matinee.track = Some(r.track);
+            self.matinee.selected_curve = Some(r.curve.clone());
             self.matinee.group = self.matinee.group_of(r.track).and_then(|g| g["export"].as_u64()).map(|g| g as usize).or(self.matinee.group);
         }
         self.matinee.key = r;
@@ -623,10 +626,10 @@ impl MapEditor {
         self.apply_visibility();
     }
 
-    pub(super) fn matinee_paths(&self, out: &mut Vec<Cv>) {
+    pub(super) fn matinee_paths(&self, dark: bool, out: &mut Vec<Cv>) {
         for (color, pts) in &self.matinee.preview.paths {
             let c = nums(color);
-            let col = if c.len() >= 3 { [(c[0] / 255.0) as f32, (c[1] / 255.0) as f32, (c[2] / 255.0) as f32, 1.0] } else { rgba(0xf9e2af, 1.0) };
+            let col = if c.len() >= 3 { [(c[0] / 255.0) as f32, (c[1] / 255.0) as f32, (c[2] / 255.0) as f32, 1.0] } else { rgba(if dark { 0xf9e2af } else { 0x824d00 }, 1.0) };
             for s in pts.windows(2) {
                 out.push(Cv::new(s[0], col));
                 out.push(Cv::new(s[1], col));
@@ -692,7 +695,51 @@ impl MapEditor {
         cx.notify();
     }
 
-    /// Keys of the Matinee view (in the 3D view): Delete removes the key, Space plays, Home/End, K.
+    fn step_matinee_key(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        let Some(tl) = self.matinee.tl.clone() else { return false };
+        let track = self
+            .matinee
+            .track
+            .or_else(|| self.matinee.key.as_ref().map(|r| r.track))
+            .or_else(|| {
+                arr(&tl["groups"])
+                    .iter()
+                    .flat_map(|g| arr(&g["tracks"]))
+                    .find(|t| arr(&t["curves"]).iter().any(|c| !arr(&c["keys"]).is_empty()))
+                    .and_then(|t| t["export"].as_u64())
+                    .map(|e| e as usize)
+            });
+        let Some(track) = track else { return false };
+        let Some(tr) = self.matinee.track(track).cloned() else { return false };
+        let non_empty = |p: &str| arr(&tr["curves"]).iter().find(|c| c["path"] == p).is_some_and(|c| !arr(&c["keys"]).is_empty());
+        let curve = self
+            .matinee
+            .key
+            .as_ref()
+            .filter(|r| r.track == track && non_empty(&r.curve))
+            .map(|r| r.curve.clone())
+            .or_else(|| self.matinee.selected_curve.as_ref().filter(|p| non_empty(p)).cloned())
+            .or_else(|| self.matinee.curve.as_ref().filter(|(t, p)| *t == track && non_empty(p)).map(|(_, p)| p.clone()))
+            .or_else(|| arr(&tr["curves"]).iter().find(|c| !arr(&c["keys"]).is_empty()).and_then(|c| c["path"].as_str()).map(str::to_string));
+        let Some(curve) = curve else { return false };
+        let keys = arr(&tr["curves"]).iter().find(|c| c["path"] == curve).map(|c| arr(&c["keys"]).to_vec()).unwrap_or_default();
+        if keys.is_empty() {
+            return false;
+        }
+        let next = step_key_index(
+            self.matinee.key.as_ref().filter(|r| r.track == track && r.curve == curve && r.key < keys.len()).map(|r| r.key),
+            &keys,
+            self.matinee.time,
+            delta,
+        );
+        let time = keys[next]["time"].as_f64().unwrap_or(0.0);
+        self.matinee.playing = false;
+        self.select_key(Some(KeyRef { track, curve, key: next }));
+        self.set_matinee_time(time, cx);
+        true
+    }
+
+    /// Keys of the Matinee view (in the 3D view): Delete removes the key, Space plays, Home/End, K, `[` / `]`.
     pub(super) fn matinee_key(&mut self, k: &str, m: &gpui::Modifiers, cx: &mut Context<Self>) -> bool {
         if m.platform || m.control || m.alt {
             return false;
@@ -705,6 +752,16 @@ impl MapEditor {
             "space" => self.toggle_play(cx),
             "home" => self.set_matinee_time(self.matinee.range().0, cx),
             "end" => self.set_matinee_time(self.matinee.range().1, cx),
+            "[" => {
+                if !self.step_matinee_key(-1, cx) {
+                    return false;
+                }
+            }
+            "]" => {
+                if !self.step_matinee_key(1, cx) {
+                    return false;
+                }
+            }
             "k" if self.matinee.track.is_some() => {
                 let t = self.matinee.track.unwrap();
                 self.key_at_playhead(t, cx);
@@ -832,6 +889,7 @@ impl MapEditor {
     pub(crate) fn remove_track(&mut self, track: usize, cx: &mut Context<Self>) {
         if self.matinee.track == Some(track) {
             self.matinee.track = None;
+            self.matinee.selected_curve = None;
         }
         if self.matinee.curve.as_ref().is_some_and(|c| c.0 == track) {
             self.matinee.curve = None;
@@ -889,16 +947,17 @@ impl MapEditor {
         rows
     }
 
-    fn lane_down(&mut self, e: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
+    fn lane_down(&mut self, e: &gpui::MouseDownEvent, window: &Window, cx: &mut Context<Self>) {
+        let row_h = matinee_row_h(window);
         let b = self.matinee.lane.get();
         let y = f32::from(e.position.y - b.origin.y);
-        if y < 24.0 {
+        if y < row_h {
             self.matinee.drag = Some(LaneDrag::Scrub);
             let t = self.lane_time(e.position.x);
             self.set_matinee_time(t, cx);
             return;
         }
-        let row = ((y - 24.0) / 24.0).floor() as usize;
+        let row = ((y - row_h) / row_h).floor() as usize;
         let Some(Some((track, curve))) = self.lane_rows().get(row).cloned() else { return };
         let len = self.matinee.length();
         let w = f32::from(b.size.width).max(1.0);
@@ -912,6 +971,7 @@ impl MapEditor {
         }
         let Some(k) = hit else {
             self.matinee.track = Some(track);
+            self.matinee.selected_curve = Some(curve);
             self.matinee.key = None;
             cx.notify();
             return;
@@ -1019,50 +1079,130 @@ impl MapEditor {
             .child(self.field("mat:length", fmt(len), 52.0, cx))
             .child(div().text_xs().text_color(theme.muted_foreground).child("s"))
             .child(div().flex_1())
-            .child(Button::new("mt-settings").xsmall().ghost().icon(Icon::new(IconName::Settings2)).label("Action").selected(self.matinee.show_settings).disabled(tl["action"].is_null()).tooltip("The Matinee action's settings").on_click(cx.listener(|this, _, _, cx| {
+            .child(Button::new("mt-settings").xsmall().ghost().icon(Icon::new(IconName::Settings2)).label("Action").selected(self.matinee.show_settings).disabled(tl["action"].is_null()).tooltip(if tl["action"].is_null() { "This InterpData has no linked SeqAct_Interp action" } else { "The Matinee action's settings" }).on_click(cx.listener(|this, _, _, cx| {
                 this.matinee.show_settings = !this.matinee.show_settings;
                 cx.notify();
             })))
             .child(self.field("mat:newgroup", String::new(), 100.0, cx))
             .child(Button::new("mt-add-group").xsmall().ghost().icon(Icon::new(IconName::Plus)).label("Group").tooltip("Add a group (type its name on the left)").on_click(cx.listener(|this, _, _, cx| this.commit_matinee_field("newgroup", String::new(), cx))))
             .when(!has_director, |d| d.child(Button::new("mt-director").xsmall().ghost().label("Director").tooltip("Add the director group (camera cuts, fades)").on_click(cx.listener(|this, _, _, cx| this.add_group("DirGroup".into(), true, cx)))));
-        let mut col = v_flex().h(px(384.0)).flex_none().border_t_1().border_color(theme.border).bg(theme.secondary).text_xs().child(toolbar);
+        let mut col = v_flex()
+            .id("matinee-panel")
+            .h(px(384.0))
+            .flex_none()
+            .border_t_1()
+            .border_color(theme.border)
+            .bg(theme.secondary)
+            .text_xs()
+            .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                let k = e.keystroke.key.as_str();
+                if this.field.is_none() && matches!(k, "[" | "]" | "k" | "home" | "end" | "delete" | "backspace") && this.matinee_key(k, &e.keystroke.modifiers, cx) {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            .child(toolbar);
         if self.matinee.show_settings && !tl["action"].is_null() {
             let a = tl["action"].as_u64().unwrap_or(0);
-            let mut row = h_flex().flex_wrap().gap_3().px_2().py_1().border_b_1().border_color(theme.border);
-            for (k, (prop, key, text)) in [("bLooping", "looping", "Loop"), ("bRewindOnPlay", "rewindOnPlay", "Rewind on play"), ("bRewindIfAlreadyPlaying", "rewindIfAlreadyPlaying", "Rewind if playing"), ("bNoResetOnRewind", "noResetOnRewind", "No reset on rewind"), ("bReversePlayback", "reversePlayback", "Reverse"), ("bClientSideOnly", "clientSideOnly", "Client side only"), ("bForceStartPos", "forceStartPos", "Force start position")].into_iter().enumerate() {
-                row = row.child(Checkbox::new(("mt-flag", k)).label(text).checked(st[key] == true).on_click(cx.listener(move |this, v: &bool, _, cx| this.matinee_edit("matinee.set", json!({ "object": a, "values": { prop: *v } }), None, cx))));
+            let group_label = |title: &'static str| div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title);
+            let sep = || div().w(px(1.0)).h(px(14.0)).bg(theme.border);
+            let mut playback = h_flex().flex_wrap().items_center().gap_2().child(group_label("Playback"));
+            for (k, (prop, key, text)) in [
+                ("bLooping", "looping", "Loop"),
+                ("bReversePlayback", "reversePlayback", "Reverse"),
+                ("bRewindOnPlay", "rewindOnPlay", "Rewind on play"),
+                ("bRewindIfAlreadyPlaying", "rewindIfAlreadyPlaying", "Rewind if playing"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                playback = playback.child(Checkbox::new(("mt-flag", k)).label(text).checked(st[key] == true).on_click(cx.listener(move |this, v: &bool, _, cx| this.matinee_edit("matinee.set", json!({ "object": a, "values": { prop: *v } }), None, cx))));
+            }
+            let mut actors_reset = h_flex().flex_wrap().items_center().gap_2().child(group_label("Actors & reset"));
+            for (k, (prop, key, text)) in [
+                ("bNoResetOnRewind", "noResetOnRewind", "No reset on rewind"),
+                ("bClientSideOnly", "clientSideOnly", "Client side only"),
+                ("bForceStartPos", "forceStartPos", "Force start position"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                actors_reset = actors_reset.child(Checkbox::new(("mt-flag", 4 + k)).label(text).checked(st[key] == true).on_click(cx.listener(move |this, v: &bool, _, cx| this.matinee_edit("matinee.set", json!({ "object": a, "values": { prop: *v } }), None, cx))));
             }
             let sec = nums(&tl["section"]);
-            row = row
-                .child(h_flex().gap_1().child("start at").child(self.field("mat:startpos", fmt(st["forceStartPosition"].as_f64().unwrap_or(0.0)), 50.0, cx)))
-                .child(h_flex().gap_1().child("PlayRate").child(self.field("mat:playrate", fmt(st["playRate"].as_f64().unwrap_or(1.0)), 50.0, cx)))
-                .child(h_flex().gap_1().child("section").child(self.field("mat:secstart", fmt(sec.first().copied().unwrap_or(0.0)), 50.0, cx)).child("–").child(self.field("mat:secend", fmt(sec.get(1).copied().unwrap_or(0.0)), 50.0, cx)));
+            let timing = h_flex()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .child(group_label("Timing & section"))
+                .child(h_flex().items_center().gap_1().child("start at").child(self.field("mat:startpos", fmt(st["forceStartPosition"].as_f64().unwrap_or(0.0)), 50.0, cx)))
+                .child(h_flex().items_center().gap_1().child("PlayRate").child(self.field("mat:playrate", fmt(st["playRate"].as_f64().unwrap_or(1.0)), 50.0, cx)))
+                .child(h_flex().items_center().gap_1().child("section").child(self.field("mat:secstart", fmt(sec.first().copied().unwrap_or(0.0)), 50.0, cx)).child("–").child(self.field("mat:secend", fmt(sec.get(1).copied().unwrap_or(0.0)), 50.0, cx)));
+            let row = h_flex()
+                .flex_wrap()
+                .items_center()
+                .gap_x_3()
+                .gap_y_1p5()
+                .px_2()
+                .py_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(playback)
+                .child(sep())
+                .child(actors_reset)
+                .child(sep())
+                .child(timing);
             col = col.child(row);
         }
         // Groups, tracks and lanes.
-        let mut names = v_flex().w(px(288.0)).flex_none().border_r_1().border_color(theme.border).child(div().h(px(24.0)));
+        let row_px = matinee_row_h(window);
+        let row_h = px(row_px);
+        let key_top = px(((row_px - 12.0) * 0.5).max(0.0).round());
+        let label_top = px(((row_px - 16.0) * 0.5).max(2.0).round());
+        let mut names = v_flex().w(px(288.0)).flex_none().border_r_1().border_color(theme.border).child(div().h(row_h));
         let width = f32::from(self.matinee.lane.get().size.width).max(1.0);
         let x_of = move |t: f64| (t / len) as f32 * width;
-        let mut lanes = v_flex().child(div().h(px(24.0)));
+        let mut lanes = v_flex().child(div().h(row_h));
         for (gi, g) in arr(&tl["groups"]).iter().enumerate() {
             let ge = g["export"].as_u64().unwrap_or(0) as usize;
             let director = g["director"] == true;
             let c = nums(&g["color"]);
-            let swatch = if c.len() >= 3 { gpui::rgb(((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32).into() } else { super::hsla(0xa6adc8) };
-            let hex = if c.len() >= 3 { format!("#{:02x}{:02x}{:02x}", c[0] as u32, c[1] as u32, c[2] as u32) } else { "#a6adc8".into() };
+            let fallback_rgb = theme.muted_foreground.to_rgb();
+            let swatch: gpui::Hsla = if c.len() >= 3 { gpui::rgb(((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32).into() } else { theme.muted_foreground };
+            let hex = if c.len() >= 3 {
+                format!("#{:02x}{:02x}{:02x}", c[0] as u32, c[1] as u32, c[2] as u32)
+            } else {
+                format!("#{:02x}{:02x}{:02x}", (fallback_rgb.r * 255.0).round() as u8, (fallback_rgb.g * 255.0).round() as u8, (fallback_rgb.b * 255.0).round() as u8)
+            };
             let actors = arr(&g["actors"]).iter().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>().join(", ");
             let linked = va.is_some_and(|v| arr(&g["actors"]).iter().any(|a| a["export"].as_u64() == Some(v as u64)));
             let group_name = g["name"].as_str().filter(|n| !n.is_empty()).or(g["class"].as_str()).unwrap_or("").to_string();
+            let group_sel = self.matinee.group == Some(ge);
+            let ring = theme.ring;
+            let hover_bg = theme.list_hover;
             let mut head = h_flex()
                 .id(("mt-group", gi))
-                .group(format!("mtg{gi}"))
-                .h(px(24.0))
+                .focusable()
+                .tab_index(0)
+                .h(row_h)
                 .px_2()
                 .gap_1p5()
                 .bg(theme.background.opacity(0.5))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                .when(self.matinee.group == Some(ge), |d| d.border_1().border_color(theme.primary.opacity(0.5)))
+                .cursor_pointer()
+                .border_1()
+                .border_color(if group_sel { theme.primary.opacity(0.5) } else { gpui::transparent_black() })
+                .focus_visible(move |s| s.border_color(ring))
+                .when(!group_sel, |d| d.hover(move |s| s.bg(hover_bg)))
+                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                    if this.field.is_none() && (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.matinee.group = Some(ge);
+                        cx.notify();
+                    }
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.matinee.group = Some(ge);
                     cx.notify();
@@ -1073,23 +1213,46 @@ impl MapEditor {
             } else {
                 head = head.child(div().child(group_name.clone()));
             }
-            let mut ops = h_flex().ml_auto().gap_0p5().invisible().group_hover(format!("mtg{gi}"), |s| s.visible());
+            let mut ops = h_flex().ml_auto().gap_0p5();
             if let (false, Some((v, a)), false) = (director, view_actor.clone(), tl["action"].is_null()) {
                 let static_mesh = a.class.eq_ignore_ascii_case("staticmeshactor") || a.class.to_ascii_lowercase().contains("collection");
                 let tip = if linked { format!("Stop driving {}", a.name) } else { format!("Drive {} (the actor selected in the view){}", a.name, if static_mesh { " — static meshes do not move in game: use an InterpActor" } else { "" }) };
-                ops = ops.child(Button::new(("mt-link", gi)).xsmall().ghost().icon(Icon::new(if linked { IconName::Unlink } else { IconName::Link2 })).tooltip(tip).on_click(cx.listener(move |this, _, _, cx| this.connect(ge, v, linked, cx))));
+                ops = ops.child(Button::new(("mt-link", gi)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(if linked { IconName::Unlink } else { IconName::Link2 })).tooltip(tip).on_click(cx.listener(move |this, _, _, cx| this.connect(ge, v, linked, cx))));
             }
+            let rm_group = if group_name.is_empty() { "this group".to_string() } else { group_name.clone() };
             ops = ops
-                .child(Button::new(("mt-add-track", gi)).xsmall().ghost().icon(Icon::new(IconName::Plus)).tooltip("Add a track").on_click(cx.listener(move |this, _, _, cx| {
+                .child(Button::new(("mt-add-track", gi)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Plus)).tooltip("Add a track").on_click(cx.listener(move |this, _, _, cx| {
                     this.matinee.add_track_for = if this.matinee.add_track_for == Some(ge) { None } else { Some(ge) };
                     this.matinee.track_class = if director { TRACK_CLASSES.iter().position(|c| c.0 == "InterpTrackDirector").unwrap_or(0) } else { 0 };
                     this.matinee.track_property.clear();
                     cx.notify();
                 })))
-                .child(Button::new(("mt-rm-group", gi)).xsmall().ghost().icon(Icon::new(IconName::Trash)).tooltip("Remove the group and its tracks").on_click(cx.listener(move |this, _, _, cx| this.remove_group(ge, cx))));
+                .child(
+                    Button::new(("mt-rm-group", gi))
+                        .xsmall()
+                        .ghost()
+                        .text_color(theme.muted_foreground)
+                        .icon(Icon::new(IconName::Trash))
+                        .tooltip("Remove the group and its tracks")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            let me = cx.entity().downgrade();
+                            let undo = crate::studio::commands::key_hint("⌘Z");
+                            crate::studio::dialogs::confirm(
+                                window,
+                                cx,
+                                format!("Delete {rm_group}?"),
+                                format!("The group and every track and key inside it are removed from this Matinee. Undo ({undo}) brings it back."),
+                                "Delete",
+                                true,
+                                move |_, cx| {
+                                    let _ = me.update(cx, |this, cx| this.remove_group(ge, cx));
+                                },
+                            );
+                        })),
+                );
             head = head.when(!actors.is_empty(), |d| d.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::NORMAL).text_color(theme.muted_foreground).child(actors))).child(ops);
             names = names.child(head);
-            lanes = lanes.child(div().h(px(24.0)).bg(theme.background.opacity(0.5)));
+            lanes = lanes.child(div().h(row_h).bg(theme.background.opacity(0.5)));
             if self.matinee.add_track_for == Some(ge) {
                 let (ci, me) = (self.matinee.track_class, cx.entity().downgrade());
                 let class_menu = Button::new(("mt-track-class", gi)).xsmall().label(TRACK_CLASSES[ci].1).dropdown_menu(move |menu, _, _| {
@@ -1109,20 +1272,20 @@ impl MapEditor {
                 let prop = self.matinee.track_property.clone();
                 names = names.child(
                     h_flex()
-                        .h(px(24.0))
+                        .h(row_h)
                         .px_2()
                         .gap_1()
                         .bg(theme.background)
                         .child(class_menu)
                         .when(!spec.2.is_empty(), |d| d.child(self.field("mat:trackprop", if prop.is_empty() { spec.2[0].to_string() } else { prop.clone() }, 90.0, cx)))
-                        .child(Button::new(("mt-track-add", gi)).xsmall().primary().label("Add").on_click(cx.listener(move |this, _, _, cx| {
+                        .child(Button::new(("mt-track-add", gi)).xsmall().label("Add").on_click(cx.listener(move |this, _, _, cx| {
                             this.matinee.add_track_for = None;
                             let spec = TRACK_CLASSES[this.matinee.track_class];
                             let p = (!spec.2.is_empty()).then(|| if this.matinee.track_property.trim().is_empty() { spec.2[0].to_string() } else { this.matinee.track_property.trim().to_string() });
                             this.add_track(ge, spec.0.to_string(), p, cx);
                         }))),
                 );
-                lanes = lanes.child(div().h(px(24.0)));
+                lanes = lanes.child(div().h(row_h));
             }
             for (ti, tr) in arr(&g["tracks"]).iter().enumerate() {
                 let te = tr["export"].as_u64().unwrap_or(0) as usize;
@@ -1130,39 +1293,59 @@ impl MapEditor {
                 for (ci, c) in arr(&tr["curves"]).iter().enumerate() {
                     let path = c["path"].as_str().unwrap_or("").to_string();
                     let gid = format!("mtt{gi}-{ti}-{ci}");
+                    let disabled = tr["disabled"] == true;
+                    let track_sel = self.matinee.track == Some(te);
+                    let (p_key, p_click) = (path.clone(), path.clone());
                     let mut row = h_flex()
-                        .id(gpui::SharedString::from(gid.clone()))
-                        .group(gid.clone())
-                        .h(px(24.0))
+                        .id(gpui::SharedString::from(gid))
+                        .focusable()
+                        .tab_index(0)
+                        .h(row_h)
                         .px_2()
                         .when(!tr["parent"].is_null(), |d| d.pl_5())
                         .gap_1()
-                        .when(tr["disabled"] == true, |d| d.opacity(0.4))
-                        .when(self.matinee.track == Some(te), |d| d.bg(theme.primary.opacity(0.1)))
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
+                        .cursor_pointer()
+                        .when(track_sel, |d| d.bg(theme.primary.opacity(0.1)))
+                        .when(!track_sel, |d| d.hover(move |s| s.bg(hover_bg)))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if this.field.is_none() && (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.matinee.track = Some(te);
+                                this.matinee.selected_curve = Some(p_key.clone());
+                                this.matinee.group = Some(ge);
+                                this.matinee.key = None;
+                                cx.notify();
+                            }
+                        }))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.matinee.track = Some(te);
+                            this.matinee.selected_curve = Some(p_click.clone());
                             this.matinee.group = Some(ge);
                             this.matinee.key = None;
                             cx.notify();
                         }));
                     row = if ci == 0 {
-                        row.child(Checkbox::new(("mt-on", te)).checked(tr["disabled"] != true).tooltip("Enabled (bDisableTrack)").on_click(cx.listener(move |this, v: &bool, _, cx| this.matinee_edit("matinee.set", json!({ "object": te, "values": { "bDisableTrack": !*v } }), None, cx))))
+                        row.child(Checkbox::new(("mt-on", te)).checked(!disabled).tooltip("Enabled (bDisableTrack)").on_click(cx.listener(move |this, v: &bool, _, cx| this.matinee_edit("matinee.set", json!({ "object": te, "values": { "bDisableTrack": !*v } }), None, cx))))
                     } else {
                         row.child(div().w(px(14.0)))
                     };
                     let p1 = path.clone();
                     let p2 = path.clone();
-                    let mut ops = h_flex().ml_auto().gap_0p5().invisible().group_hover(gid.clone(), |s| s.visible());
+                    let mut ops = h_flex().ml_auto().gap_0p5();
                     if c["kind"] == "curve" {
                         let on = self.matinee.curve.as_ref() == Some(&(te, path.clone()));
-                        ops = ops.child(Button::new(("mt-curve", te * 16 + ci)).xsmall().ghost().icon(Icon::new(IconName::Activity)).selected(on).tooltip("Curve editor").on_click(cx.listener(move |this, _, _, cx| {
+                        ops = ops.child(Button::new(("mt-curve", te * 16 + ci)).xsmall().ghost().when(!on, |b| b.text_color(theme.muted_foreground)).icon(Icon::new(IconName::Activity)).selected(on).tooltip("Curve editor").on_click(cx.listener(move |this, _, _, cx| {
                             this.matinee.curve = Some((te, p1.clone()));
                             this.matinee.curve_view.fit_for = None;
                             cx.notify();
                         })));
                     }
                     let mv = is_move(tr);
-                    ops = ops.child(Button::new(("mt-k", te * 16 + ci)).xsmall().ghost().label("K").tooltip(if mv { "Add a key at the playhead (K) from where the actor is" } else { "Add a key at the playhead (K)" }).on_click(cx.listener(move |this, _, _, cx| {
+                    ops = ops.child(Button::new(("mt-k", te * 16 + ci)).xsmall().ghost().text_color(theme.muted_foreground).label("K").tooltip(if mv { "Add a key at the playhead (K) from where the actor is" } else { "Add a key at the playhead (K)" }).on_click(cx.listener(move |this, _, _, cx| {
                         this.matinee.track = Some(te);
                         if ci == 0 {
                             this.key_at_playhead(te, cx);
@@ -1172,11 +1355,44 @@ impl MapEditor {
                         }
                     })));
                     if ci == 0 {
-                        ops = ops.child(Button::new(("mt-rm-track", te)).xsmall().ghost().icon(Icon::new(IconName::Trash)).tooltip("Remove the track").on_click(cx.listener(move |this, _, _, cx| this.remove_track(te, cx))));
+                        let rm_track = if !label.is_empty() {
+                            label.clone()
+                        } else {
+                            tr["class"].as_str().filter(|s| !s.is_empty()).unwrap_or("this track").to_string()
+                        };
+                        let in_group = group_name.clone();
+                        ops = ops.child(
+                            Button::new(("mt-rm-track", te))
+                                .xsmall()
+                                .ghost()
+                                .text_color(theme.muted_foreground)
+                                .icon(Icon::new(IconName::Trash))
+                                .tooltip("Remove the track")
+                                .on_click(cx.listener(move |_, _, window, cx| {
+                                    let me = cx.entity().downgrade();
+                                    let undo = crate::studio::commands::key_hint("⌘Z");
+                                    let body = if in_group.is_empty() {
+                                        format!("The track and all its keys are removed from this Matinee. Undo ({undo}) brings it back.")
+                                    } else {
+                                        format!("The {rm_track} track and all its keys are removed from {in_group}. Undo ({undo}) brings it back.")
+                                    };
+                                    crate::studio::dialogs::confirm(
+                                        window,
+                                        cx,
+                                        format!("Delete {rm_track}?"),
+                                        body,
+                                        "Delete",
+                                        true,
+                                        move |_, cx| {
+                                            let _ = me.update(cx, |this, cx| this.remove_track(te, cx));
+                                        },
+                                    );
+                                })),
+                        );
                     }
-                    names = names.child(row.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label.clone())).child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.muted_foreground).child(c["name"].as_str().unwrap_or("").to_string())).child(ops));
+                    names = names.child(row.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().when(disabled, |d| d.text_color(theme.muted_foreground)).child(label.clone())).child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.muted_foreground).child(c["name"].as_str().unwrap_or("").to_string())).child(ops));
                     // The lane: one diamond per key.
-                    let mut lane = div().relative().h(px(24.0)).border_b_1().border_color(theme.border.opacity(0.5));
+                    let mut lane = div().relative().h(row_h).border_b_1().border_color(theme.border.opacity(0.5));
                     for (ki, k) in arr(&c["keys"]).iter().enumerate() {
                         let active = self.matinee.key.as_ref() == Some(&KeyRef { track: te, curve: path.clone(), key: ki });
                         let mut t = k["time"].as_f64().unwrap_or(0.0);
@@ -1187,11 +1403,11 @@ impl MapEditor {
                         }
                         let x = x_of(t);
                         let color = if active { theme.warning } else if c["kind"] == "curve" { theme.primary } else { theme.info };
-                        lane = lane.child(div().absolute().top(px(6.0)).left(px(x - 6.0)).size(px(12.0)).rounded_sm().bg(color.opacity(0.8)).border_1().border_color(color));
+                        lane = lane.child(div().absolute().top(key_top).left(px(x - 6.0)).size(px(12.0)).rounded_sm().bg(color.opacity(0.8)).border_1().border_color(color));
                         if let Some(s) = k["value"].as_str().filter(|_| c["kind"] == "keys") {
                             let l = s.to_ascii_lowercase();
                             let short = if l.starts_with("etta_") || l.starts_with("evta_") { s[5..].to_string() } else { s.to_string() };
-                            lane = lane.child(div().absolute().top(px(4.0)).left(px(x + 8.0)).max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_size(px(9.0)).opacity(0.7).child(short));
+                            lane = lane.child(div().absolute().top(label_top).left(px(x + 8.0)).max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_xs().text_color(theme.muted_foreground).child(short));
                         }
                     }
                     lanes = lanes.child(lane);
@@ -1203,13 +1419,13 @@ impl MapEditor {
             let step = if len > 20.0 { 5.0 } else if len > 5.0 { 1.0 } else if len > 1.0 { 0.25 } else { 0.05 };
             (0..=((len / step).floor() as usize)).map(|i| i as f64 * step).collect::<Vec<_>>()
         };
-        let mut ruler = div().absolute().top_0().left_0().right_0().h(px(24.0)).bg(theme.background.opacity(0.3)).cursor(gpui::CursorStyle::ResizeLeftRight);
+        let mut ruler = div().absolute().top_0().left_0().right_0().h(row_h).bg(theme.background.opacity(0.3)).cursor(gpui::CursorStyle::ResizeLeftRight);
         let sec = nums(&tl["section"]);
         if sec.len() == 2 && sec[1] > sec[0] {
             ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(sec[0]))).w(px(x_of(sec[1]) - x_of(sec[0]))).bg(theme.info.opacity(0.15)));
         }
         for t in ruler_ticks {
-            ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(t))).border_l_1().border_color(theme.foreground.opacity(0.1)).pl_0p5().font_family(crate::studio::ui::mono()).text_size(px(9.0)).opacity(0.6).child(format!("{}", (t * 100.0).round() / 100.0)));
+            ruler = ruler.child(div().absolute().top_0().h_full().left(px(x_of(t))).border_l_1().border_color(theme.foreground.opacity(0.1)).pl_0p5().font_family(crate::studio::ui::mono()).text_xs().text_color(theme.muted_foreground).child(format!("{}", (t * 100.0).round() / 100.0)));
         }
         let head = div().absolute().top_0().bottom_0().left(px(x_of(self.matinee.time))).w(px(1.0)).bg(theme.warning);
         let lane_bounds = self.matinee.lane.clone();
@@ -1224,7 +1440,7 @@ impl MapEditor {
             .child(ruler)
             .child(head)
             .child(crate::driver::probe("mt-lanes"))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, e, _, cx| this.lane_down(e, cx)))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, e, window, cx| this.lane_down(e, window, cx)))
             .on_mouse_move(cx.listener(|this, e, _, cx| this.lane_move(e, cx)))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| this.lane_up(cx)));
         col = col.child(div().id("mt-body").flex_1().min_h_0().overflow_y_scroll().child(h_flex().items_start().child(names).child(lane_area)));
@@ -1315,17 +1531,45 @@ impl MapEditor {
             if let Some(p) = t["property"].as_str() {
                 strip = strip.child(h_flex().gap_1().child("property").child(self.field("mat:prop", p.to_string(), 110.0, cx)));
             }
-            strip = strip.child(div().flex_1()).child(div().text_color(theme.muted_foreground).child(if t["moveFrame"].is_string() { "K: key at the playhead · moving the actor with the gizmo keys it" } else { "K: key at the playhead" }));
+            strip = strip.child(div().flex_1()).child(div().text_color(theme.muted_foreground).child(if t["moveFrame"].is_string() { "[ / ]: prev / next key · K: key at playhead · moving actor keys it" } else { "[ / ]: prev / next key · K: key at playhead" }));
         } else {
-            strip = strip.child(div().text_color(theme.muted_foreground).child("click a key to edit it · double-click a row to add one · K adds one at the playhead on the selected track · in this view, moving a driven actor keys its movement"));
+            strip = strip.child(div().text_color(theme.muted_foreground).child("click or press [ / ] to select a key · double-click a row to add one · K adds one at the playhead on the selected track · in this view, moving a driven actor keys its movement"));
         }
         strip.into_any_element()
+    }
+}
+
+fn matinee_row_h(window: &Window) -> f32 {
+    (1.5 * f32::from(window.rem_size())).max(24.0).round()
+}
+
+fn step_key_index(current: Option<usize>, keys: &[J], time: f64, delta: isize) -> usize {
+    match current {
+        Some(cur) => (cur as isize + delta).rem_euclid(keys.len() as isize) as usize,
+        None if delta >= 0 => keys
+            .iter()
+            .position(|k| k["time"].as_f64().unwrap_or(0.0) >= time - 1e-6)
+            .unwrap_or(0),
+        None => keys
+            .iter()
+            .rposition(|k| k["time"].as_f64().unwrap_or(0.0) < time - 1e-6)
+            .unwrap_or(keys.len() - 1),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn step_key_index_cycles_and_snaps_from_playhead() {
+        let keys = vec![json!({ "time": 0.0 }), json!({ "time": 2.0 }), json!({ "time": 5.0 })];
+        assert_eq!(step_key_index(None, &keys, 0.0, 1), 0);
+        assert_eq!(step_key_index(Some(0), &keys, 0.0, 1), 1);
+        assert_eq!(step_key_index(Some(2), &keys, 5.0, 1), 0);
+        assert_eq!(step_key_index(Some(0), &keys, 0.0, -1), 2);
+        assert_eq!(step_key_index(None, &keys, 3.0, -1), 1);
+    }
 
     #[test]
     fn a_world_move_track_puts_the_actor_on_its_keys() {

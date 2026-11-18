@@ -9,7 +9,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 
-use super::{hsla, MapEditor};
+use super::MapEditor;
 use crate::studio::Place;
 
 fn fmt(v: f64) -> String {
@@ -39,7 +39,7 @@ impl MapEditor {
             .child(
                 h_flex()
                     .gap_1()
-                    .child(div().size(px(10.0)).flex_none().rounded_full().bg(hsla(actor.color())))
+                    .child(div().size(px(10.0)).flex_none().rounded_full().bg(actor.ui_color(&theme)))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(actor.name.clone()))
                     .child(Button::new("mi-frame").xsmall().ghost().icon(Icon::new(IconName::Focus)).tooltip("Frame it (F)").on_click(cx.listener(|this, _, _, cx| {
                         this.frame_selection();
@@ -57,7 +57,7 @@ impl MapEditor {
             )
             .child(h_flex().flex_wrap().gap_x_3().text_color(theme.muted_foreground).child(div().font_family(crate::studio::ui::mono()).child(actor.class.clone())).child(level_name).child(format!("export {}", actor.export)));
         if actor.component {
-            head = head.child(div().text_color(theme.muted_foreground).child("A mesh the cooker gathered into a collection: moving it writes this component's Translation, Rotation and Scale3D."));
+            head = head.child(div().text_color(theme.muted_foreground).child("Part of a combined static mesh batch grouped for faster rendering: moving it writes this component's Translation, Rotation and Scale3D."));
         }
         let tip = if actor.component { "m_bCanBaseOn: off makes its surfaces rooftops pawns slide off; on a wall that is a heavy wall. For this mesh it is set on its collection actor, so every mesh of the collection changes." } else { "m_bCanBaseOn: off makes its surfaces rooftops pawns slide off; on a wall that is a heavy wall" };
         head = head.child(

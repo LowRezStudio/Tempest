@@ -161,8 +161,8 @@ impl MovieEditor {
             return sec.into_any_element();
         }
         let detail = match self.detail_for(id, cx) {
-            None => return sec.child(div().opacity(0.5).child("Reading…")).into_any_element(),
-            Some(Err(e)) => return sec.child(div().text_color(theme.danger).child(e)).into_any_element(),
+            None => return sec.child(div().text_color(theme.muted_foreground).child("Reading…")).into_any_element(),
+            Some(Err(e)) => return sec.child(div().text_color(theme.danger).child(crate::studio::ui::explain_error(&e))).into_any_element(),
             Some(Ok(d)) => d,
         };
         let Some(tag) = tag else { return sec.into_any_element() };
@@ -175,39 +175,39 @@ impl MovieEditor {
                 let colors = detail["colors"].as_array().cloned().unwrap_or_default();
                 let lines = detail["lines"].as_array().cloned().unwrap_or_default();
                 if !colors.is_empty() {
-                    sec = sec.child(div().opacity(0.6).child("colours"));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child("colours"));
                     for col in &colors {
                         let key = col["key"].as_str().unwrap_or("").to_string();
                         let color = col["color"].as_str().unwrap_or("#000000ff").to_string();
                         let parts: Vec<&str> = key.split(':').collect();
                         let label = if key.starts_with("stop:") { format!("stop {}", parts.get(3).unwrap_or(&"?")) } else { format!("fill {}", parts.get(2).and_then(|n| n.parse::<u64>().ok()).map(|n| n + 1).unwrap_or(0)) };
                         let edited = self.is_edited(&format!("shapeColor|{tag}|{key}"));
-                        let mut row = h_flex().gap_1().child(div().w(px(64.0)).font_family(crate::studio::ui::mono()).opacity(0.5).overflow_hidden().text_ellipsis().child(label)).child(self.swatch(tag, key.clone(), &color, edited, window, cx)).child(self.field(format!("col:{tag}:{key}"), color.get(0..7).unwrap_or("").to_string(), 80.0, cx));
+                        let mut row = h_flex().gap_1().child(div().w(px(64.0)).font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().child(label)).child(self.swatch(tag, key.clone(), &color, edited, window, cx)).child(self.field(format!("col:{tag}:{key}"), color.get(0..7).unwrap_or("").to_string(), 80.0, cx));
                         if alpha {
-                            row = row.child(self.field(format!("alpha:{tag}:{key}"), alpha_of(&color).to_string(), 44.0, cx)).child(div().opacity(0.5).child("%"));
+                            row = row.child(self.field(format!("alpha:{tag}:{key}"), alpha_of(&color).to_string(), 44.0, cx)).child(div().text_color(theme.muted_foreground).child("%"));
                         }
                         sec = sec.child(row);
                     }
                 }
                 if !lines.is_empty() {
-                    sec = sec.child(div().opacity(0.6).child("lines"));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child("lines"));
                     for l in &lines {
                         let key = l["key"].as_str().unwrap_or("").to_string();
                         let ckey = l["colorKey"].as_str().unwrap_or("").to_string();
                         let color = l["color"].as_str().unwrap_or("#000000ff").to_string();
                         let edited = self.is_edited(&format!("shapeColor|{tag}|{key}"));
-                        let mut row = h_flex().gap_1().child(self.field(format!("lw:{tag}:{key}"), l["width"].as_f64().map(|w| w.to_string()).unwrap_or_default(), 56.0, cx)).child(div().opacity(0.5).child("px")).child(self.swatch(tag, ckey.clone(), &color, edited, window, cx));
+                        let mut row = h_flex().gap_1().child(self.field(format!("lw:{tag}:{key}"), l["width"].as_f64().map(|w| w.to_string()).unwrap_or_default(), 56.0, cx)).child(div().text_color(theme.muted_foreground).child("px")).child(self.swatch(tag, ckey.clone(), &color, edited, window, cx));
                         if alpha {
-                            row = row.child(self.field(format!("alpha:{tag}:{ckey}"), alpha_of(&color).to_string(), 44.0, cx)).child(div().opacity(0.5).child("%"));
+                            row = row.child(self.field(format!("alpha:{tag}:{ckey}"), alpha_of(&color).to_string(), 44.0, cx)).child(div().text_color(theme.muted_foreground).child("%"));
                         }
                         sec = sec.child(row);
                     }
                 }
                 if colors.is_empty() && lines.is_empty() {
-                    sec = sec.child(div().opacity(0.6).child(if detail["bitmapFills"].as_u64().unwrap_or(0) > 0 { "Draws an image: replace the picture through the image." } else { "No colours." }));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child(if detail["bitmapFills"].as_u64().unwrap_or(0) > 0 { "Draws an image: replace the picture through the image." } else { "No colours." }));
                 }
                 if !alpha {
-                    sec = sec.child(div().opacity(0.5).child(format!("{}: colours have no alpha.", detail["tagName"].as_str().unwrap_or(""))));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child(format!("{}: colours have no alpha.", detail["tagName"].as_str().unwrap_or(""))));
                 }
                 let fit = self.fit_svg;
                 sec = sec.child(
@@ -221,7 +221,7 @@ impl MovieEditor {
                                 let r = std::fs::read_to_string(&f);
                                 let _ = this.update(cx, |this, cx| match r {
                                     Ok(svg) => this.replace_shape(tag, svg, this.fit_svg, cx),
-                                    Err(e) => this.toast(super::Tone::Error, format!("Could not read the SVG: {e}"), cx),
+                                    Err(e) => this.toast(super::Tone::Error, format!("Could not read the SVG: {}", crate::studio::ui::explain_error(&e.to_string())), cx),
                                 });
                             })
                             .detach();
@@ -238,10 +238,10 @@ impl MovieEditor {
                     let color = r["color"].as_str().unwrap_or("#000000ff").to_string();
                     let edited = self.is_edited(&format!("staticText|{tag}|{i}"));
                     sec = sec
-                        .child(div().opacity(0.6).child(format!("record {} · {} {}px", i + 1, r["fontName"].as_str().map(str::to_string).unwrap_or_else(|| format!("font {}", r["font"])), r["height"])))
+                        .child(div().text_color(theme.muted_foreground).child(format!("record {} · {} {}px", i + 1, r["fontName"].as_str().map(str::to_string).unwrap_or_else(|| format!("font {}", r["font"])), r["height"])))
                         .child(h_flex().gap_1().child(self.field(format!("st:{tag}:{i}"), r["text"].as_str().unwrap_or("").to_string(), 200.0, cx)).child(self.swatch(tag, format!("record:{i}"), &color, edited, window, cx)));
                 }
-                sec = sec.child(div().opacity(0.5).child("Characters come from the record's font: add missing ones to the font first.")).child(self.export_row(c, cx));
+                sec = sec.child(div().text_color(theme.muted_foreground).child("Characters come from the record's font: add missing ones to the font first.")).child(self.export_row(c, cx));
             }
             "edittext" => {
                 let p = detail["props"].clone();
@@ -316,7 +316,7 @@ impl MovieEditor {
                     .child(self.prop_row("glyphs", div().font_family(crate::studio::ui::mono()).child(format!("{}{}{}", detail["glyphs"], if detail["layout"].as_bool() == Some(true) { "" } else { " · no layout" }, if detail["alignZones"].as_bool() == Some(true) { " · align zones" } else { "" })), cx))
                     .child(div().id("cx-chars").max_h(px(96.0)).overflow_y_scroll().p_1().rounded_sm().bg(theme.secondary).font_family(crate::studio::ui::mono()).child(detail["chars"].as_str().filter(|s| !s.is_empty()).unwrap_or("(device font: no glyphs)").to_string()));
                 if detail["editable"].as_bool() == Some(true) {
-                    sec = sec.child(div().opacity(0.6).child("add characters"));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child("add characters"));
                     if let Some(p) = self.edit(&format!("fontGlyphs|{tag}")) {
                         let chars = p["chars"].as_str().unwrap_or("");
                         let file = p["file"].as_str().unwrap_or("");
@@ -346,33 +346,63 @@ impl MovieEditor {
                             this.glyph_chars.update(cx, |s, cx| s.set_value(next, window, cx));
                         })));
                     }
-                    let ready = file.is_some() && !self.glyph_chars.read(cx).value().is_empty();
+                    let has_file = file.is_some();
+                    let ready = has_file && !self.glyph_chars.read(cx).value().is_empty();
                     sec = sec
                         .child(pre)
-                        .child(Button::new("cx-add-glyphs").xsmall().icon(Icon::new(IconName::FilePlus)).label("Add to the font").disabled(!ready).on_click(cx.listener(move |this, _, window, cx| {
-                            let Some(file) = this.glyph_file.clone() else { return };
-                            let chars = this.glyph_chars.read(cx).value().to_string();
-                            // Several additions from the same file merge into one edit.
-                            let merged = match this.edit(&format!("fontGlyphs|{tag}")) {
-                                Some(p) if p["file"].as_str() == Some(&file) => format!("{}{chars}", p["chars"].as_str().unwrap_or("")),
-                                _ => chars,
-                            };
-                            this.set_edit(json!({ "kind": "fontGlyphs", "tag": tag, "file": file, "chars": merged }), cx);
-                            this.glyph_chars.update(cx, |s, cx| s.set_value("", window, cx));
-                        })))
-                        .child(div().opacity(0.5).child("Glyphs are inserted in character order; static texts using the font follow. The file's outlines and advances are scaled to the font."));
+                        .child(
+                            Button::new("cx-add-glyphs")
+                                .xsmall()
+                                .icon(Icon::new(IconName::FilePlus))
+                                .label("Add to the font")
+                                .disabled(!ready)
+                                .when(!ready, |b| b.tooltip(if !has_file { "Choose a TTF or OTF font file above first" } else { "Type or pick characters to add above first" }))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let Some(file) = this.glyph_file.clone() else { return };
+                                    let chars = this.glyph_chars.read(cx).value().to_string();
+                                    // Several additions from the same file merge into one edit.
+                                    let merged = match this.edit(&format!("fontGlyphs|{tag}")) {
+                                        Some(p) if p["file"].as_str() == Some(&file) => format!("{}{chars}", p["chars"].as_str().unwrap_or("")),
+                                        _ => chars,
+                                    };
+                                    this.set_edit(json!({ "kind": "fontGlyphs", "tag": tag, "file": file, "chars": merged }), cx);
+                                    this.glyph_chars.update(cx, |s, cx| s.set_value("", window, cx));
+                                })),
+                        )
+                        .child(div().text_color(theme.muted_foreground).child("Glyphs are inserted in character order; static texts using the font follow. The file's outlines and advances are scaled to the font."));
                 }
                 let none = detail["glyphs"].as_u64().unwrap_or(0) == 0;
-                sec = sec.child(self.prop_row("export", Button::new("cx-ttf").xsmall().ghost().icon(Icon::new(IconName::Download)).label("TrueType").disabled(none).on_click(cx.listener(move |this, _, _, cx| this.export_file(id, "ttf", "ttf", cx))), cx));
+                sec = sec.child(
+                    self.prop_row(
+                        "export",
+                        Button::new("cx-ttf")
+                            .xsmall()
+                            .ghost()
+                            .icon(Icon::new(IconName::Download))
+                            .label("TrueType")
+                            .disabled(none)
+                            .when(none, |b| b.tooltip("Device fonts store no embedded glyph outlines to export"))
+                            .on_click(cx.listener(move |this, _, _, cx| this.export_file(id, "ttf", "ttf", cx))),
+                        cx,
+                    ),
+                );
             }
             "sound" => {
                 let ext = detail["ext"].as_str().map(str::to_string);
+                let unsupported = ext.is_none();
                 sec = sec.child(div().font_family(crate::studio::ui::mono()).child(format!("{} · {} Hz · {}{}", detail["format"].as_str().unwrap_or(""), detail["rate"], if detail["channels"].as_u64() == Some(2) { "stereo" } else { "mono" }, detail["samples"].as_u64().map(|s| format!(" · {s} samples")).unwrap_or_default()))).child(
-                    Button::new("cx-sound").xsmall().ghost().icon(Icon::new(IconName::Download)).label(format!("Export {}", ext.as_deref().map(|e| e.to_ascii_uppercase()).unwrap_or_else(|| "(not supported)".into()))).disabled(ext.is_none()).on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(e) = &ext {
-                            this.export_file(id, "sound", e, cx);
-                        }
-                    })),
+                    Button::new("cx-sound")
+                        .xsmall()
+                        .ghost()
+                        .icon(Icon::new(IconName::Download))
+                        .label(format!("Export {}", ext.as_deref().map(|e| e.to_ascii_uppercase()).unwrap_or_else(|| "(not supported)".into())))
+                        .disabled(unsupported)
+                        .when(unsupported, |b| b.tooltip("This SWF sound encoding cannot be exported directly"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(e) = &ext {
+                                this.export_file(id, "sound", e, cx);
+                            }
+                        })),
                 );
             }
             "binary" => {

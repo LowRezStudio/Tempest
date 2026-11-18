@@ -12,14 +12,16 @@ Shell (`src/studio.rs`): header (Back/Forward, game folder menu with recent fold
 n changes" with Name this mod…/Open a mod…/Discard the draft…, else "No mod yet"), Create, the
 search field opening the palette, Undo, Redo, **Changes (n)** (the changed files: open, discard,
 advanced "Patch the game…"), **Build mod** (the one primary action, opens the Mod view); three
-columns, so Create and search stay centred and what comes and goes sits at the far right), activity
-bar (Start, Champions ⌘1, Game files ⌘2, Game data ⌘3, Sounds ⌘4, Maps ⌘5, then Build mod ⌘6; search,
-shortcuts and settings at the bottom; the views are disabled until a game folder is open), window
-tabs (`tabs.rs`), status line (cleared when the view changes), notifications (`Studio::toast`; error
-toasts get a what-to-do sentence from `ui::explain_error` for locked/missing files, wrong folders,
-a stopped engine, a full disk), the native menu bar (`menus.rs`: one menu per command group, with
-the commands' shortcuts, an app menu with Settings, Check for updates and **Quit**, which keeps
-every window's work first like an update restart).
+columns, so Create and search stay centred at normal widths while left/right shrink safely when
+compact or zoomed, and what comes and goes sits at the far right), 60 pt labeled activity bar
+(`Start`, `Champs` ⌘1, `Files` ⌘2, `Data` ⌘3, `Sounds` ⌘4, `Maps` ⌘5, then `Mod` ⌘6 as icon + 10 px
+short label tiles; search, shortcuts and settings at the bottom; the views are disabled until a game
+folder is open; OS minimum window size 960×640 pt), window tabs (`tabs.rs`), status line (shows
+quiet view-appropriate guidance when switching views and Undo/Redo boundary notices), notifications
+(`Studio::toast`; error toasts get a what-to-do sentence from `ui::explain_error` for locked/missing
+files, wrong folders, a stopped engine, a full disk), the native menu bar (`menus.rs`: one menu per
+command group, with the commands' shortcuts, an app menu with Settings, Check for updates and
+**Quit**, which keeps every window's work first like an update restart).
 
 **Where work lives**: every change is kept in "your mod". Without a project it is an unnamed draft
 (the recovery `.twrk`, written about 2 s after edits settle, never over an earlier session's draft
@@ -34,9 +36,9 @@ data** (the assembly tables), **sounds**, **Build mod** (not cooker).
 (Tempest Launcher instances from `com.lowrezstudio.tempest/settings.json`, last played first, then
 Steam libraries' Paladins), one Open each; a folder that fails to open shows its error inline.
 After a folder opens the **Start page** (`home.rs`, `View::Home`) shows unless the last place is
-restored: six task rows (champion look → Champions, stats and cards → Game data, sounds → Sounds,
-maps → Maps, menus and HUD → the palette on `ui_sf`, something new → Create), a Your mod card, How
-it works in three steps, and the other mods.
+restored: six task rows (champion look → Champions, stats and cards → Game data on `DATA_SET_DEVICES`
+row 0, sounds → Sounds, maps → Maps, menus and HUD → the palette's curated Menus & HUD `@ui` scope,
+something new → Create), a Your mod card, How it works in three steps, and the other mods.
 
 **Champions** (`champions.rs`, `View::Champions`): the champion vendor's champions (`mcts.choices
 {kind: bot}`), and for one: the champion's packages by prefix with their role (`package_role`)
@@ -52,18 +54,22 @@ list names a champion's packages in a tooltip, and its filter ignores spaces ("b
 
 Every action is a `Cmd` (`commands.rs`: title, group, keys, `enabled`, `run`): key bindings, the
 palette's `>` mode, the menu bar and the F1 shortcut list read it. ⌘F (`FindInView`) focuses the
-filter of the view on screen, ⌘⇧F searches every package; Redo is ⌘⇧Z (Ctrl+Y elsewhere) through
-`package.redo`/`mcts.redo`, a map's levels and a movie's pending edits. The palette (`palette.rs`)
-is also the picker of every "choose an object" question (`Pick`: copy to, replace with, slot
-material, texture parameter, instance parent, copy from, template), searched with
-`workspace.search {isA}`.
+filter of the view on screen, ⌘⇧F searches every package; Undo is ⌘Z and Redo is ⌘⇧Z (Ctrl+Y
+elsewhere) through `package.undo`/`package.redo`, `mcts.undo`/`mcts.redo`, Wwise `.pck` sound
+replacements, a map's levels and a movie's pending edits. The palette (`palette.rs`, with `All`,
+`Files & tables`, `Menus & HUD`, `Objects (#)` and `Commands (>)` scopes) is also the picker of
+every "choose an object" question (`Pick`: copy to, replace with, slot material, texture parameter,
+instance parent, copy from, template), searched with `workspace.search {isA}`.
 
 **Look** (`ui.rs`): frame surfaces (header, activity bar, status line: `title_bar` = Catppuccin
 crust), side panes (`sidebar`, mantle), work area (`background`, base), raised cards and inputs
 (`secondary`). The accent is for one primary action per surface and the selection; toggles are
-ghost buttons with `.selected`. Shared pieces: `pane_header` (32 pt, sentence case), `toolbar`
-(36 pt), `section`, `hint`, `empty`/`loading`/`error` states, `kbd`, `mono()` (the platform's
-monospace). Muted text is Mocha overlay2 / Latte subtext1 (≥ 4.5:1 on every surface).
+ghost buttons with `.selected`. Shared pieces: `pane_header` (32 pt min, sentence case), `toolbar`
+(36 pt min), `row_h` (scales 24 pt list rows with text zoom), `badge` (20 pt min), `section`,
+`hint`, `empty`/`loading`/`error` states, `kbd`, `mono()` (the platform's monospace). Muted text
+(`#a5acc7` in Mocha, `#52556d` in Latte, kept at full opacity) and Latte's darkened primary
+(`#3e50d8`) and category tones achieve ≥ 4.5:1 across every surface, including `surface0`,
+`list.active` and `selection` (`#b4befe33` in Mocha).
 
 ## Settings
 
@@ -91,7 +97,7 @@ files opened from the OS (`on_open_urls`) go to the active window (`Studio::open
 
 **Panes** (`studio/layout.rs`, one `layout::Shared` per window read by the Packages, Assembly, Audio
 and Map views): ⌘B folds the side pane away (package list, assembly files, `.pck` list, the map's
-levels), ⌘J the second one (object list, row pane, events, the map's inspector); under 1100 pt the
+levels), ⌘J the second one (object list, row pane, events, the map's inspector); under 1120 pt the
 window is compact: the side pane stays folded and ⌘B shows it over the view (a click beside it, or
 opening a package or table, closes it); dragged widths are kept per group in `prefs.panes` (`main`,
 `assembly`, `audio`; the map keeps `map_panes`). The Assembly grid pins the id and name columns

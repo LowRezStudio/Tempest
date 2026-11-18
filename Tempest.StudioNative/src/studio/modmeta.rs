@@ -7,6 +7,60 @@
 /// The longest summary the repository lists.
 pub const MAX_SUMMARY: usize = 140;
 
+/// The longest name the website shows; it cuts the rest.
+pub const MAX_NAME: usize = 100;
+
+/// Why the website would drop this author link: it keeps http(s) addresses without spaces, up to 500 characters.
+pub fn author_link_problem(url: &str) -> Option<String> {
+    let url = url.trim();
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
+    match rest {
+        _ if url.is_empty() => None,
+        Some(r) if !r.is_empty() && r.len() <= 500 && !r.contains(char::is_whitespace) => None,
+        _ => Some("The author link must be a web address starting with https:// (the website leaves it out otherwise)".into()),
+    }
+}
+
+/// Tags a listing keeps.
+pub const MAX_TAGS: usize = 8;
+
+/// The tags typed, comma separated: trimmed, lower-cased, empties and repeats left out.
+pub fn tags(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in text.split(',').map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty()) {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// Why the repository would refuse these tags: at most 8, each 2 to 24 of a-z, 0-9 and -.
+pub fn tags_problem(text: &str) -> Option<String> {
+    let tags = tags(text);
+    if let Some(bad) = tags.iter().find(|t| !(2..=24).contains(&t.len()) || !t.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')) {
+        Some(format!("The tag \"{bad}\" is not one the website takes: 2 to 24 letters a-z, digits and dashes"))
+    } else if tags.len() > MAX_TAGS {
+        Some(format!("{} tags: the website keeps {MAX_TAGS} at most", tags.len()))
+    } else {
+        None
+    }
+}
+
+/// Why the repository would refuse this source link: an https address up to 500 characters.
+pub fn repository_problem(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        None
+    } else if !url.starts_with("https://") {
+        Some("The source link must start with https://".into())
+    } else if url.len() > 500 {
+        Some("The source link is longer than 500 characters".into())
+    } else {
+        None
+    }
+}
+
 /// The largest icon a package may carry.
 pub const MAX_ICON_BYTES: usize = 1024 * 1024;
 
@@ -116,6 +170,13 @@ fn requirement_ok(r: &str) -> bool {
 /// Why a dependency line is not one the repository accepts: a mod id (or
 /// `tempest`, the launcher) then an optional requirement such as `>=1.0.0`,
 /// `^2`, `~1.2` or `>=1.0 <2.0`.
+/// The mod id a dependency line names, lower-cased (`Foo >=1.0` → `foo`).
+pub fn dependency_id(line: &str) -> Option<String> {
+    let line = line.trim();
+    let end = line.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))).unwrap_or(line.len());
+    (end > 0).then(|| line[..end].to_ascii_lowercase())
+}
+
 pub fn dependency_problem(line: &str) -> Option<String> {
     let line = line.trim();
     let end = line.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))).unwrap_or(line.len());
@@ -193,6 +254,11 @@ pub fn patches() -> &'static [Patch] {
     })
 }
 
+/// Whether `version` is one of the known released patches.
+pub fn known_patch(version: &str) -> bool {
+    patches().iter().any(|p| p.version == version)
+}
+
 /// A patch version's place: "major.minor[.build]" rise with release date, so a bound that is no
 /// known patch ("from 1.0") still lands where expected.
 pub fn order(version: &str) -> u64 {
@@ -230,12 +296,13 @@ impl Compat {
         patches().iter().filter(|p| self.covers(&p.version)).collect()
     }
 
-    /// "8.0 – 8.1", "0.57 and later", "8.1, 7.7".
+    /// "8.0 – 8.1", "8.1 and newer", "8.1, 7.7".
     pub fn describe(&self) -> String {
         let mut parts = Vec::new();
         match (&self.from, &self.to) {
+            (Some(f), Some(t)) if f == t => parts.push(f.clone()),
             (Some(f), Some(t)) => parts.push(format!("{f} – {t}")),
-            (Some(f), None) => parts.push(format!("{f} and later")),
+            (Some(f), None) => parts.push(format!("{f} and newer")),
             (None, Some(t)) => parts.push(format!("up to {t}")),
             (None, None) => {}
         }
@@ -265,6 +332,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn listing_rules() {
+        assert_eq!(tags(" Skin, maeve,skin ,, "), vec!["skin", "maeve"]);
+        assert!(tags_problem("skin, maeve").is_none());
+        assert!(tags_problem("a").is_some());
+        assert!(tags_problem("hud overlay").is_some());
+        assert!(tags_problem("a1,b2,c3,d4,e5,f6,g7,h8,i9").is_some());
+        assert!(author_link_problem("https://x.com/me").is_none());
+        assert!(author_link_problem("x.com/me").is_some());
+        assert!(author_link_problem("https://").is_some());
+        assert!(repository_problem("").is_none());
+        assert!(repository_problem("https://github.com/a/b").is_none());
+        assert!(repository_problem("http://github.com/a/b").is_some());
+        assert_eq!(dependency_id(" Tempest-Scripting >=1.0.0").as_deref(), Some("tempest-scripting"));
+        assert_eq!(dependency_id(">=1"), None);
+    }
+
+    #[test]
     fn reads_the_launchers_patches() {
         let all = patches();
         assert!(all.len() > 50);
@@ -276,6 +360,9 @@ mod tests {
     fn covers_ranges_and_picks() {
         let c = Compat::parse("", "8.0", "");
         assert!(c.covers("8.1") && !c.covers("7.7"));
+        assert_eq!(c.describe(), "8.0 and newer");
+        assert_eq!(Compat::parse("", "8.1", "8.1").describe(), "8.1");
+        assert!(known_patch("8.1") && !known_patch("99.9"));
         let c = Compat::parse("0.57, 8.1", "", "");
         assert!(c.covers("0.57") && !c.covers("0.58"));
         assert_eq!(c.describe(), "0.57, 8.1");

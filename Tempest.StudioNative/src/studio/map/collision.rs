@@ -20,32 +20,24 @@ use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Selectable, Sizable};
 use serde_json::{json, Value as J};
 
-use super::{hsla, Actor, MapEditor};
+use super::{Actor, MapEditor};
 use crate::map_render::{rgba, solid, Node, Part};
 use crate::studio::Tone;
 
-/// Colours by what a primitive blocks; volumes that block nothing by kind.
-pub const BLOCKS: &[(&str, u32, &str)] = &[("all", 0xf38ba8, "blocks pawns and shots"), ("pawns", 0xfab387, "blocks pawns only"), ("shots", 0x89dceb, "blocks shots only"), ("none", 0x7f849c, "no collision")];
+/// Collision kinds by what a primitive blocks.
+pub const BLOCKS: &[(&str, &str)] = &[("all", "blocks pawns and shots"), ("pawns", "blocks pawns only"), ("shots", "blocks shots only"), ("none", "no collision")];
 
-fn block_color(b: &str) -> u32 {
-    BLOCKS.iter().find(|x| x.0 == b).map(|x| x.1).unwrap_or(0x7f849c)
+pub(super) fn block_ui_color(b: &str, theme: &gpui_component::Theme) -> gpui::Hsla {
+    match b {
+        "all" => theme.red,
+        "pawns" => theme.yellow,
+        "shots" => theme.cyan,
+        _ => theme.muted_foreground,
+    }
 }
 
 fn block_label(b: &str) -> &'static str {
-    BLOCKS.iter().find(|x| x.0 == b).map(|x| x.2).unwrap_or("")
-}
-
-fn item_color(it: &J) -> u32 {
-    let blocks = it["flags"]["blocks"].as_str().unwrap_or("none");
-    if it["kind"] == "volume" && blocks == "none" {
-        return match it["category"].as_str().unwrap_or("") {
-            "trigger" => 0xa6e3a1,
-            "blocking" => 0xfab387,
-            "navigation" => 0x94e2d5,
-            _ => 0xcba6f7,
-        };
-    }
-    block_color(blocks)
+    BLOCKS.iter().find(|x| x.0 == b).map(|x| x.1).unwrap_or("")
 }
 
 /// UnrealEd's brush builders and their defaults (Unreal units).
@@ -248,7 +240,7 @@ impl MapEditor {
             }
             for it in level["items"].as_array().into_iter().flatten() {
                 let blocks = it["flags"]["blocks"].as_str().unwrap_or("none");
-                let color = item_color(it);
+                let color = super::scene::collision_item_color(it);
                 let mut parts = Vec::new();
                 if it["kind"] == "volume" {
                     if hide_none && blocks == "none" && it["category"] != "trigger" {
@@ -428,35 +420,40 @@ impl MapEditor {
     // ----- views ----------------------------------------------------------------------
 
     pub(super) fn render_collision_toolbar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let c = &self.collision;
-        let mut row = h_flex().gap_1().ml_2().child(
-            Button::new("mv-collision")
-                .xsmall()
-                .label(if c.loading { "Collision…" } else { "Collision" })
-                .selected(c.enabled)
-                .tooltip("Draw collision: volumes' convex hulls and meshes' simple collision (or their triangles when they use complex collision)")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let on = !this.collision.enabled;
-                    this.toggle_collision(on, cx);
-                })),
-        );
-        if c.enabled {
-            row = row
-                .child(Checkbox::new("mv-col-only").label("Only").checked(c.only).tooltip("Hide the render geometry").on_click(cx.listener(|this, v: &bool, _, cx| {
-                    this.collision.only = *v;
-                    this.apply_collision_layers();
-                    cx.notify();
-                })))
-                .child(Checkbox::new("mv-col-blocking").label("Blocking only").checked(c.hide_none).tooltip("Leave out meshes and volumes that collide with nothing (triggers stay)").on_click(cx.listener(|this, v: &bool, _, cx| {
-                    this.collision.hide_none = *v;
-                    this.rebuild_collision();
-                    cx.notify();
-                })))
-                .children(BLOCKS.iter().map(|(_, color, label)| div().id(gpui::SharedString::from(*label)).size(px(10.0)).rounded_sm().bg(hsla(*color)).tooltip(move |w, cx| gpui_component::tooltip::Tooltip::new(*label).build(w, cx))));
-        }
-        let _ = theme;
-        row.into_any_element()
+        let enabled = self.collision.enabled;
+        let only = self.collision.only;
+        let hide_none = self.collision.hide_none;
+        let loading = self.collision.loading;
+        let me = cx.entity().downgrade();
+        Button::new("mv-collision")
+            .xsmall()
+            .ghost()
+            .label(if loading { "Collision…" } else { "Collision" })
+            .selected(enabled)
+            .dropdown_caret(true)
+            .tooltip("Draw collision: volumes' convex hulls and meshes' simple collision (or their triangles when they use complex collision)")
+            .dropdown_menu(move |menu, _, _| {
+                let (m1, m2, m3) = (me.clone(), me.clone(), me.clone());
+                menu.item(PopupMenuItem::new("Show collision overlay").checked(enabled).on_click(move |_, _, cx| {
+                    let _ = m1.update(cx, |this, cx| this.toggle_collision(!enabled, cx));
+                }))
+                .separator()
+                .item(PopupMenuItem::new("Hide render geometry (collision only)").checked(only).disabled(!enabled).on_click(move |_, _, cx| {
+                    let _ = m2.update(cx, |this, cx| {
+                        this.collision.only = !only;
+                        this.apply_collision_layers();
+                        cx.notify();
+                    });
+                }))
+                .item(PopupMenuItem::new("Blocking geometry only").checked(hide_none).disabled(!enabled).on_click(move |_, _, cx| {
+                    let _ = m3.update(cx, |this, cx| {
+                        this.collision.hide_none = !hide_none;
+                        this.rebuild_collision();
+                        cx.notify();
+                    });
+                }))
+            })
+            .into_any_element()
     }
 
     pub(super) fn render_collision_panel(&mut self, level: &str, actor: &Actor, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -471,7 +468,7 @@ impl MapEditor {
             let blocks = it["flags"]["blocks"].as_str().unwrap_or("none").to_string();
             let mesh = it["kind"] == "mesh";
             let name = if mesh { it["name"].as_str().unwrap_or("").to_string() } else { actor.name.clone() };
-            let mut block = v_flex().gap_1().child(h_flex().gap_2().child(div().size(px(10.0)).rounded_sm().bg(hsla(block_color(&blocks)))).child(div().font_family(crate::studio::ui::mono()).child(name)).child(div().text_color(theme.muted_foreground).child(block_label(&blocks))));
+            let mut block = v_flex().gap_1().child(h_flex().gap_2().child(div().size(px(10.0)).rounded_sm().bg(block_ui_color(&blocks, &theme))).child(div().font_family(crate::studio::ui::mono()).child(name)).child(div().text_color(theme.muted_foreground).child(block_label(&blocks))));
             if mesh {
                 let key = it["meshKey"].as_str().unwrap_or("");
                 if let Some(mc) = self.collision.data.as_ref().map(|d| &d["meshes"][key]).filter(|m| !m.is_null()) {
@@ -520,7 +517,7 @@ impl MapEditor {
         let (l1, l2) = (level.to_string(), level.to_string());
         let info = self.collision.info.as_ref().map(|i| {
             let hulls = i["hulls"].as_array().map(|a| a.len()).unwrap_or(0);
-            format!("{} polys, {hulls} hull{}{}", i["polys"].as_array().map(|a| a.len()).unwrap_or(0), if hulls == 1 { "" } else { "s" }, if i["fromBrush"] == false { " (cooked: no brush)" } else { "" })
+            format!("{} polys, {hulls} hull{}{}", i["polys"].as_array().map(|a| a.len()).unwrap_or(0), if hulls == 1 { "" } else { "s" }, if i["fromBrush"] == false { " (packaged: no brush)" } else { "" })
         });
         let mut panel = v_flex().gap_1().child(
             h_flex()
@@ -569,7 +566,19 @@ impl MapEditor {
             let t = self.collision.vertices.clone().expect("made above");
             panel = panel.child(div().text_color(theme.muted_foreground).child("The volume becomes the convex hull of these points: one \"x y z\" per line, actor space, Unreal units. Read the current shape first.")).child(Textarea::new(&t).h(px(140.0)).font_family(crate::studio::ui::mono()));
         }
-        let disabled = self.collision.busy || (kind == "mesh" && self.collision.mesh_object.trim().is_empty());
-        panel.child(h_flex().child(Button::new("mi-shape-apply").xsmall().primary().label(if self.collision.busy { "Building…" } else { "Apply shape" }).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.apply_shape(l2.clone(), export, cx))))).into_any_element()
+        let busy = self.collision.busy;
+        let disabled = busy || (kind == "mesh" && self.collision.mesh_object.trim().is_empty());
+        panel
+            .child(
+                h_flex().child(
+                    Button::new("mi-shape-apply")
+                        .xsmall()
+                        .label(if busy { "Building…" } else { "Apply shape" })
+                        .disabled(disabled)
+                        .when(disabled, |b| b.tooltip(if busy { "Rebuilding the volume's collision shape…" } else { "Enter a StaticMesh object path above first" }))
+                        .on_click(cx.listener(move |this, _, _, cx| this.apply_shape(l2.clone(), export, cx))),
+                ),
+            )
+            .into_any_element()
     }
 }

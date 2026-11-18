@@ -21,6 +21,11 @@ pub const SIDE_PANE: f32 = 260.0;
 /// A list row in a pane.
 pub const ROW: f32 = 24.0;
 
+/// A list row's height, scaling cleanly with text zoom.
+pub fn row_h(window: &gpui::Window) -> gpui::Pixels {
+    gpui::px((1.5 * f32::from(window.rem_size())).max(ROW).round())
+}
+
 /// A pane's filter field, under its header: the same inset in every pane.
 pub fn pane_filter(input: impl IntoElement) -> Div {
     div().flex_none().px_2().pb_2().child(input)
@@ -41,7 +46,8 @@ pub fn mono() -> &'static str {
 pub fn pane_header(title: impl Into<SharedString>, tools: impl IntoElement, theme: &Theme) -> Div {
     h_flex()
         .flex_none()
-        .h(px(PANE_HEADER))
+        .min_h(px(PANE_HEADER))
+        .py_0p5()
         .px_2()
         .gap_1()
         .text_sm()
@@ -127,7 +133,8 @@ pub fn field(label: impl Into<SharedString>, aside: impl IntoElement, control: i
 pub fn badge(icon: Option<IconName>, text: impl Into<SharedString>, color: gpui::Hsla, theme: &Theme) -> Div {
     h_flex()
         .flex_none()
-        .h(px(20.0))
+        .min_h(px(20.0))
+        .py_0p5()
         .px_1p5()
         .gap_1()
         .rounded_md()
@@ -165,16 +172,16 @@ pub fn kbd(keys: impl Into<SharedString>, theme: &Theme) -> AnyElement {
 /// missing file, a folder that is not the game's).
 pub fn explain_error(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
-    let hint = if ["permission denied", "access is denied", "being used by another process", "os error 32", "os error 13", "read-only file system"].iter().any(|p| lower.contains(p)) {
+    let hint = if ["permission denied", "access is denied", "being used by another process", "os error 32)", "os error 13)", "read-only file system"].iter().any(|p| lower.contains(p)) {
         "The file is locked or read-only: close the game (and anything else using it), then try again."
-    } else if ["no such file", "cannot find the file", "os error 2", "not found"].iter().any(|p| lower.contains(p)) {
+    } else if lower.contains("no space left") || lower.contains("os error 28)") {
+        "The disk is full: free some space, then try again."
+    } else if ["no such file", "cannot find the file", "os error 2)", "not found"].iter().any(|p| lower.contains(p)) {
         "A file it needs is missing: it may have been moved or deleted."
     } else if lower.contains("holds no script packages") || lower.contains("no packages") {
         "Open the Paladins folder itself (the one with a ChaosGame folder inside)."
     } else if lower.contains("backend has stopped") {
         "The Studio's engine stopped. Your mod is kept: restart the Studio to go on."
-    } else if lower.contains("no space left") || lower.contains("os error 28") {
-        "The disk is full: free some space, then try again."
     } else {
         return text.to_string();
     };
@@ -189,6 +196,9 @@ mod tests {
     fn explains_common_errors() {
         assert!(explain_error("Could not write A.upk: Permission denied (os error 13)").ends_with("then try again."));
         assert!(explain_error("Could not open x: No such file or directory (os error 2)").contains("missing"));
+        assert!(explain_error("Folder holds no script packages").contains("ChaosGame"));
+        assert!(explain_error("The backend has stopped").contains("restart the Studio"));
+        assert!(explain_error("Write failed: No space left on device (os error 28)").contains("disk is full"));
         assert_eq!(explain_error("Undo failed: no export 3"), "Undo failed: no export 3");
     }
 }

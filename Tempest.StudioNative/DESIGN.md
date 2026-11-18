@@ -4,13 +4,14 @@ description: A Paladins mod editor a player can use on day one; Catppuccin Mocha
 colors:
   lavender: "#b4befe"
   crust: "#11111b"
+  primary-foreground: "#11111b"
   mantle: "#181825"
   base: "#1e1e2e"
   surface0: "#313244"
   surface1: "#45475a"
   text: "#cdd6f4"
   subtext0: "#a6adc8"
-  overlay2: "#9399b2"
+  overlay2: "#a5acc7"
   tone-mauve: "#cba6f7"
   tone-yellow: "#f9e2af"
   tone-green: "#a6e3a1"
@@ -66,7 +67,7 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.lavender}"
-    textColor: "{colors.crust}"
+    textColor: "{colors.primary-foreground}"
     rounded: "{rounded.md}"
   button-ghost:
     textColor: "{colors.text}"
@@ -80,7 +81,7 @@ components:
     height: "40px"
   activity-bar:
     backgroundColor: "{colors.crust}"
-    width: "44px"
+    width: "60px"
   status-line:
     backgroundColor: "{colors.crust}"
     textColor: "{colors.overlay2}"
@@ -139,13 +140,13 @@ Tokens live in `themes/catppuccin.json` (gpui-component theme fields); code read
 
 ## Colors
 
-Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame and more legible muted text.
+Catppuccin Mocha/Latte, tuned where the editor needed a clearer frame and full WCAG 2.1 AA contrast across every surface, badge and selection state.
 
 ### Primary
-- **Lavender** (`primary`, `ring`, `list.active.border`, `selection` at 30%, `list.active` at 20%): the one main action of a surface (Build mod in the header, Build & install in the Mod bar, Open on the welcome screen's first game) and the selection. Text on it is crust (`primary.foreground`).
+- **Lavender** (`primary`, `ring`, `list.active.border`, `selection`, `list.active`; `#b4befe` in Mocha, `#3e50d8` in Latte): the one main action of a surface (Build mod in the header, Build & install in the Mod bar, Open on the welcome screen's first game) and the selection. Text on it is `primary.foreground` (`#11111b` in Mocha, `#eff1f5` in Latte; ≥ 5.5:1).
 
 ### Tertiary (category tones)
-- **Mauve, Yellow, Green, Blue, Sky, Red** (`theme.magenta`, `yellow`, `green`, `blue`, `cyan`, `red`): only as the six task icon plates on the start page (icon in the tone, plate at 14% of it). Red doubles as `danger`, yellow as `warning`, green as `success`; those three also mark state (problems, the mod chip's save dot).
+- **Mauve, Yellow, Green, Blue, Sky, Red** (`theme.magenta`, `yellow`, `green`, `blue`, `cyan`, `red`; darkened in Latte to `#7125d4`, `#824d00`, `#1d6412`, `#154bc2`, `#055d82`, `#af0b2f` for ≥ 4.5:1 contrast on all surfaces, 14% task plates and `ui::mod_icon`): only as the six task icon plates on the start page (icon in the tone, plate at 14% of it). Red doubles as `danger`, yellow as `warning`, green as `success`; those three also mark state (problems, the mod chip's save dot).
 
 ### Neutral (surface ladder, darkest to lightest in Mocha)
 - **Crust** (`title_bar.background`, `status_bar.background`): the frame: header, activity bar, status line. Modified from stock (both set to crust).
@@ -154,8 +155,8 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 - **Surface0** (`secondary`, `border`, `muted.background`): raised things (inputs, the search field, key caps) and every 1px rule.
 - **Surface1** (`input.border`, `secondary.hover`): input strokes, hovered secondary buttons.
 - **Text** (`foreground`): titles and rows.
-- **Subtext0** (`tab.foreground`, `table.head.foreground`): inactive tabs, table heads.
-- **Overlay2** (`muted.foreground`): hints, meta, section labels, toolbar icons, status line. Modified from stock for legibility (Latte uses subtext1).
+- **Subtext0** (`tab.foreground`, `table.head.foreground`; `#a6adc8` in Mocha, `#52556d` in Latte): inactive tabs, table heads.
+- **Overlay2** (`muted.foreground`; `#a5acc7` in Mocha, `#52556d` in Latte): hints, meta, section labels, toolbar icons, status line. Tuned from stock so muted text achieves ≥ 4.5:1 on every surface, including `surface0` and `list.active`.
 
 ### Named Rules
 **The One Lavender Rule.** A surface has at most one `.primary()` button. When a prerequisite step exists (an unnamed mod), that step takes the primary and the main action drops to default (`cook-build` loses `.primary()` while "Name this mod…" holds it).
@@ -182,13 +183,13 @@ Catppuccin Mocha/Latte, modified only where the editor needed a clearer frame an
 ### Named Rules
 **The Sentence Case Rule.** Every title, label and button is sentence case. No uppercase, no tracking.
 
-**The Plain Name First Rule.** Where an engine name exists, show the friendly name in body text, then the raw name in mono at muted 70% (`assembly/side.rs::friendly_table`). Unmapped names fall back to mono alone.
+**The Plain Name First Rule.** Where an engine name exists, show the friendly name in body text, then the raw name in mono using `muted_foreground` at full 100% opacity (`assembly/side.rs::friendly_table`)—never dimmed with `.opacity(...)`, which drops below WCAG AA contrast. Unmapped names fall back to mono alone.
 
 ## Layout
 
-Fixed shell at a 1440x900 default window: header (40px) over activity bar (44px) + view + status line (24px). Views compose resizable panes with `layout::group` (`Role::Side` / `Main` / `Second`); pane widths persist via `pane_sizes`. The side pane has one width in every view (`ui::SIDE_PANE`, 260px, then whatever the user drags, kept as `side` and applied at the next view switch), so its edge never moves between views. In compact windows the side pane becomes an overlay drawer over a scrim (`theme.overlay`).
+Fixed shell at a 1440x900 default window (960x640pt OS minimum): header (40px min) over activity bar (60px) + view + status line (24px min). Views compose resizable panes with `layout::group` (`Role::Side` / `Main` / `Second`); pane widths persist via `pane_sizes`. The side pane has one width in every view (`ui::SIDE_PANE`, 260px, then whatever the user drags, kept as `side` and applied at the next view switch), so its edge never moves between views. In compact windows (narrower than 1120pt) the side pane becomes an overlay drawer over a scrim (`theme.overlay`).
 
-Spacing is GPUI's 4px unit: 8px (`px_2`) pane and toolbar insets, 12px row padding, 16px card padding, 32/40px page margins on the start page. Pane headers are 32px (`ui::PANE_HEADER`), view toolbars 36px (`ui::TOOLBAR`) with a bottom rule. Every side pane is header, filter (`ui::pane_filter`: 8px sides, 8px under), then 24px rows (`ui::ROW`) inset 8px. The start page centers a 340-560px task column and a 300px side column, wrapping, 40px apart.
+Spacing is GPUI's 4px unit: 8px (`px_2`) pane and toolbar insets, 12px row padding, 16px card padding, 32/40px page margins on the start page. Pane headers are 32px min (`ui::PANE_HEADER`), view toolbars 36px min (`ui::TOOLBAR`) with a bottom rule. Every side pane is header, filter (`ui::pane_filter`: 8px sides, 8px under), then 24px min rows (`ui::ROW`, scaled with text zoom via `ui::row_h`) inset 8px. The start page centers a 340-560px task column and a 300px side column, wrapping, 40px apart.
 
 Density follows the audience: newcomer pages breathe (task rows 10px tall padding, 40px gaps); Game files, Game data and Map keep power-user density.
 
@@ -215,7 +216,7 @@ Helpers live in `src/studio/ui.rs`; use them before writing a new row of styles.
 - **Sizes:** `.small()` in header and bars, `.xsmall()` inside panes. Disabled buttons carry a tooltip saying why.
 
 ### Pane header and toolbar
-- `ui::pane_header(title, tools, theme)`: 32px, 14px semibold title that ellipsizes, muted tools on the right (counts, small ghost buttons).
+- `ui::pane_header(title, tools, theme)`: 32px min (grows with text zoom), 14px semibold title that ellipsizes, muted tools on the right (counts, small ghost buttons).
 - `ui::toolbar(theme)`: 36px min, base background, bottom rule.
 
 ### States (`ui.rs`)
@@ -224,22 +225,22 @@ Helpers live in `src/studio/ui.rs`; use them before writing a new row of styles.
 - **Error** `ui::error(title, detail)`: `CircleAlert` in danger, title, detail capped at 420px; caller adds the way out. Pass backend text through `ui::explain_error` so common causes get a what-to-do sentence. Transient errors go to the toast path.
 
 ### Lists and rows
-- **List row:** 14px, 24px tall (`ui::ROW`), 8px sides, full-bleed square; hover `list_hover`, selected `list_active` (lavender 20%). The same in every side pane.
+- **List row:** 14px, 24px min tall (`ui::ROW` / `ui::row_h` scaling cleanly up to `1.6×` zoom), 8px sides, full-bleed square; hover `list_hover`, selected `list_active` / `selection` (lavender 20%, `#b4befe33` in Mocha, keeping muted/tab/link text ≥ 4.61:1). The same in every side pane.
 - **Panel** `ui::panel(icon, title, aside)`: mantle card, 1px border, 8px radius, 16px padding; a 20px round icon plate, 14px semibold title, muted aside (a count, "optional", small ghost buttons). The Mod view's parts, like the website's panels. Rows inside a panel are separated by 1px rules, never nested cards.
 - **Field** `ui::field(label, aside, control)`: 12px muted label with a counter or "optional" on the right, over the input.
-- **Badge** `ui::badge(icon, text, color)`: 20px outlined chip for a mod's kind, signed state and tags.
+- **Badge** `ui::badge(icon, text, color)`: 20px min outlined chip (grows with text zoom) for a mod's kind, signed state and tags.
 - **Link row** (champion page): title + muted detail + `ArrowUpRight`; opens where the thing is edited.
 - **Task row** (start page): 36px tone plate, 14px semibold title, 12px muted detail, `ChevronRight`; whole row clickable, 8px radius.
 - **Kbd** `ui::kbd(keys)`: key cap for shortcuts; always format keys via `commands::key_hint`.
 
 ### Navigation
-- **Header** (crust, 40px), three columns so nothing moves: left (back/forward, game folder, mod chip) and right (undo/redo, then "Changes (n)" when n > 0 and Build mod, primary, hidden in the Mod view) share the leftover width equally; Create and the search field (opens the palette, ⌘K) stay centred. What comes and goes sits at the far right.
-- **Activity bar** (crust, 44px): Start, Champions, Game files, Game data, Sounds, Maps, rule, Build mod; then Search, Shortcuts, Settings at the bottom. Ghost icon buttons, `.selected` for the current view, tooltip "Name: what it holds (keys)".
-- **Status line** (crust, 24px): 12px muted status text left, counts right.
+- **Header** (crust, 40px min), three columns so nothing moves at normal widths and left/right columns shrink safely in compact or zoomed windows: left (back/forward, game folder, mod chip) and right (undo/redo, then "Changes (n)" when n > 0 and Build mod, primary, hidden in the Mod view) share the leftover width; Create and the search field (opens the palette, ⌘K) stay centred. What comes and goes sits at the far right.
+- **Activity bar** (crust, 60px): labeled vertical view tiles (icon + 10px short label: Start, Champs | Files, Data, Sounds, Maps | Mod); then Keys and Settings at the bottom. Active tile uses `secondary` (`surface0`) fill with `foreground` text, focus-visible `ring`, tooltip "Name: what it holds (keys)".
+- **Status line** (crust, 24px min): 12px muted status or quiet contextual view guidance left, counts right.
 - **Native menu bar** (`menus.rs`): generated from `Cmd::ALL` by group; the Assembly group is titled "Game data". New actions get a `Cmd`, never a menu-only item.
 
 ### Mod chip (`project.rs`)
-A 7px dot + ghost `Briefcase` button with a dropdown. Dot: warning while changes are pending or saving, success when saved, danger on failure, muted 50% with no mod. Label "Unnamed mod · n changes" / "No mod yet" / "Name · state".
+A 7px dot + ghost `Briefcase` button with a dropdown. Dot: warning while changes are pending or saving, success when saved, danger on failure, `muted_foreground` at full opacity with no mod. Label "Unnamed mod · n changes" / "No mod yet" / "Name · state".
 
 ### Mod view (`cooker.rs`)
 Laid out like the website's mod page, on a 1160px page centred in the work area (`page_width`), header and body sharing its left edge.
@@ -263,6 +264,7 @@ Laid out like the website's mod page, on a 1160px page centred in the work area 
 - **Don't** add shadows; separation is the surface ladder and 1px rules.
 - **Don't** use "cooker", "unsaved" or "write into the game" in UI copy; element ids may keep them.
 - **Don't** use uppercase labels, kickers or eyebrows above titles; section labels are sentence-case group names only.
+- **Don't** lower text contrast with `.opacity(...)` on `muted_foreground`; keep muted text at full 100% opacity so every surface meets WCAG 2.1 AA.
 - **Don't** use emoji or text glyphs as icons.
 
 ## Known gaps
@@ -274,4 +276,3 @@ Laid out like the website's mod page, on a 1160px page centred in the work area 
 - The second pane (⌘J) is the middle list in Game files and Sounds but the right-hand inspector in Game data and Maps: each is the secondary pane of its view, not one place.
 - Banner, screenshots, more authors and visibility are set on the website only: `tempest-cli mod publish` sends compatibility, summary, tags, changelog and source link.
 - The Map view keeps its own power-user density and does not follow the newcomer spacing.
-- Focus rings show only on gpui-component inputs; custom clickable rows (task rows, list rows, the search field) have hover but no keyboard focus ring.

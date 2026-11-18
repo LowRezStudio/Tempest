@@ -37,10 +37,12 @@ impl MovieEditor {
 
     fn char_list(&self, title: &str, ids: &[u64], key: &'static str, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let mut out = v_flex().gap_0p5().child(h_flex().gap_1().text_xs().text_color(theme.muted_foreground).child(title.to_string()).when(!ids.is_empty(), |d| d.child(div().opacity(0.7).child(ids.len().to_string()))));
+        let mut out = v_flex().gap_0p5().child(h_flex().gap_1().text_xs().text_color(theme.muted_foreground).child(title.to_string()).when(!ids.is_empty(), |d| d.child(div().text_color(theme.muted_foreground).child(ids.len().to_string()))));
         if ids.is_empty() {
-            return out.child(div().text_xs().opacity(0.5).child("none")).into_any_element();
+            return out.child(div().text_xs().text_color(theme.muted_foreground).child("none")).into_any_element();
         }
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         let mut list = v_flex().id(key).max_h(px(220.0)).overflow_y_scroll().rounded_md().border_1().border_color(theme.border);
         for (k, id) in self.sorted(ids).into_iter().enumerate() {
             let named = self.char(id).is_some_and(|c| !c["names"][0].is_null());
@@ -48,16 +50,28 @@ impl MovieEditor {
             list = list.child(
                 h_flex()
                     .id((key, k))
+                    .focusable()
+                    .tab_index(0)
                     .gap_1p5()
                     .px_1p5()
                     .py_0p5()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(ring))
                     .text_xs()
                     .cursor_pointer()
-                    .hover(|d| d.bg(theme.list_hover))
+                    .hover(move |d| d.bg(hover_bg))
                     .child(Icon::new(group_icon(gid)).xsmall().text_color(theme.muted_foreground))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(self.label(id)))
-                    .when(named, |d| d.child(div().font_family(crate::studio::ui::mono()).opacity(0.4).child(id.to_string())))
-                    .child(Icon::new(IconName::ChevronRight).xsmall().opacity(0.3))
+                    .when(named, |d| d.child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(id.to_string())))
+                    .child(Icon::new(IconName::ChevronRight).xsmall().text_color(theme.muted_foreground))
+                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.open(Node::Char(id), cx);
+                        }
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))),
             );
         }
@@ -106,33 +120,34 @@ impl MovieEditor {
             .when(!compact, |d| d.h(px(128.0)).w_full())
             .child(match (pic, texture) {
                 (Some(p), _) => img(p).object_fit(ObjectFit::Contain).size_full().into_any_element(),
-                (None, None) => div().text_xs().opacity(0.4).child("?").into_any_element(),
-                (None, Some(_)) => div().text_xs().opacity(0.4).child("…").into_any_element(),
+                (None, None) => div().text_xs().text_color(theme.muted_foreground).child("?").into_any_element(),
+                (None, Some(_)) => div().text_xs().text_color(theme.muted_foreground).child("…").into_any_element(),
             });
         let id = image["tag"].as_u64().unwrap_or(0) as usize;
         let (i1, i2, i3) = (image.clone(), image.clone(), image.clone());
         let missing = texture.is_none();
+        let missing_tip = "This external image is not stored in this package";
         let buttons = h_flex()
             .gap_1()
             .flex_wrap()
-            .child(Button::new(("img-replace", id)).xsmall().when(compact, |b| b.ghost().icon(Icon::new(IconName::Upload))).when(!compact, |b| b.icon(Icon::new(IconName::Upload)).label("Replace…")).disabled(missing).tooltip(format!("Store a PNG or DDS in the texture (encoded in its format; DXT1 becomes DXT5 when the picture has transparency); the movie keeps drawing it at {w}×{h}")).on_click(cx.listener(move |this, _, _, cx| {
+            .child(Button::new(("img-replace", id)).xsmall().when(compact, |b| b.ghost().icon(Icon::new(IconName::Upload))).when(!compact, |b| b.icon(Icon::new(IconName::Upload)).label("Replace…")).disabled(missing).tooltip(if missing { missing_tip.to_string() } else { format!("Store a PNG or DDS in the texture (encoded in its format; DXT1 becomes DXT5 when the picture has transparency); the movie keeps drawing it at {w}×{h}") }).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(t) = texture {
                     this.replace_image(t, i1.clone(), cx);
                 }
             })))
-            .child(Button::new(("img-png", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).when(!compact, |b| b.label("PNG")).disabled(missing).tooltip("Export as PNG").on_click(cx.listener(move |this, _, _, cx| {
+            .child(Button::new(("img-png", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).when(!compact, |b| b.label("PNG")).disabled(missing).tooltip(if missing { missing_tip } else { "Export as PNG" }).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(t) = texture {
                     this.export_image(t, &i2, "png", cx);
                 }
             })))
             .when(!compact, |d| {
-                d.child(Button::new(("img-dds", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).label("DDS").disabled(missing).when(missing, |b| b.tooltip("This image is not in the package")).on_click(cx.listener(move |this, _, _, cx| {
+                d.child(Button::new(("img-dds", id)).xsmall().ghost().icon(Icon::new(IconName::Download)).label("DDS").disabled(missing).tooltip(if missing { missing_tip } else { "Export as DDS" }).on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(t) = texture {
                         this.export_image(t, &i3, "dds", cx);
                     }
                 })))
             })
-            .child(Button::new(("img-go", id)).xsmall().ghost().icon(Icon::new(IconName::Link)).when(!compact, |b| b.label("Texture")).disabled(missing).tooltip("Go to the texture").on_click(cx.listener(move |this, _, _, cx| {
+            .child(Button::new(("img-go", id)).xsmall().ghost().icon(Icon::new(IconName::Link)).when(!compact, |b| b.label("Texture")).disabled(missing).tooltip(if missing { missing_tip } else { "Go to the texture" }).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(t) = texture {
                     this.go_to_texture(t, cx);
                 }
@@ -163,17 +178,17 @@ impl MovieEditor {
                 h_flex()
                     .gap_1()
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Placement"))
-                    .child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!("depth {depth}")))
+                    .child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!("depth {depth}")))
                     .child(div().flex_1())
                     .when(self.entry_edited(&e), |d| d.child(Button::new("mv-revert-entry").xsmall().ghost().icon(Icon::new(IconName::RotateCcw)).tooltip("Drop this object's pending edits").on_click(cx.listener(move |this, _, _, cx| this.revert_entry(&e1, cx))))),
             );
             if self.kind_of(id) == "sprite" {
                 let label = e["name"].as_str().map(str::to_string).unwrap_or_else(|| self.label(id));
-                sec = sec.child(Button::new("mv-edit-inside").xsmall().primary().icon(Icon::new(IconName::ArrowRight)).label(format!("Edit inside {label}")).tooltip("Open this clip's own timeline to move what is inside it (double-click on the stage, or Enter)").on_click(cx.listener(move |this, _, _, cx| {
+                sec = sec.child(Button::new("mv-edit-inside").xsmall().icon(Icon::new(IconName::ArrowRight)).label(format!("Edit inside {label}")).tooltip("Open this clip's own timeline to move what is inside it (double-click on the stage, or Enter)").on_click(cx.listener(move |this, _, _, cx| {
                     this.enter(&e2, cx);
                 })));
             }
-            let name = if place_code == 4 { div().opacity(0.5).child("(PlaceObject has no name)").into_any_element() } else { self.field("p:name".into(), e["name"].as_str().unwrap_or("").to_string(), 170.0, cx) };
+            let name = if place_code == 4 { div().text_color(theme.muted_foreground).child("(PlaceObject has no name)").into_any_element() } else { self.field("p:name".into(), e["name"].as_str().unwrap_or("").to_string(), 170.0, cx) };
             sec = sec
                 .child(self.prop_row("name", name, cx))
                 .child(self.prop_row("x", h_flex().gap_1().child(self.field("p:x".into(), fmt(d.x, 2), 120.0, cx)).child("px"), cx))
@@ -213,7 +228,7 @@ impl MovieEditor {
                 26 => "PlaceObject2",
                 _ => "PlaceObject",
             };
-            sec = sec.child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!(
+            sec = sec.child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!(
                 "{tag_name} #{placed}{} · since frame {}{}{}{}{}",
                 if matrix_by != placed { format!(", moved by #{matrix_by}") } else { String::new() },
                 e["since"].as_u64().unwrap_or(0) + 1,
@@ -226,7 +241,7 @@ impl MovieEditor {
         }
         let Some(id) = shown_id else {
             if entry.is_none() {
-                out = out.child(div().opacity(0.6).child("Select a character in the tree or an object on the stage."));
+                out = out.child(div().text_color(theme.muted_foreground).whitespace_normal().child("Click or drag clips on stage to move/scale; click Apply edits in the toolbar to keep changes in your mod."));
             }
             return out.into_any_element();
         };
@@ -236,7 +251,7 @@ impl MovieEditor {
             h_flex()
                 .gap_1()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(if kind == "edittext" { "Edit text".to_string() } else { capital(&kind) }))
-                .child(div().font_family(crate::studio::ui::mono()).opacity(0.5).child(format!("id {id}")))
+                .child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!("id {id}")))
                 .when(entry.is_some(), |d| d.child(div().flex_1()).child(Button::new("mv-open-char").xsmall().ghost().label("Open").on_click(cx.listener(move |this, _, _, cx| this.open(Node::Char(id), cx))))),
         );
         let names: Vec<&str> = c["names"].as_array().into_iter().flatten().filter_map(|n| n.as_str()).collect();
@@ -264,13 +279,13 @@ impl MovieEditor {
                     t["fontHeight"].as_f64().map(|h| format!(" {h}px")).unwrap_or_default(),
                     if t["html"].as_bool() == Some(true) { " · html" } else { "" }
                 );
-                sec = sec.child(div().opacity(0.6).child(label)).child(self.textarea(format!("text:{tag}"), text, self.is_edited(&format!("text|{tag}|0")), window, cx));
+                sec = sec.child(div().text_color(theme.muted_foreground).child(label)).child(self.textarea(format!("text:{tag}"), text, self.is_edited(&format!("text|{tag}|0")), window, cx));
             }
         }
         if kind == "image" || kind == "subimage" {
             if let Some(im) = self.image_of(id) {
                 if kind == "subimage" {
-                    sec = sec.child(div().opacity(0.6).child(format!("A crop of image {}: replacing the picture changes the whole atlas.", im["id"].as_u64().unwrap_or(0) & 0xffff)));
+                    sec = sec.child(div().text_color(theme.muted_foreground).child(format!("A crop of image {}: replacing the picture changes the whole atlas.", im["id"].as_u64().unwrap_or(0) & 0xffff)));
                 } else {
                     let tag = im["tag"].as_u64().unwrap_or(0);
                     let file = self.value("image", tag, im["fileName"].as_str().unwrap_or(""));
@@ -285,12 +300,38 @@ impl MovieEditor {
         sec = sec.child(self.char_list("Uses", &deps, "mv-uses", cx)).child(self.char_list("Used by", &used, "mv-usedby", cx));
         let attached: Vec<J> = c["attached"].as_array().cloned().unwrap_or_default();
         if !attached.is_empty() {
+            let ring = theme.ring;
+            let hover_tag = theme.primary.opacity(0.3);
             let mut tags = h_flex().gap_1().flex_wrap();
             for (k, a) in attached.iter().enumerate() {
-                let init = a["name"] == "DoInitAction";
-                tags = tags.child(div().id(("mv-attached", k)).px_1().rounded_sm().bg(theme.secondary).font_family(crate::studio::ui::mono()).cursor_pointer().hover(|d| d.bg(theme.primary.opacity(0.3))).child(format!("#{} {}", a["tag"], a["name"].as_str().unwrap_or(""))).tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Show in the tag list").build(window, cx)).on_click(cx.listener(move |this, _, _, cx| this.open(if init { Node::Scripts } else { Node::Tags }, cx))));
+                let target_node = if a["name"] == "DoInitAction" { Node::Scripts } else { Node::Tags };
+                tags = tags.child(
+                    div()
+                        .id(("mv-attached", k))
+                        .focusable()
+                        .tab_index(0)
+                        .px_1()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
+                        .bg(theme.secondary)
+                        .font_family(crate::studio::ui::mono())
+                        .cursor_pointer()
+                        .hover(move |d| d.bg(hover_tag))
+                        .child(format!("#{} {}", a["tag"], a["name"].as_str().unwrap_or("")))
+                        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Show in the tag list").build(window, cx))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.open(target_node, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open(target_node, cx))),
+                );
             }
-            sec = sec.child(v_flex().gap_0p5().child(div().opacity(0.6).child("attached tags")).child(tags));
+            sec = sec.child(v_flex().gap_0p5().child(div().text_color(theme.muted_foreground).child("attached tags")).child(tags));
         }
         out.child(sec).into_any_element()
     }

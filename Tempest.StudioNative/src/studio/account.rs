@@ -11,10 +11,10 @@ use std::rc::Rc;
 
 use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, Textarea};
+use gpui_component::input::{Input, InputEvent, Textarea};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt};
 
-use super::cooker::{app_data, run_cli_split, signing_key, Cooker};
+use super::cooker::{app_data, explain, run_cli_split, signing_key, Cooker};
 use super::modmeta::{self, Published};
 use super::{file_name, Tone};
 
@@ -88,13 +88,23 @@ impl Cooker {
             Ok((0, _, _)) => this.toast(Tone::Success, "Signing key created: your mods are signed with it from now on", cx),
             // A key already on this machine is used as it is.
             Ok((_, out, err)) if format!("{out}{err}").to_ascii_lowercase().contains("already exists") => this.toast(Tone::Info, "A signing key already exists on this machine", cx),
-            Ok((_, out, err)) => this.toast(Tone::Error, format!("Could not create the key: {}", if err.trim().is_empty() { out.trim() } else { err.trim() }), cx),
-            Err(e) => this.toast(Tone::Error, e, cx),
+            Ok((_, out, err)) => {
+                let raw = if err.trim().is_empty() { out.trim() } else { err.trim() };
+                this.toast(Tone::Error, format!("Could not create the key: {}", super::ui::explain_error(raw)), cx);
+            }
+            Err(e) => this.toast(Tone::Error, format!("Could not create the key: {}", super::ui::explain_error(&e)), cx),
         });
     }
 
     fn forget_api_key(&mut self, cx: &mut Context<Self>) {
-        self.cli(vec!["login".into()], "Forgetting the API key…", cx, |this, _, cx| this.toast(Tone::Info, "The API key is forgotten", cx));
+        self.cli(vec!["login".into()], "Forgetting the API key…", cx, |this, r, cx| match r {
+            Ok((0, _, _)) => this.toast(Tone::Info, "The API key is forgotten", cx),
+            Ok((code, out, err)) => {
+                let raw = if !err.trim().is_empty() { err.trim().to_string() } else if !out.trim().is_empty() { out.trim().to_string() } else { format!("exit {code}") };
+                this.toast(Tone::Error, format!("Could not forget the API key: {}", super::ui::explain_error(&raw)), cx);
+            }
+            Err(e) => this.toast(Tone::Error, format!("Could not forget the API key: {}", super::ui::explain_error(&e)), cx),
+        });
     }
 
     /// `mod login <key>`; `then` runs once the repository accepted it.
@@ -102,8 +112,11 @@ impl Cooker {
         self.cli(vec!["login".into(), key.trim().to_string()], "Logging in…", cx, move |this, r, cx| {
             let why = match r {
                 Ok((0, _, _)) => None,
-                Ok((code, out, err)) => Some(if !err.trim().is_empty() { err.trim().to_string() } else if !out.trim().is_empty() { out.trim().to_string() } else { format!("exit {code}") }),
-                Err(e) => Some(e),
+                Ok((code, out, err)) => {
+                    let raw = if !err.trim().is_empty() { err.trim().to_string() } else if !out.trim().is_empty() { out.trim().to_string() } else { format!("exit {code}") };
+                    Some(super::ui::explain_error(&raw))
+                }
+                Err(e) => Some(super::ui::explain_error(&e)),
             };
             then(this, why, cx);
         });
@@ -113,7 +126,9 @@ impl Cooker {
     pub(super) fn render_account(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let a = self.account.clone().unwrap_or_default();
-        let busy = self.busy.is_some();
+        let busy_reason = self.busy.clone();
+        let busy = busy_reason.is_some();
+        let api_empty = self.meta.api_key.read(cx).value().trim().is_empty();
         let muted = theme.muted_foreground;
         let key_line = match (&a.key_id, a.has_key) {
             (Some(id), _) => format!("Signing key: {id}"),
@@ -123,6 +138,16 @@ impl Cooker {
         let author = self.meta.text("author", cx);
         let url = a.repo_url.clone();
         let (u1, u2) = (url.clone(), url.clone());
+        let login_tip = if let Some(b) = &busy_reason {
+            b.clone()
+        } else if api_empty {
+            "Paste an API key from your account settings first".to_string()
+        } else if a.api_key.is_some() {
+            "Replace the saved API key".to_string()
+        } else {
+            "Save this API key for publishing mods".to_string()
+        };
+        let logout_tip = busy_reason.clone().unwrap_or_else(|| "Remove the saved API key from this computer".to_string());
         v_flex()
             .gap_2()
             .child(div().text_sm().child(key_line))
@@ -130,10 +155,12 @@ impl Cooker {
                 h_flex()
                     .gap_2()
                     .when(!a.has_key, |d| {
-                        d.child(Button::new("acc-gen-key").xsmall().primary().label("Create my signing key").disabled(busy).tooltip("tempest mod gen-key: one key per person, shared with the launcher").on_click(cx.listener(move |this, _, _, cx| this.create_key(author.clone(), cx))))
+                        let tip = busy_reason.clone().unwrap_or_else(|| "Create one signing key for your mods, shared with Tempest Launcher".to_string());
+                        d.child(Button::new("acc-gen-key").xsmall().label("Create my signing key").disabled(busy).tooltip(tip).on_click(cx.listener(move |this, _, _, cx| this.create_key(author.clone(), cx))))
                     })
                     .when(a.has_key, |d| {
-                        d.child(Button::new("acc-verify").xsmall().label("Prove it is my key…").disabled(busy).tooltip("Sign the text the website shows, to link this key to your account").on_click(cx.listener(|this, _, window, cx| this.sign_text_dialog(window, cx))))
+                        let tip = busy_reason.clone().unwrap_or_else(|| "Sign the text the website shows, to link this key to your account".to_string());
+                        d.child(Button::new("acc-verify").xsmall().label("Prove it is my key…").disabled(busy).tooltip(tip).on_click(cx.listener(|this, _, window, cx| this.sign_text_dialog(window, cx))))
                             .child(Button::new("acc-key-page").xsmall().ghost().label("Keys on the website").on_click(move |_, _, cx| cx.open_url(&format!("{u1}/settings#signing-keys"))))
                     }),
             )
@@ -145,7 +172,7 @@ impl Cooker {
                 h_flex()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(Input::new(&self.meta.api_key).small()))
-                    .child(Button::new("acc-login").xsmall().label(if a.api_key.is_some() { "Replace" } else { "Log in" }).disabled(busy).on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("acc-login").xsmall().label(if a.api_key.is_some() { "Replace" } else { "Log in" }).disabled(busy || api_empty).tooltip(login_tip).on_click(cx.listener(|this, _, _, cx| {
                         let key = this.meta.api_key.read(cx).value().to_string();
                         if key.trim().is_empty() {
                             return;
@@ -155,7 +182,7 @@ impl Cooker {
                             Some(e) => this.toast(Tone::Error, format!("The repository refused the key: {e}"), cx),
                         });
                     })))
-                    .when(a.api_key.is_some(), |d| d.child(Button::new("acc-logout").xsmall().ghost().label("Forget").disabled(busy).on_click(cx.listener(|this, _, _, cx| this.forget_api_key(cx))))),
+                    .when(a.api_key.is_some(), |d| d.child(Button::new("acc-logout").xsmall().ghost().label("Forget").disabled(busy).tooltip(logout_tip).on_click(cx.listener(|this, _, _, cx| this.forget_api_key(cx))))),
             )
             .child(h_flex().gap_1().text_xs().text_color(muted).child("API keys are made in your account settings on the website:").child(Button::new("acc-api-page").xsmall().ghost().label("open").on_click(move |_, _, cx| cx.open_url(&format!("{u2}/settings#api-keys")))))
             .into_any_element()
@@ -164,12 +191,29 @@ impl Cooker {
     /// Sign a text with the key (`mod sign-text`): paste the website's challenge, copy the signature back.
     fn sign_text_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = cx.new(|cx| gpui_component::input::TextareaState::new(window, cx).placeholder("Paste the text the website asks you to sign").auto_grow(3, 8));
+        cx.subscribe(&text, |_, _, ev: &InputEvent, cx| {
+            if matches!(ev, InputEvent::Change) {
+                cx.refresh_windows();
+            }
+        })
+        .detach();
         let out: Rc<RefCell<Option<Result<String, String>>>> = Rc::default();
         let me = cx.entity().downgrade();
         window.open_dialog(cx, move |dialog, _, cx| {
             let theme = cx.theme().clone();
             let (out2, text2, me) = (out.clone(), text.clone(), me.clone());
+            let me_copy = me.clone();
             let result = out.borrow().clone();
+            let has_sig = matches!(&result, Some(Ok(_)));
+            let signing = me.upgrade().and_then(|c| c.read(cx).busy.clone());
+            let empty = text.read(cx).value().trim().is_empty();
+            let sign_tip = if let Some(b) = &signing {
+                b.clone()
+            } else if empty {
+                "Paste the challenge text from the website first".to_string()
+            } else {
+                "Sign the text with your local key".to_string()
+            };
             dialog
                 .title("Prove the signing key is yours")
                 .w(px(620.0))
@@ -181,28 +225,45 @@ impl Cooker {
                         .when_some(result, |d, r| match r {
                             Ok(sig) => {
                                 let copy = sig.clone();
-                                d.child(div().id("sig").max_h(px(180.0)).overflow_y_scroll().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(sig)).child(h_flex().child(Button::new("sig-copy").small().primary().label("Copy the signature").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())))))
+                                d.child(div().id("sig").max_h(px(180.0)).overflow_y_scroll().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(sig)).child(h_flex().child(Button::new("sig-copy").small().primary().label("Copy the signature").on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                                    let _ = me_copy.update(cx, |this, cx| this.toast(Tone::Success, "Signature copied to clipboard", cx));
+                                })))
                             }
-                            Err(e) => d.child(div().text_xs().text_color(theme.danger).child(e)),
+                            Err(e) => d.child(div().text_xs().text_color(theme.danger).whitespace_normal().child(e)),
                         }),
                 )
-                .footer(h_flex().w_full().justify_end().gap_2().child(Button::new("sig-close").label("Close").on_click(|_, window, cx| window.close_dialog(cx))).child(Button::new("sig-sign").primary().label("Sign").on_click(move |_, _, cx| {
-                    let t = text2.read(cx).value().to_string();
-                    if t.trim().is_empty() {
-                        return;
-                    }
-                    let out = out2.clone();
-                    let _ = me.update(cx, move |this, cx| {
-                        this.cli(vec!["sign-text".into(), t], "Signing…", cx, move |_, r, cx| {
-                            *out.borrow_mut() = Some(match r {
-                                Ok((0, sig, _)) => Ok(sig.trim().to_string()),
-                                Ok((_, o, e)) => Err(if e.trim().is_empty() { o.trim().to_string() } else { e.trim().to_string() }),
-                                Err(e) => Err(e),
-                            });
-                            cx.refresh_windows();
-                        });
-                    });
-                })))
+                .footer(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap_2()
+                        .child(Button::new("sig-close").label("Close").on_click(|_, window, cx| window.close_dialog(cx)))
+                        .child(
+                            Button::new("sig-sign")
+                                .when(!has_sig, |b| b.primary())
+                                .label(if signing.is_some() { "Signing…" } else if has_sig { "Sign again" } else { "Sign" })
+                                .disabled(signing.is_some() || empty)
+                                .tooltip(sign_tip)
+                                .on_click(move |_, _, cx| {
+                                    let t = text2.read(cx).value().to_string();
+                                    if t.trim().is_empty() {
+                                        return;
+                                    }
+                                    let out = out2.clone();
+                                    let _ = me.update(cx, move |this, cx| {
+                                        this.cli(vec!["sign-text".into(), t], "Signing…", cx, move |_, r, cx| {
+                                            *out.borrow_mut() = Some(match r {
+                                                Ok((0, sig, _)) => Ok(sig.trim().to_string()),
+                                                Ok((_, o, e)) => Err(super::ui::explain_error(if e.trim().is_empty() { o.trim() } else { e.trim() })),
+                                                Err(e) => Err(super::ui::explain_error(&e)),
+                                            });
+                                            cx.refresh_windows();
+                                        });
+                                    });
+                                }),
+                        ),
+                )
         });
     }
 
@@ -216,23 +277,36 @@ impl Cooker {
             let theme = cx.theme().clone();
             let Some(this) = me.upgrade() else { return dialog };
             let c = this.read(cx);
+            let (pkg, signed) = c.built.clone().unwrap_or_else(|| (pkg.clone(), signed));
+            let repack_release = c.built_fast && !c.meta.fast;
+            let busy_label = c.busy.clone().unwrap_or_else(|| "Publishing…".to_string());
             let m = &c.meta;
             let repo = c.account.as_ref().map(|a| a.repo_url.clone()).unwrap_or_else(|| "https://mods.lowrezstudio.com".into());
             let summary = m.text("summary", cx);
             let compat = !m.compat.covered().is_empty();
             let summary_ok = !summary.is_empty() && summary.chars().count() <= modmeta::MAX_SUMMARY;
+            let api_empty = m.api_key.read(cx).value().trim().is_empty();
             let st = state.borrow();
-            let can = compat && summary_ok && signed && !st.busy;
-            let mut why: Vec<&str> = Vec::new();
+            let need_login = st.need_login;
+            let stale = c.built_as.as_ref().is_some_and(|(i, v)| *i != c.mod_id(cx) || *v != c.version(cx));
+            let listing = [modmeta::tags_problem(&m.text("tags", cx)), modmeta::repository_problem(&m.text("repository", cx))];
+            let listing_ok = listing.iter().all(Option::is_none);
+            let can = compat && summary_ok && signed && listing_ok && !stale && !st.busy && !need_login;
+            let mut why: Vec<String> = Vec::new();
+            if stale {
+                why.push("The id or version changed since this build: build again so the upload carries them.".into());
+            }
             if !signed {
-                why.push("The package is not signed: create your signing key in Publish ▸ Signing and account, then build again.");
+                why.push("The package is not signed: create your signing key in Publish ▸ Signing and account, then build again.".into());
             }
             if !summary_ok {
-                why.push("Write a summary (140 characters at most) in Publish ▸ Listing.");
+                why.push("Write a summary (140 characters at most) in Publish ▸ Listing.".into());
             }
             if !compat {
-                why.push("Pick the game patches it works with in Publish.");
+                why.push("Pick the game patches it works with in Publish.".into());
             }
+            why.extend(listing.into_iter().flatten().map(|w| format!("{w} (Publish ▸ Listing).")));
+            let first_why = why.first().cloned();
             let works = m.compat.describe();
             let changelog = m.changelog.read(cx).value().trim().to_string();
             let fact = |label: &'static str, value: String| h_flex().gap_2().items_start().child(div().flex_none().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().text_xs().whitespace_normal().child(value));
@@ -257,17 +331,27 @@ impl Cooker {
                 .child(fact("Summary", if summary.is_empty() { "none".into() } else { summary.clone() }))
                 .child(fact("Works with", if works.is_empty() { "no patch named".into() } else { works }))
                 .child(fact("What changed", if changelog.is_empty() { "nothing written".into() } else { changelog }))
+                .when(repack_release, |d| {
+                    d.child(div().text_xs().text_color(theme.muted_foreground).whitespace_normal().child("This build used fast compression for local testing; Publish will repack it to the smallest download size before uploading."))
+                })
                 .child(div().text_xs().text_color(theme.muted_foreground).child("Change these in the Publish tab of the Mod view."))
                 .children(why.into_iter().map(|w| div().text_xs().text_color(theme.warning).child(w)));
             if let Some(r) = &st.result {
                 let text = if r.state == "queued" || r.state == "pending" { "Uploaded: it is waiting for review".to_string() } else { format!("The repository answered: {}", r.state) };
-                body = body.child(div().text_sm().child(text)).children(r.errors.iter().map(|e| div().text_xs().text_color(theme.danger).child(e.clone()))).children(r.warnings.iter().map(|w| div().text_xs().text_color(theme.warning).child(w.clone())));
+                body = body.child(div().text_sm().child(text)).children(r.errors.iter().map(|e| div().text_xs().text_color(theme.danger).whitespace_normal().child(e.clone()))).children(r.warnings.iter().map(|w| div().text_xs().text_color(theme.warning).whitespace_normal().child(w.clone())));
             }
             if let Some(e) = &st.error {
-                body = body.child(div().text_xs().text_color(theme.danger).child(e.clone()));
+                body = body.child(div().text_xs().text_color(theme.danger).whitespace_normal().child(e.clone()));
             }
-            if st.need_login {
+            if need_login {
                 let (me2, state2) = (me.clone(), state.clone());
+                let login_btn_tip = if st.busy {
+                    busy_label.clone()
+                } else if api_empty {
+                    "Paste an API key from your account settings first".to_string()
+                } else {
+                    "Save your API key and upload the mod".to_string()
+                };
                 body = body.child(
                     v_flex()
                         .gap_1()
@@ -276,7 +360,7 @@ impl Cooker {
                         .bg(theme.secondary)
                         .child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).child("Log in to the mod repository"))
                         .child(div().text_xs().text_color(theme.muted_foreground).child("Paste an API key from your account settings on the website; it is kept for the launcher too."))
-                        .child(h_flex().gap_2().child(div().flex_1().min_w_0().child(Input::new(&m.api_key).small())).child(Button::new("pub-login").small().primary().label("Log in and publish").on_click(move |_, _, cx| {
+                        .child(h_flex().gap_2().child(div().flex_1().min_w_0().child(Input::new(&m.api_key).small())).child(Button::new("pub-login").small().primary().label(if st.busy { "Logging in…" } else { "Log in and publish" }).disabled(st.busy || api_empty).tooltip(login_btn_tip).on_click(move |_, _, cx| {
                             let state = state2.clone();
                             let _ = me2.update(cx, |this, cx| {
                                 let key = this.meta.api_key.read(cx).value().to_string();
@@ -298,27 +382,67 @@ impl Cooker {
                                 });
                             });
                         })))
-                        .when_some(st.login_error.clone(), |d, e| d.child(div().text_xs().text_color(theme.danger).child(e))),
+                        .when_some(st.login_error.clone(), |d, e| d.child(div().text_xs().text_color(theme.danger).whitespace_normal().child(e))),
                 );
             }
             let (me3, state3) = (me.clone(), state.clone());
             let busy = st.busy;
             drop(st);
+            let pub_tip = if need_login {
+                "Enter your API key above to log in and publish".to_string()
+            } else if busy {
+                busy_label.clone()
+            } else if let Some(w) = first_why {
+                w.to_string()
+            } else {
+                "Upload the signed mod package to the repository".to_string()
+            };
             dialog.title(format!("Publish {name}")).w(px(620.0)).child(body).footer(
                 h_flex()
                     .w_full()
                     .justify_end()
                     .gap_2()
                     .child(Button::new("pub-cancel").label("Close").on_click(|_, window, cx| window.close_dialog(cx)))
-                    .child(Button::new("pub-go").primary().label(if busy { "Publishing…" } else { "Publish" }).disabled(!can).on_click(move |_, _, cx| {
-                        let state = state3.clone();
-                        let _ = me3.update(cx, |this, cx| this.publish(state, cx));
-                    })),
+                    .child(
+                        Button::new("pub-go")
+                            .when(!need_login, |b| b.primary())
+                            .label(if busy { busy_label } else { "Publish".to_string() })
+                            .disabled(!can)
+                            .tooltip(pub_tip)
+                            .on_click(move |_, _, cx| {
+                                let state = state3.clone();
+                                let _ = me3.update(cx, |this, cx| this.publish(state, cx));
+                            }),
+                    ),
             )
         });
     }
 
     fn publish(&mut self, state: Rc<RefCell<PublishState>>, cx: &mut Context<Self>) {
+        let Some((pkg, _)) = self.built.clone() else { return };
+        if self.built_fast && !self.meta.fast {
+            {
+                let mut s = state.borrow_mut();
+                s.busy = true;
+                s.error = None;
+                s.result = None;
+            }
+            cx.refresh_windows();
+            self.build_release_into(pkg, cx, move |this, r, cx| match r {
+                Ok(()) => this.publish_built(state, cx),
+                Err(e) => {
+                    let mut s = state.borrow_mut();
+                    s.busy = false;
+                    s.error = Some(explain(&e));
+                    cx.refresh_windows();
+                }
+            });
+            return;
+        }
+        self.publish_built(state, cx);
+    }
+
+    fn publish_built(&mut self, state: Rc<RefCell<PublishState>>, cx: &mut Context<Self>) {
         let Some((pkg, _)) = self.built.clone() else { return };
         let m = &self.meta;
         let mut args = vec!["publish".to_string(), pkg];
@@ -344,10 +468,11 @@ impl Cooker {
             s.busy = false;
             match r {
                 Ok((code, out, err)) => match modmeta::parse_publish(&out) {
-                    Some(p) => {
+                    Some(mut p) => {
                         if p.state == "done" {
                             this.toast(Tone::Success, "Mod published", cx);
                         }
+                        p.errors = p.errors.into_iter().map(|e| super::ui::explain_error(&e)).collect();
                         s.result = Some(p);
                     }
                     None => {
@@ -357,11 +482,11 @@ impl Cooker {
                         } else if code == 0 {
                             s.result = Some(Published { state: "done".into(), ..Default::default() });
                         } else {
-                            s.error = Some(msg.trim_start_matches("Publish failed:").trim().to_string());
+                            s.error = Some(super::ui::explain_error(msg.trim_start_matches("Publish failed:").trim()));
                         }
                     }
                 },
-                Err(e) => s.error = Some(e),
+                Err(e) => s.error = Some(super::ui::explain_error(&e)),
             }
             cx.refresh_windows();
         });
@@ -377,7 +502,7 @@ impl Cooker {
             let r = std::fs::copy(&pkg, &out);
             let _ = this.update(cx, |this, cx| match r {
                 Ok(_) => this.toast(Tone::Success, format!("Saved {}", out.display()), cx),
-                Err(e) => this.toast(Tone::Error, format!("Could not save the copy: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not save the copy: {}", super::ui::explain_error(&e.to_string())), cx),
             });
         })
         .detach();

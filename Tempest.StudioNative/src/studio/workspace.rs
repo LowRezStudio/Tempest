@@ -30,7 +30,7 @@ impl Studio {
 
     /// `out` given (the driver), else asked for.
     pub(super) fn save_workspace_to(&mut self, portable: bool, out: Option<String>, cx: &mut Context<Self>) {
-        let unsaved = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
+        let unsaved = self.unsaved_total(cx);
         if unsaved == 0 {
             self.toast(Tone::Info, "Nothing is edited: a workspace file keeps edits", cx);
             return;
@@ -59,7 +59,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
-                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); your changes stay here too", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
+                    this.toast(Tone::Success, format!("Wrote {} ({n} file{}, {}); your changes stay here too", file_name(&out), if n == 1 { "" } else { "s" }, crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
                     for w in r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()).take(3) {
                         this.toast(Tone::Warning, w.to_string(), cx);
                     }
@@ -110,6 +110,8 @@ impl Studio {
                         this.clear_selection();
                         this.selected_package = None;
                         this.dirty.clear();
+                        this.movies.clear();
+                        this.focus_mode = false;
                         this.assembly = None;
                         this.cooker = None;
                         this.refilter_packages(cx);
@@ -131,6 +133,8 @@ impl Studio {
             let applied = apply.await;
             let _ = this.update(cx, |this, cx| match applied {
                 Ok(a) => {
+                    this.movies.clear();
+                    this.focus_mode = false;
                     let mut n = 0;
                     for p in a.json["packages"].as_array().into_iter().flatten() {
                         if let Some(pp) = p["path"].as_str() {
@@ -144,6 +148,7 @@ impl Studio {
                     let docs = a.json["docs"].as_array().map(|d| d.len()).unwrap_or(0);
                     this.applied_docs |= docs > 0;
                     this.adopt_project(&path, &state);
+                    this.sync_cooker(cx);
                     // The id range the work was made with.
                     if let (Some(start), Some(end)) = (state["idRange"]["start"].as_i64(), state["idRange"]["end"].as_i64()) {
                         this.set_id_range(Some((start, end)));
@@ -154,12 +159,14 @@ impl Studio {
                         })
                         .detach();
                     }
+                    let pkgs_word = if n == 1 { "package" } else { "packages" };
+                    let docs_word = if docs == 1 { "file" } else { "files" };
                     match &this.project {
                         Some(p) if p.file == path => {
                             let name = p.name.clone();
-                            this.toast(Tone::Success, format!("Opened {name}: {n} changed packages and {docs} changed game data files"), cx)
+                            this.toast(Tone::Success, format!("Opened {name}: {n} changed {pkgs_word} and {docs} changed game data {docs_word}"), cx)
                         }
-                        _ => this.toast(Tone::Success, format!("Opened {}: {n} changed packages and {docs} changed game data files", file_name(&path)), cx),
+                        _ => this.toast(Tone::Success, format!("Opened {}: {n} changed {pkgs_word} and {docs} changed game data {docs_word}", file_name(&path)), cx),
                     }
                     // Back where it was saved.
                     if let Some(pkg) = state["package"].as_str() {
@@ -186,9 +193,9 @@ impl Studio {
         super::state_file(&format!("recovery/{:016x}.twrk", h.finish()))
     }
 
-    /// Every two minutes with unsaved edits and no project, a linked
-    /// recovery copy (the unnamed mod's draft), written once edits pause for a
-    /// moment; deleted once nothing is unsaved.
+    /// Two seconds after edits pause with unsaved edits and no project, a linked
+    /// recovery copy (the unnamed mod's draft) is written; deleted once nothing
+    /// is unsaved.
     pub(super) fn watch_recovery(cx: &mut Context<Self>) {
         use std::sync::atomic::Ordering;
         let mut seen = crate::backend::EDITS.load(Ordering::SeqCst);
@@ -248,7 +255,13 @@ impl Studio {
                 let name = super::file_name(p);
                 match name.to_ascii_lowercase().as_str() {
                     "assembly.dat" => "game data".to_string(),
-                    n if n.starts_with("lang_") => format!("texts ({})", name.trim_end_matches(".dat").trim_start_matches("Lang_")),
+                    n if n.starts_with("lang_") && n.ends_with(".dat") => {
+                        let code = &name[5..name.len() - 4];
+                        match super::cooker::lang_name(code) {
+                            Some(lang) => format!("{lang} texts"),
+                            None => format!("texts ({code})"),
+                        }
+                    }
                     _ => name.trim_end_matches(".upk").to_string(),
                 }
             }).collect();

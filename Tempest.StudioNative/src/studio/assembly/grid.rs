@@ -12,7 +12,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_component::switch::Switch;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Selectable, Sizable};
 use gpui_kit_assets::IconName;
 use serde_json::Value as J;
 
@@ -84,7 +84,10 @@ impl Assembly {
             let (msg, value_id, flag, link) = (is_message(&c.name), is_value_id(&c.name), is_flag(&c.name), ref_of(&c.name).is_some());
             let mut w = 0usize;
             for (_, cells) in self.rows.values() {
-                let Some(v) = cells.get(&c.name) else { continue };
+                let Some(v) = cells.get(&c.name) else {
+                    w = w.max(1);
+                    continue;
+                };
                 let n = match v {
                     J::Null => 0,
                     J::Object(o) if o.contains_key("rows") => o["rows"].to_string().len() + 5,
@@ -169,6 +172,15 @@ impl Assembly {
         }
     }
 
+    fn toolbar_width(&self, window: &Window) -> f32 {
+        let w = f32::from(self.hscroll.bounds().size.width);
+        if w > 0.0 {
+            w
+        } else {
+            (f32::from(window.viewport_size().width) - self.sizes.iter().sum::<f32>() - 56.0).max(400.0)
+        }
+    }
+
     /// Rows that fit in the grid (a screenful, for Page Up / Page Down).
     fn rows_in_view(&self, window: &Window) -> usize {
         let h = f32::from(self.scroll.0.borrow().base_handle.bounds().size.height);
@@ -215,7 +227,7 @@ impl Assembly {
 
     /// ↑ ↓ (with ⇧: marking the rows passed). In the table list: the next table.
     pub(super) fn key_step(&mut self, by: isize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tables_focus.is_focused(window) {
+        if self.tables_focus.is_focused(window) || self.tables_focus.contains_focused(window, cx) {
             self.step_table(by, window, cx);
             return;
         }
@@ -252,12 +264,18 @@ impl Assembly {
         self.move_col(by, cx);
     }
 
-    /// Tab: the next cell; in a cell's editor: applied first.
+    /// Tab: the next cell; in a cell's editor: applied first; at the grid edge: passes focus to adjacent panes.
     pub(super) fn key_tab(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(self.edit, Some(Edit::Cell { .. })) {
             self.commit_edit(if by > 0 { Move::Right } else { Move::Left }, window, cx);
         } else if self.grid_focused(window) {
-            self.move_col(by, cx);
+            let cols = self.visible_columns();
+            let at = self.col.as_ref().and_then(|c| cols.iter().position(|x| &x.name == c)).unwrap_or(0);
+            if cols.is_empty() || (by < 0 && at == 0) || (by > 0 && at + 1 >= cols.len()) {
+                cx.propagate();
+            } else {
+                self.move_col(by, cx);
+            }
         } else {
             cx.propagate();
         }
@@ -323,7 +341,8 @@ impl Assembly {
         // Every row read so far (a table is read as it is scrolled).
         self.marked = self.rows.values().map(|r| r.0).collect();
         if self.rows.len() < self.total {
-            self.set_status(format!("{} of {} rows marked: the rest are not read yet (scroll to read them)", self.rows.len(), self.total), cx);
+            let unit = if self.total == 1 { "row" } else { "rows" };
+            self.set_status(format!("{} of {} {unit} marked: the rest are not read yet (scroll to read them)", self.rows.len(), self.total), cx);
         }
         cx.notify();
     }
@@ -548,6 +567,8 @@ impl Assembly {
         let muted = theme.muted_foreground;
         let content: AnyElement = if editing {
             div().key_context("AsmEdit").w_full().child(Input::new(&self.edit_input).xsmall()).into_any_element()
+        } else if present.is_none() {
+            div().text_color(muted).child("—").into_any_element()
         } else if is_set {
             let field = name.clone();
             div()
@@ -583,7 +604,7 @@ impl Assembly {
                         .id(SharedString::from(format!("go{pos}-{name}")))
                         .flex_none()
                         .cursor_pointer()
-                        .text_color(muted.opacity(0.6))
+                        .text_color(muted)
                         .hover(|s| s.text_color(theme.link))
                         .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
                         .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
@@ -616,7 +637,6 @@ impl Assembly {
             .text_xs()
             .border_r_1()
             .border_color(theme.border.opacity(0.4))
-            .when(present.is_none(), |d| d.opacity(0.3))
             .when_some(tip.filter(|_| !editing), |d, tip| d.tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)))
             // The cursor follows the cell clicked (either button), before the row's own handlers.
             .on_mouse_down(MouseButton::Left, cx.listener({
@@ -648,7 +668,36 @@ impl Assembly {
     pub(super) fn render_grid(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(table) = self.table.clone() else {
-            return crate::studio::ui::empty(IconName::Table, "No table open", "Pick a table on the left. Each one is a list of the game's content: items, champions' abilities, skins, loot…", &theme).into_any_element();
+            let side_shown = self.panes.get().side();
+            let empty_copy = if side_shown {
+                "Pick a table on the left. Each one is a list of the game's content: items, champions' abilities, skins, loot…"
+            } else {
+                "Choose a table to browse the game's content: items, champions' abilities, skins, loot…"
+            };
+            let empty = crate::studio::ui::empty(IconName::Table, "No table open", empty_copy, &theme).when(!side_shown, |d| {
+                d.child(
+                    h_flex().pt_2().child(
+                        Button::new("asm-empty-tables")
+                            .small()
+                            .icon(Icon::new(IconName::PanelLeft))
+                            .label("Browse tables…")
+                            .tooltip(format!("Files & tables ({})", key_hint("⌘B")))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                crate::studio::layout::update(&this.panes, |p| p.toggle_side());
+                                cx.notify();
+                            })),
+                    ),
+                )
+            });
+            return div()
+                .id("asm-grid")
+                .relative()
+                .track_focus(&self.focus)
+                .tab_index(0)
+                .size_full()
+                .child(empty)
+                .child(crate::driver::probe("asm-grid"))
+                .into_any_element();
         };
         let layout = self.layout(window, cx);
         if std::mem::take(&mut self.reveal_col) {
@@ -659,29 +708,133 @@ impl Assembly {
         let in_assembly = self.doc.as_deref() == Some("assembly");
         let depth = self.path.len();
         let mono = theme.mono_font_family.clone();
+        let grid_focused = self.grid_focused(window);
+        let grid_w = self.toolbar_width(window);
+        let champs_only = self.active_champions_only();
 
-        // Breadcrumbs: each opened row, then the set on screen.
-        // Clipped, never drawn under the filter: the raw name and the row count give way first.
-        let mut crumbs = h_flex().gap_1().min_w_0().overflow_hidden().text_sm().font_family(mono.clone());
+        // Group 1: Breadcrumbs / friendly table title (given priority) + contextual filter chip.
+        let friendly = super::side::friendly_table(&table);
+        let title_text = friendly.map(str::to_string).unwrap_or_else(|| short(&table).to_string());
+        let title_tip = match friendly {
+            Some(f) => format!("{f} ({table})"),
+            None => table.clone(),
+        };
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
+        let mut crumbs = h_flex().gap_1p5().min_w_0().items_center().overflow_hidden().text_sm();
         for (k, (t, row)) in self.path.clone().into_iter().enumerate() {
             crumbs = crumbs
-                .child(div().id(("crumb", k)).flex_none().text_color(theme.link).cursor_pointer().hover(|s| s.underline()).on_click(cx.listener(move |this, _, window, cx| this.up_to(k, window, cx))).child(format!("{}[{row}]", short(&t))))
-                .child(div().flex_none().text_color(theme.muted_foreground).child("/"));
+                .child(
+                    div()
+                        .id(("crumb", k))
+                        .focusable()
+                        .tab_index(0)
+                        .flex_none()
+                        .px_0p5()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
+                        .font_family(mono.clone())
+                        .text_xs()
+                        .text_color(theme.link)
+                        .cursor_pointer()
+                        .hover(|s| s.underline())
+                        .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.up_to(k, window, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| this.up_to(k, window, cx)))
+                        .child(format!("{}[{row}]", short(&t))),
+                )
+                .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child("/"));
         }
         crumbs = crumbs
-            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::SEMIBOLD).child(super::side::friendly_table(&table).map(str::to_string).unwrap_or_else(|| short(&table).to_string())))
-            .when(super::side::friendly_table(&table).is_some(), |d| d.child(div().min_w_0().flex_shrink(4.0).overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(short(&table).to_string())))
-            .child(div().min_w_0().flex_shrink(8.0).overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!("{} rows", self.total)));
+            .child(
+                div()
+                    .id("asm-table-title")
+                    .when(depth == 0 && grid_w >= 480.0, |d| d.flex_none())
+                    .when(depth > 0 || grid_w < 480.0, |d| d.min_w(px(110.0)).overflow_hidden().text_ellipsis().whitespace_nowrap())
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(title_tip.clone()).build(window, cx))
+                    .child(title_text),
+            )
+            .when(friendly.is_some() && grid_w >= 900.0, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(theme.secondary)
+                        .text_xs()
+                        .font_family(crate::studio::ui::mono())
+                        .text_color(theme.muted_foreground)
+                        .child(short(&table).to_string()),
+                )
+            })
+            .when(in_assembly && depth == 0 && table == "DATA_SET_BOTS", |d| {
+                d.child(
+                    div()
+                        .relative()
+                        .flex_none()
+                        .child(
+                            Button::new("a-champs-only")
+                                .xsmall()
+                                .ghost()
+                                .selected(self.champions_only)
+                                .icon(Icon::new(IconName::Users))
+                                .label(if grid_w >= 680.0 { "Champions only" } else { "Champions" })
+                                .tooltip("Show only playable champions (hide non-playable deployables, walls and mounts)")
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_champions_only(cx))),
+                        )
+                        .child(crate::driver::probe("a-champs-only")),
+                )
+            });
 
         let targets = self.targets().len();
-        let mut toolbar = crate::studio::ui::toolbar(&theme).child(crumbs).child(div().flex_1().min_w_2()).child(div().w(px(240.0)).flex_shrink(1.0).min_w(px(120.0)).child(Input::new(&self.filter).small().cleanable(true)));
+        let has_selected = self.selected.is_some();
+        let dup_tip = if has_selected {
+            format!("Duplicate: copy the selected row to the end with a fresh id and its own messages ({})", key_hint("⌘D"))
+        } else {
+            format!("Select a row first to duplicate it ({})", key_hint("⌘D"))
+        };
+        let del_tip = if targets > 1 {
+            format!("Delete the {targets} marked rows… (Delete)")
+        } else if targets == 1 {
+            "Delete the selected row… (Delete)".to_string()
+        } else {
+            "Select or mark a row first to delete it (Delete)".to_string()
+        };
+
+        // Group 3: Create & row actions grouped cleanly into one compact pill.
+        let mut row_group = h_flex().flex_none().items_center().gap_0p5().px_1().py_0p5().rounded_md().border_1().border_color(theme.border);
         if in_assembly && depth == 0 {
-            toolbar = toolbar.child(Button::new("a-new-content").xsmall().icon(Icon::new(IconName::Sparkles)).label("New content").tooltip("A new skin, ability, card, item or champion, step by step").on_click(cx.listener(|this, _, _, cx| this.open_wizard(None, cx))));
+            row_group = row_group.child(
+                Button::new("a-new-content")
+                    .xsmall()
+                    .ghost()
+                    .icon(Icon::new(IconName::Sparkles))
+                    .when(grid_w >= 720.0, |b| b.label("New content"))
+                    .tooltip("Create a new skin, ability, card, item or champion, step by step")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_wizard(None, cx))),
+            );
         }
-        toolbar = toolbar
+        row_group = row_group
             .child(Button::new("arow-add").xsmall().ghost().icon(Icon::new(IconName::Plus)).tooltip(format!("New row: an empty row at the end, with a fresh id ({})", key_hint("⌘⇧↩"))).on_click(cx.listener(|this, _, window, cx| this.new_row(window, cx))))
-            .child(Button::new("arow-dup").xsmall().ghost().icon(Icon::new(IconName::Copy)).disabled(self.selected.is_none()).tooltip(format!("Duplicate: the selected row copied to the end with a fresh id and its own copies of its messages ({})", key_hint("⌘D"))).on_click(cx.listener(|this, _, window, cx| this.duplicate(window, cx))))
-            .child(Button::new("arow-del").xsmall().ghost().icon(Icon::new(IconName::Trash)).disabled(targets == 0).tooltip(if targets > 1 { format!("Delete the {targets} marked rows…") } else { "Delete the selected row… (Delete)".to_string() }).on_click(cx.listener(|this, _, window, cx| this.delete_rows(window, cx))))
+            .when(grid_w >= 820.0, |g| {
+                g.child(Button::new("arow-dup").xsmall().ghost().icon(Icon::new(IconName::Copy)).disabled(!has_selected).tooltip(dup_tip).on_click(cx.listener(|this, _, window, cx| this.duplicate(window, cx))))
+                    .child(Button::new("arow-del").xsmall().ghost().icon(Icon::new(IconName::Trash)).disabled(targets == 0).tooltip(del_tip).on_click(cx.listener(|this, _, window, cx| this.delete_rows(window, cx))))
+            });
+
+        // Group 4: Column visibility & overflow actions.
+        let view_group = h_flex()
+            .flex_none()
+            .items_center()
+            .gap_0p5()
             .child({
                 let me = cx.entity().downgrade();
                 let all: Vec<String> = self.columns.iter().map(|c| c.name.clone()).collect();
@@ -708,7 +861,7 @@ impl Assembly {
             .child({
                 let me = cx.entity().downgrade();
                 let undo = undo.clone();
-                Button::new("a-more").xsmall().ghost().icon(Icon::new(IconName::Ellipsis)).tooltip("Copy and paste rows, skins, champion vendor, export, reload, undo, discard").dropdown_menu(move |menu, _, _| {
+                Button::new("a-more").xsmall().ghost().icon(Icon::new(IconName::Ellipsis)).tooltip("Row actions, copy and paste, skins, champion vendor, export, reload, undo, discard").dropdown_menu(move |menu, _, _| {
                     let item = |label: String, f: fn(&mut Assembly, &mut Window, &mut Context<Assembly>)| {
                         let me = me.clone();
                         PopupMenuItem::new(label).on_click(move |_, window, cx| {
@@ -716,9 +869,13 @@ impl Assembly {
                         })
                     };
                     let mut menu = menu
-                        .item(item(format!("Copy the rows    {}", key_hint("⌘C")), |a, _, cx| a.copy_rows(cx)))
+                        .item(item(format!("New row    {}", key_hint("⌘⇧↩")), |a, w, cx| a.new_row(w, cx)))
+                        .item(item(format!("Duplicate row    {}", key_hint("⌘D")), |a, w, cx| a.duplicate(w, cx)).disabled(!has_selected))
+                        .item(item(if targets > 1 { format!("Delete {targets} rows…    Delete") } else { "Delete row…    Delete".into() }, |a, w, cx| a.delete_rows(w, cx)).disabled(targets == 0))
+                        .separator()
+                        .item(item(format!("Copy the rows    {}", key_hint("⌘C")), |a, _, cx| a.copy_rows(cx)).disabled(targets == 0))
                         .item(item(format!("Paste    {}", key_hint("⌘V")), |a, w, cx| a.paste(w, cx)))
-                        .item(item("Copy as tab-separated text".into(), |a, _, cx| a.copy_tsv(cx)))
+                        .item(item("Copy as tab-separated text".into(), |a, _, cx| a.copy_tsv(cx)).disabled(targets == 0))
                         .separator();
                     if in_assembly {
                         menu = menu
@@ -738,6 +895,38 @@ impl Assembly {
                 })
             });
 
+        let panes = self.panes.get();
+        let toolbar = crate::studio::ui::toolbar(&theme)
+            .gap_2()
+            .when(grid_focused, |d| d.border_b_2().border_color(theme.ring))
+            .when(!panes.side(), |d| {
+                let side_key = key_hint("⌘B");
+                let side_tip = if panes.overlay {
+                    format!("Hide files & tables ({side_key})")
+                } else {
+                    format!("Show files & tables ({side_key})")
+                };
+                d.child(
+                    Button::new("a-side")
+                        .xsmall()
+                        .ghost()
+                        .flex_none()
+                        .icon(Icon::new(IconName::PanelLeft))
+                        .label("Tables")
+                        .selected(panes.overlay)
+                        .tooltip(side_tip)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            crate::studio::layout::update(&this.panes, |p| p.toggle_side());
+                            cx.notify();
+                        })),
+                )
+            })
+            .child(crumbs)
+            .child(div().flex_1().min_w_2())
+            .child(div().w(px(188.0)).flex_shrink(1.0).min_w(px(108.0)).child(Input::new(&self.filter).small().cleanable(true)))
+            .child(row_group)
+            .child(view_group);
+
         // Several rows marked: what an edit does, and their own actions.
         let marked_bar = (self.marked.len() > 1).then(|| {
             h_flex()
@@ -748,7 +937,7 @@ impl Assembly {
                 .bg(theme.primary.opacity(0.1))
                 .border_b_1()
                 .border_color(theme.border)
-                .child(format!("{} rows marked: editing a cell of one of them sets it on all.", self.marked.len()))
+                .child(format!("{} rows marked: editing a cell and pressing Enter sets it on all.", self.marked.len()))
                 .child(div().flex_1())
                 .child(Button::new("am-copy").xsmall().ghost().icon(Icon::new(IconName::Copy)).label("Copy").on_click(cx.listener(|this, _, _, cx| this.copy_rows(cx))))
                 .child(Button::new("am-tsv").xsmall().ghost().label("Copy as TSV").on_click(cx.listener(|this, _, _, cx| this.copy_tsv(cx))))
@@ -763,33 +952,59 @@ impl Assembly {
         let (flow, before, after) = layout.window(off, self.view_width());
         let n_pin = layout.cols.iter().filter(|c| c.pinned).count();
         let head_h = (1.75 * f32::from(window.rem_size())).round();
-        let mut header = h_flex().relative().h(px(head_h)).w(px(layout.width)).flex_none().font_family(mono).text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).border_b_1().border_color(theme.border).child(div().w(px(layout.pin_w + before)).flex_none());
-        let mut pin_head = h_flex().absolute().top_0().left(px(off)).h_full().bg(theme.background).border_r_1().border_color(theme.border).child(div().w(px(layout.index_w)).flex_none().px_2().text_right().child("#"));
+        let mut header = h_flex().relative().h(px(head_h)).w(px(layout.width)).flex_none().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).border_b_1().border_color(theme.border).child(div().w(px(layout.pin_w + before)).flex_none());
+        let mut pin_head = h_flex().absolute().top_0().left(px(off)).h_full().bg(theme.background).border_r_1().border_color(theme.border).child(div().w(px(layout.index_w)).flex_none().px_2().font_family(mono).text_right().child("#"));
         let head = |l: &Laid, this: &Assembly, cx: &mut Context<Assembly>| {
             let name = l.col.name.clone();
-            let arrow = match &this.sort {
-                Some((s, d)) if s == &name => if *d { " ▼" } else { " ▲" },
-                _ => "",
+            let friendly = super::row::pretty_column(&name);
+            let sort_icon = match &this.sort {
+                Some((s, d)) if s == &name => Some(if *d { IconName::ChevronDown } else { IconName::ChevronUp }),
+                _ => None,
             };
-            let tip = format!("{}{} (click to sort)", l.col.kind, if l.col.count < this.total { format!(" · in {} rows", l.col.count) } else { String::new() });
+            let in_rows = if l.col.count < this.total {
+                if l.col.count == 1 {
+                    " · in 1 row".to_string()
+                } else {
+                    format!(" · in {} rows", l.col.count)
+                }
+            } else {
+                String::new()
+            };
+            let tip = format!("{name} · {}{in_rows} (click to sort)", l.col.kind);
+            let key_name = name.clone();
             div()
                 .id(SharedString::from(format!("ahead-{name}")))
+                .focusable()
+                .tab_index(0)
                 .w(px(l.w))
                 .h_full()
                 .flex()
                 .items_center()
+                .gap_1()
                 .flex_none()
                 .px_2()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .focus_visible(move |s| s.border_color(ring))
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .cursor_pointer()
-                .hover(|s| s.bg(theme.list_hover))
+                .hover(move |s| s.bg(hover_bg))
                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.set_sort(key_name.clone(), cx);
+                    }
+                }))
                 .on_click(cx.listener({
                     let name = name.clone();
                     move |this, _, _, cx| this.set_sort(name.clone(), cx)
                 }))
-                .child(format!("{name}{arrow}"))
+                .when(sort_icon.is_some(), |d| d.text_color(theme.foreground))
+                .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(friendly))
+                .when_some(sort_icon, |d, icon| d.child(Icon::new(icon).xsmall().flex_none().text_color(theme.foreground)))
         };
         for l in &layout.cols[..n_pin] {
             pin_head = pin_head.child(head(l, self, cx));
@@ -803,27 +1018,45 @@ impl Assembly {
         // Sideways gestures go to the grid around it, not down the rows.
         list.style().restrict_scroll_to_axis = Some(true);
         let empty = self.total == 0 && self.rows.is_empty() && !self.pages.is_empty();
-        let count = if !self.filter_text.is_empty() { format!("{} rows match", self.total) } else { format!("{} rows{}", self.total, if depth > 0 { " in this row set" } else { "" }) };
+        let count = if !self.filter_text.is_empty() && champs_only {
+            if self.total == 1 { "1 champion matches".into() } else { format!("{} champions match", self.total) }
+        } else if champs_only {
+            if self.total == 1 { "1 champion".into() } else { format!("{} champions", self.total) }
+        } else if !self.filter_text.is_empty() {
+            if self.total == 1 { "1 row matches".into() } else { format!("{} rows match", self.total) }
+        } else {
+            format!("{} {}{}", self.total, if self.total == 1 { "row" } else { "rows" }, if depth > 0 { " in this row set" } else { "" })
+        };
         v_flex()
             .size_full()
             .child(toolbar)
             .children(marked_bar)
             .child(
-                div().id("hgrid").relative().flex_1().min_h_0().overflow_x_scroll().restrict_scroll_to_axis().track_scroll(&self.hscroll).child(v_flex().h_full().w(px(layout.width)).child(header).child(list)).when(empty && !self.filter_text.is_empty(), |d| {
-                    d.child(div().absolute().top(px(head_h + 24.0)).left_0().right_0().flex().justify_center().text_sm().text_color(theme.muted_foreground).child("No row matches the filter."))
-                }),
+                v_flex()
+                    .id("asm-grid")
+                    .relative()
+                    .track_focus(&self.focus)
+                    .tab_index(0)
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div().id("hgrid").relative().flex_1().min_h_0().overflow_x_scroll().restrict_scroll_to_axis().track_scroll(&self.hscroll).child(v_flex().h_full().w(px(layout.width)).child(header).child(list)).when(empty && (!self.filter_text.is_empty() || champs_only), |d| {
+                            d.child(div().absolute().top(px(head_h + 24.0)).left_0().right_0().flex().justify_center().text_sm().text_color(theme.muted_foreground).child("No row matches the filter."))
+                        }),
+                    )
+                    .child(
+                        h_flex()
+                            .px_2()
+                            .gap_3()
+                            .min_h(px(22.0))
+                            .py_0p5()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(div().flex_none().child(count))
+                            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().child(format!("Enter or double-click: edit · {0}/⇧-click: mark rows · {0}C {0}V: copy, paste · right-click: more", if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" }))),
+                    )
+                    .child(crate::driver::probe("asm-grid")),
             )
-            .child(
-                h_flex()
-                    .px_2()
-                    .gap_3()
-                    .h(px(22.0))
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(div().flex_none().child(count))
-                    .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_right().child(format!("Enter or double-click: edit · {0}/⇧-click: mark rows · {0}C {0}V: copy, paste · right-click: more", if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" }))),
-            )
-            .child(crate::driver::probe("asm-grid"))
             .into_any_element()
     }
 }

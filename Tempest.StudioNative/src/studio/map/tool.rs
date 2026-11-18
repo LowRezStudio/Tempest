@@ -6,6 +6,7 @@
 //! backend call to answer with (`{"$backend": …}`).
 
 use gpui::{Context, Window};
+use gpui_component::ActiveTheme;
 use serde_json::{json, Value as J};
 
 use super::matinee::KeyRef;
@@ -413,7 +414,7 @@ impl MapEditor {
                     }
                     _ => {}
                 }
-                self.rebuild_nav();
+                self.rebuild_nav(cx.theme().mode.is_dark());
                 Ok(read("navmesh"))
             }
             "undo" => {
@@ -516,7 +517,11 @@ impl MapEditor {
                 let on = !self.collision.enabled;
                 self.toggle_collision(on, cx);
             }
-            Cmd::MapBakeLighting => self.open_bake(cx),
+            Cmd::MapBakeLighting => {
+                self.focus.focus(window, cx);
+                self.focus_modal = true;
+                self.open_bake(cx);
+            }
             Cmd::MapNewMatinee => {
                 let level = self.target_level().unwrap_or_default();
                 let actor = self.actor().map(|a| a.owner());
@@ -648,8 +653,12 @@ impl MapEditor {
                     _ => super::navmesh::Pick::Off,
                 };
             }
-            "export-dialog" => self.open_export(cx),
-            "bake-dialog" => self.open_bake(cx),
+            "export-dialog" => self.open_export(window, cx),
+            "bake-dialog" => {
+                self.focus.focus(window, cx);
+                self.focus_modal = true;
+                self.open_bake(cx);
+            }
             "close" => {
                 self.export.open = false;
                 self.bake.open = false;

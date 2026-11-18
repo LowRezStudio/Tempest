@@ -28,11 +28,12 @@ mod viewport;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::Mat4;
-use gpui::{div, prelude::*, px, AnyElement, Context, Entity, FocusHandle, Subscription, WeakEntity, Window};
+use gpui::{div, prelude::*, px, Anchor, AnyElement, Context, Entity, FocusHandle, Subscription, WeakEntity, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Selectable, Icon, Sizable};
+use gpui_component::popover::Popover;
+use gpui_component::{h_flex, v_flex, ActiveTheme, Selectable, Icon, Sizable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -41,33 +42,35 @@ use super::{file_name, Place, Studio, Tone};
 use crate::backend::Backend;
 use crate::map_render::Shading;
 
-/// Categories of actors the view can hide, with their labels and colours.
-pub const CATEGORIES: &[(&str, &str, u32)] = &[
-    ("mesh", "Meshes", 0xa6adc8),
-    ("playerstart", "Player starts", 0x89b4fa),
-    ("spawn", "Spawn points", 0x94e2d5),
-    ("botfactory", "Factories", 0xfab387),
-    ("gameplay", "Gameplay", 0xf9e2af),
-    ("trigger", "Triggers", 0xf5c2e7),
-    ("blocking", "Blocking volumes", 0xf38ba8),
-    ("volume", "Other volumes", 0xcba6f7),
-    ("light", "Lights", 0xf9e2af),
-    ("sound", "Sounds", 0xa6e3a1),
-    ("emitter", "Emitters", 0xeba0ac),
-    ("navigation", "Navigation", 0x74c7ec),
-    ("info", "Level info", 0x7f849c),
-    ("other", "Other", 0xbac2de),
+/// Categories of actors the view can hide, with their labels.
+pub const CATEGORIES: &[(&str, &str)] = &[
+    ("mesh", "Meshes"),
+    ("playerstart", "Player starts"),
+    ("spawn", "Spawn points"),
+    ("botfactory", "Factories"),
+    ("gameplay", "Gameplay"),
+    ("trigger", "Triggers"),
+    ("blocking", "Blocking volumes"),
+    ("volume", "Other volumes"),
+    ("light", "Lights"),
+    ("sound", "Sounds"),
+    ("emitter", "Emitters"),
+    ("navigation", "Navigation"),
+    ("info", "Level info"),
+    ("other", "Other"),
 ];
 
-/// Team colours of player starts (TeamIndex).
-pub const TEAM_COLORS: [u32; 4] = [0x89b4fa, 0xf38ba8, 0xa6e3a1, 0xf9e2af];
-
-pub fn category_color(id: &str) -> u32 {
-    CATEGORIES.iter().find(|c| c.0 == id).map(|c| c.2).unwrap_or(0xbac2de)
-}
-
-pub fn hsla(hex: u32) -> gpui::Hsla {
-    gpui::rgb(hex).into()
+pub fn category_color(id: &str, theme: &gpui_component::Theme) -> gpui::Hsla {
+    match id {
+        "playerstart" => theme.blue,
+        "spawn" | "navigation" => theme.cyan,
+        "botfactory" | "gameplay" | "light" => theme.yellow,
+        "trigger" => theme.magenta,
+        "blocking" | "emitter" => theme.red,
+        "volume" => theme.primary,
+        "sound" => theme.green,
+        _ => theme.muted_foreground,
+    }
 }
 
 /// A map the picker lists (`map.list`).
@@ -134,10 +137,13 @@ impl Actor {
         self.info.get("TeamIndex").and_then(|t| t.as_f64().or_else(|| t.as_str().and_then(|s| s.parse().ok()))).map(|t| t as usize)
     }
 
-    pub fn color(&self) -> u32 {
+    pub fn ui_color(&self, theme: &gpui_component::Theme) -> gpui::Hsla {
         match (self.category.as_str(), self.team()) {
-            ("playerstart", Some(t)) if t < TEAM_COLORS.len() => TEAM_COLORS[t],
-            _ => category_color(&self.category),
+            ("playerstart", Some(0)) => theme.blue,
+            ("playerstart", Some(1)) => theme.red,
+            ("playerstart", Some(2)) => theme.green,
+            ("playerstart", Some(3)) => theme.yellow,
+            _ => category_color(&self.category, theme),
         }
     }
 
@@ -246,7 +252,9 @@ pub struct MapEditor {
     pub(crate) mode: Mode,
     pub(crate) shading: Shading,
     pub(crate) hidden_categories: HashSet<String>,
+    pub(crate) show_categories: bool,
     pub(crate) hidden_levels: HashSet<String>,
+    pub(crate) hidden_actors: HashSet<Sel>,
     rooftops_only: bool,
     filter: Entity<InputState>,
     pub(crate) heavy: bool,
@@ -274,8 +282,8 @@ pub struct MapEditor {
     /// Game shading: what is asked for, one request at a time (see `scene.rs`).
     game: scene::GameLoad,
     pub(crate) confirm: Option<Confirm>,
-    /// The value being typed in place (`field`): its key and input.
-    field: Option<(String, Entity<InputState>, Subscription)>,
+    /// The value being typed in place (`field`): its key, initial text, and input.
+    field: Option<(String, String, Entity<InputState>, Subscription)>,
     /// A Kismet node added at a canvas point, placed there once the graph names it.
     pending_node_at: Option<(f32, f32)>,
     palette_sub: Option<Subscription>,
@@ -297,6 +305,8 @@ pub struct MapEditor {
     /// Backend progress (`map.progress`, `light.progress`).
     progress: Option<(String, u64, u64)>,
     pub(crate) focus: FocusHandle,
+    /// Move focus to `#map-editor` on the next render when a modal just opened.
+    pub(super) focus_modal: bool,
     /// Side bar and inspector widths (kept in the settings).
     pub(crate) panes: [f32; 2],
     /// ⌘B / ⌘J and the compact layout (the window's).
@@ -349,7 +359,9 @@ impl MapEditor {
             mode: Mode::Scene,
             shading: Shading::Lit,
             hidden_categories: hidden.into_iter().collect(),
+            show_categories: false,
             hidden_levels: HashSet::new(),
+            hidden_actors: HashSet::new(),
             rooftops_only: false,
             filter,
             heavy: false,
@@ -378,6 +390,7 @@ impl MapEditor {
             errors: Vec::new(),
             progress: None,
             focus: cx.focus_handle(),
+            focus_modal: false,
             panes,
             shared,
             _subs: subs,
@@ -549,6 +562,7 @@ impl MapEditor {
         self.path = Some(path.clone());
         self.levels.clear();
         self.selected = None;
+        self.hidden_actors.clear();
         self.props.update(cx, |p, cx| p.clear(cx));
         self.mode = Mode::Scene;
         self.kismet.level = None;
@@ -557,6 +571,8 @@ impl MapEditor {
         self.collision.data = None;
         self.nav.reset();
         self.palette.reset();
+        self.bake.open = false;
+        self.export.open = false;
         self.edits.clear();
         self.redone.clear();
         let call = self.call("map.scene", json!({ "path": path }));
@@ -600,8 +616,14 @@ impl MapEditor {
     /// Pick another map.
     pub(crate) fn close_map(&mut self, cx: &mut Context<Self>) {
         self.path = None;
+        self.error = None;
+        self.loading = false;
         self.levels.clear();
         self.selected = None;
+        self.hidden_actors.clear();
+        self.bake.open = false;
+        self.export.open = false;
+        self.palette.open = false;
         self.rebuild(cx);
         cx.notify();
     }
@@ -834,6 +856,7 @@ impl MapEditor {
             "The actor and its components are deleted from the level, and every reference to it (Kismet included) is cleared (⌘Z brings it back).".to_string()
         };
         self.confirm = Some(Confirm { title: format!("Delete {}?", actor.name), message, action: ConfirmAction::RemoveActor });
+        self.focus_modal = true;
         cx.notify();
     }
 
@@ -978,16 +1001,24 @@ impl MapEditor {
     pub(crate) fn field(&self, key: impl Into<String>, value: String, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let key = key.into();
         let theme = cx.theme().clone();
-        if let Some((_, input, _)) = self.field.as_ref().filter(|f| f.0 == key) {
+        if let Some((_, _, input, _)) = self.field.as_ref().filter(|f| f.0 == key) {
             return div().w(px(width)).child(Input::new(input).xsmall()).into_any_element();
         }
-        let v = value.clone();
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
+        let (k_key, v, v_key) = (key.clone(), value.clone(), value.clone());
         div()
             .id(gpui::SharedString::from(format!("mf-{key}")))
             .w(px(width))
             .px_1()
             .rounded_sm()
             .bg(theme.secondary)
+            .focusable()
+            .tab_index(0)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus_visible(move |s| s.border_color(ring))
+            .hover(move |s| s.bg(hover_bg))
             .cursor_text()
             .font_family(crate::studio::ui::mono())
             .text_xs()
@@ -996,11 +1027,19 @@ impl MapEditor {
             .whitespace_nowrap()
             .child(crate::driver::probe(format!("mf-{key}")))
             .child(if value.is_empty() { "—".to_string() } else { value })
+            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.start_field(k_key.clone(), v_key.clone(), window, cx);
+                }
+            }))
             .on_click(cx.listener(move |this, _, window, cx| this.start_field(key.clone(), v.clone(), window, cx)))
             .into_any_element()
     }
 
     pub(crate) fn start_field(&mut self, key: String, value: String, window: &mut Window, cx: &mut Context<Self>) {
+        let from = value.clone();
         let input = cx.new(|cx| {
             let mut s = InputState::new(window, cx);
             s.set_value(value, window, cx);
@@ -1016,12 +1055,16 @@ impl MapEditor {
                 cx.notify();
             }
             InputEvent::Blur if this.field.as_ref().is_some_and(|f| f.0 == k) => {
-                this.field = None;
+                let v = input.read(cx).value().to_string();
+                let changed = this.field.take().is_some_and(|f| v != f.1);
+                if changed {
+                    this.commit_field(&k, v, cx);
+                }
                 cx.notify();
             }
             _ => {}
         });
-        self.field = Some((key, input, sub));
+        self.field = Some((key, from, input, sub));
         cx.notify();
     }
 
@@ -1040,91 +1083,210 @@ impl MapEditor {
 
     // ----- the view's shell -----------------------------------------------------------
 
-    fn render_toolbar(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_controls_help(&self, cx: &gpui::App) -> AnyElement {
+        let fly_keys = if viewport::azerty(cx) { "Right-drag + ZQSD / AE" } else { "Right-drag + WASD / QE" };
+        let add_actor_key = super::commands::key_hint("⇧A");
+        let dup_key = super::commands::key_hint("⌘D");
+        Popover::new("map-controls-help")
+            .anchor(Anchor::TopRight)
+            .trigger(Button::new("mv-help").xsmall().ghost().icon(Icon::new(IconName::CircleQuestionMark)).tooltip("Map & Kismet controls"))
+            .content(move |_, _, cx| {
+                let theme = cx.theme().clone();
+                let row = |keys: &str, desc: &'static str| {
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(div().text_color(theme.foreground).child(desc))
+                        .child(super::ui::kbd(keys.to_string(), &theme))
+                };
+                v_flex()
+                    .w(px(340.0))
+                    .gap_2()
+                    .text_xs()
+                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.foreground).child("3D Scene & camera"))
+                    .child(row(fly_keys, "Look & fly camera (Shift faster)"))
+                    .child(row("Left / Middle / Wheel", "Orbit · Pan · Zoom"))
+                    .child(row("Q / W / E / R", "Select · Move · Rotate · Scale"))
+                    .child(row("F · H / ⇧H", "Frame actor · Hide / Show all"))
+                    .child(row(&format!("{add_actor_key} · {dup_key}"), "Add actor · Duplicate selected"))
+                    .child(div().h(px(1.0)).my_0p5().bg(theme.border))
+                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.foreground).child("Scripts (Kismet)"))
+                    .child(row("A / Right-click", "Add node to sequence"))
+                    .child(row("[ / ] · Tab", "Cycle sequence nodes"))
+                    .child(row("Drag / Link pin…", "Link outputs & variables"))
+                    .child(row("Alt+click / Delete", "Break link or delete node"))
+                    .child(row("Double-click · F", "Open sub-sequence / Matinee · Fit"))
+            })
+            .into_any_element()
+    }
+
+    fn render_toolbar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let mode = self.mode;
-        let mut bar = crate::studio::ui::toolbar(&theme).flex_wrap().py_1().text_xs();
-        let tab = |id: &'static str, icon: IconName, label: &'static str, on: bool| Button::new(id).xsmall().icon(Icon::new(icon)).label(label).selected(on);
+        let mode_h = px((1.4 * f32::from(window.rem_size())).max(22.0).round());
+        let sep = || div().w(px(1.0)).h(px(14.0)).mx_1().bg(theme.border);
+        let mut bar = crate::studio::ui::toolbar(&theme).flex_wrap().items_center().py_1().gap_1().text_xs();
+        let panes = self.shared.get();
+        let tab = |id: &'static str, icon: IconName, label: &'static str, on: bool| {
+            let ring = theme.ring;
+            Button::new(id)
+                .xsmall()
+                .ghost()
+                .min_h(mode_h)
+                .tab_index(0)
+                .icon(Icon::new(icon))
+                .label(label)
+                .selected(on)
+                .toggled(on)
+                .focus_visible(move |s| s.border_1().border_color(ring))
+        };
+        if !panes.side() {
+            let side_key = super::commands::key_hint("⌘B");
+            let side_tip = if panes.overlay {
+                format!("Hide maps & outliner ({side_key})")
+            } else {
+                format!("Show maps & outliner ({side_key})")
+            };
+            bar = bar
+                .child(
+                    Button::new("mv-side")
+                        .xsmall()
+                        .ghost()
+                        .icon(Icon::new(IconName::PanelLeft))
+                        .selected(panes.overlay)
+                        .tooltip(side_tip)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            super::layout::update(&this.shared, |p| p.toggle_side());
+                            cx.notify();
+                        })),
+                )
+                .child(sep());
+        }
         bar = bar
-            .child(tab("mv-scene", IconName::Map, "Scene", mode == Mode::Scene).on_click(cx.listener(|this, _, _, cx| {
+            .child(tab("mv-scene", IconName::Map, "3D Scene", mode == Mode::Scene).on_click(cx.listener(|this, _, _, cx| {
                 this.mode = Mode::Scene;
                 this.record(cx);
                 cx.notify();
             })))
-            .child(tab("mv-kismet", IconName::Workflow, "Kismet", mode == Mode::Kismet).on_click(cx.listener(|this, _, _, cx| {
+            .child(tab("mv-kismet", IconName::Workflow, "Scripts (Kismet)", mode == Mode::Kismet).on_click(cx.listener(|this, _, _, cx| {
                 let level = this.kismet.level.clone().or_else(|| this.selected.as_ref().map(|s| s.0.clone())).or(this.path.clone()).unwrap_or_default();
                 this.open_kismet(level, None, true, cx);
             })));
         if let Some((l, i)) = self.matinee.at.clone().filter(|_| self.matinee.tl.is_some()) {
-            bar = bar.child(tab("mv-matinee", IconName::Clapperboard, "Matinee", mode == Mode::Matinee).tooltip("The Matinee timeline last opened").on_click(cx.listener(move |this, _, _, cx| this.open_matinee(l.clone(), i, true, cx))));
+            bar = bar.child(tab("mv-matinee", IconName::Clapperboard, "Cutscenes (Matinee)", mode == Mode::Matinee).tooltip("The Matinee timeline last opened").on_click(cx.listener(move |this, _, _, cx| this.open_matinee(l.clone(), i, true, cx))));
         }
+        bar = bar.child(sep());
         if mode != Mode::Kismet {
             let tools = [(Tool::Select, IconName::MousePointer2, "Select only (Q)"), (Tool::Translate, IconName::Move, "Move (W)"), (Tool::Rotate, IconName::Rotate3d, "Rotate (E)"), (Tool::Scale, IconName::Scaling, "Scale (R)")];
-            let mut row = h_flex().ml_2().gap_0p5();
+            let mut row = h_flex().gap_0p5();
             for (t, icon, tip) in tools {
-                row = row.child(Button::new(t.key()).xsmall().icon(Icon::new(icon)).tooltip(tip).selected(self.tool == t).on_click(cx.listener(move |this, _, _, cx| {
+                row = row.child(Button::new(t.key()).xsmall().ghost().icon(Icon::new(icon)).tooltip(tip).selected(self.tool == t).on_click(cx.listener(move |this, _, _, cx| {
                     this.tool = t;
                     this.view.dirty();
                     cx.notify();
                 })));
             }
             let rooftops = self.rooftop_count();
+            let me_shade = cx.entity().downgrade();
+            let shading = self.shading;
+            let me_tools = cx.entity().downgrade();
+            let has_actor = self.actor().is_some();
+            let hidden_n = self.hidden_actors.len();
+            let heavy_on = self.heavy;
+            let xray_on = self.xray;
+            let add_key = super::commands::key_hint("⇧A");
             bar = bar
                 .child(row)
-                .child(
-                    Button::new("mv-heavy")
-                        .xsmall()
-                        .ml_2()
-                        .label(if self.heavy { format!("Heavy walls {rooftops}") } else { "Heavy walls".into() })
-                        .selected(self.heavy)
-                        .tooltip("Colour what can't be stood on (m_bCanBaseOn False): walls flagged like this are the heavy walls")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.heavy = !this.heavy;
-                            this.apply_look();
-                            cx.notify();
-                        })),
-                )
-                .when(self.heavy, |b| {
-                    b.child(gpui_component::checkbox::Checkbox::new("mv-xray").label("X-ray").checked(self.xray).on_click(cx.listener(|this, v: &bool, _, cx| {
-                        this.xray = *v;
-                        this.apply_look();
-                        cx.notify();
-                    })))
-                })
-                .child(self.render_collision_toolbar(cx))
-                .child(Button::new("mv-nav").xsmall().ml_2().label("Nav mesh").selected(self.nav.show).tooltip("Draw the Havok nav mesh the bots walk on: faces by region or cluster, boundaries, jump links; pick and edit faces").on_click(cx.listener(|this, _, _, cx| this.toggle_nav(cx))));
-            let me = cx.entity().downgrade();
-            let shading = self.shading;
-            bar = bar
-                .child(Button::new("mv-shading").xsmall().ml_2().label(match shading {
-                    Shading::Lit => "Lit",
-                    Shading::Unlit => "Unlit",
-                    Shading::Untextured => "No textures",
-                    Shading::Wireframe => "Wireframe",
-                    Shading::Game => "Game shaders",
-                }).dropdown_menu(move |menu, _, _| {
+                .child(sep())
+                .child(Button::new("mv-shading").xsmall().ghost().label(match shading {
+                    Shading::Lit => "Shading: Lit",
+                    Shading::Unlit => "Shading: Unlit",
+                    Shading::Untextured => "Shading: Flat",
+                    Shading::Wireframe => "Shading: Wireframe",
+                    Shading::Game => "Shading: Game",
+                }).dropdown_caret(true).dropdown_menu(move |menu, _, _| {
                     let mut menu = menu;
                     for (s, label) in [(Shading::Lit, "Lit"), (Shading::Unlit, "Unlit"), (Shading::Untextured, "No textures"), (Shading::Wireframe, "Wireframe"), (Shading::Game, "Game shaders")] {
-                        let me = me.clone();
+                        let me = me_shade.clone();
                         menu = menu.item(PopupMenuItem::new(label).checked(s == shading).on_click(move |_, _, cx| {
                             let _ = me.update(cx, |this, cx| this.set_shading(s, cx));
                         }));
                     }
                     menu
                 }))
+                .child(self.render_collision_toolbar(cx))
+                .child(Button::new("mv-nav").xsmall().ghost().label("Nav mesh").selected(self.nav.show).tooltip("Draw the Havok nav mesh the bots walk on: faces by region or cluster, boundaries, jump links; pick and edit faces").on_click(cx.listener(|this, _, _, cx| this.toggle_nav(cx))))
                 .child(div().flex_1())
-                .child(Button::new("mv-add-actor").xsmall().ghost().icon(Icon::new(IconName::Plus)).label("Actor").selected(self.palette.open).tooltip("Add an actor: a copy of one any level places, where the view looks (⇧A)").on_click(cx.listener(|this, _, window, cx| this.toggle_palette(window, cx))))
-                .child(Button::new("mv-remove-actor").xsmall().ghost().icon(Icon::new(IconName::Trash)).tooltip("Delete the selected actor (Delete)").disabled(self.actor().is_none()).on_click(cx.listener(|this, _, _, cx| this.ask_remove(cx))))
-                .child(Button::new("mv-export").xsmall().ghost().icon(Icon::new(IconName::Download)).label("Export").tooltip("Export the map (the levels and kinds shown) as GLB or FBX").on_click(cx.listener(|this, _, _, cx| this.open_export(cx))))
-                .child(Button::new("mv-bake").xsmall().ghost().icon(Icon::new(IconName::Sun)).label("Light").tooltip("Bake static light maps for edited, selected or whole levels' meshes").on_click(cx.listener(|this, _, _, cx| this.open_bake(cx))));
+                .child(Button::new("mv-add-actor").xsmall().ghost().icon(Icon::new(IconName::Plus)).label("Add actor").selected(self.palette.open).tooltip(format!("Add an actor: a copy of one any level places, where the view looks ({add_key})")).on_click(cx.listener(|this, _, window, cx| this.toggle_palette(window, cx))))
+                .child(Button::new("mv-tools").xsmall().ghost().icon(Icon::new(IconName::Wrench)).label("Tools").dropdown_caret(true).dropdown_menu(move |menu, _, _| {
+                    let (m_bake, m_exp, m1, m2, m3, m4, m5) = (me_tools.clone(), me_tools.clone(), me_tools.clone(), me_tools.clone(), me_tools.clone(), me_tools.clone(), me_tools.clone());
+                    let heavy_label = if heavy_on { format!("Highlight heavy walls ({rooftops})") } else { "Highlight heavy walls".to_string() };
+                    let mut menu = menu
+                        .item(PopupMenuItem::new("Bake lighting…").on_click(move |_, window, cx| {
+                            let _ = m_bake.update(cx, |this, cx| {
+                                this.focus.focus(window, cx);
+                                this.focus_modal = true;
+                                this.open_bake(cx);
+                            });
+                        }))
+                        .item(PopupMenuItem::new("Export GLB / FBX…").on_click(move |_, window, cx| {
+                            let _ = m_exp.update(cx, |this, cx| {
+                                this.open_export(window, cx);
+                            });
+                        }))
+                        .separator()
+                        .item(PopupMenuItem::new(heavy_label).checked(heavy_on).on_click(move |_, _, cx| {
+                            let _ = m1.update(cx, |this, cx| {
+                                this.heavy = !this.heavy;
+                                this.apply_look();
+                                cx.notify();
+                            });
+                        }));
+                    if heavy_on {
+                        menu = menu.item(PopupMenuItem::new("X-ray heavy walls").checked(xray_on).on_click(move |_, _, cx| {
+                            let _ = m2.update(cx, |this, cx| {
+                                this.xray = !this.xray;
+                                this.apply_look();
+                                cx.notify();
+                            });
+                        }));
+                    }
+                    if hidden_n > 0 {
+                        menu = menu.item(PopupMenuItem::new(format!("Show {hidden_n} hidden actor{}", if hidden_n == 1 { "" } else { "s" })).on_click(move |_, _, cx| {
+                            let _ = m3.update(cx, |this, cx| {
+                                this.hidden_actors.clear();
+                                this.apply_visibility();
+                                cx.notify();
+                            });
+                        }));
+                    }
+                    menu.separator()
+                        .item(PopupMenuItem::new("Delete selected actor…").disabled(!has_actor).on_click(move |_, window, cx| {
+                            let _ = m4.update(cx, |this, cx| {
+                                this.focus.focus(window, cx);
+                                this.ask_remove(cx);
+                            });
+                        }))
+                        .item(PopupMenuItem::new("Reload map").on_click(move |_, _, cx| {
+                            let _ = m5.update(cx, |this, cx| {
+                                if let Some(p) = this.path.clone() {
+                                    this.open(p, None, false, None, cx);
+                                }
+                            });
+                        }))
+                }))
+                .child(self.render_controls_help(cx));
         } else {
-            bar = bar.child(self.render_kismet_toolbar(cx));
+            bar = bar
+                .child(self.render_kismet_toolbar(cx))
+                .child(Button::new("mv-reload").xsmall().ghost().icon(Icon::new(IconName::RefreshCw)).tooltip("Read the map again").on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(p) = this.path.clone() {
+                        this.open(p, None, false, None, cx);
+                    }
+                })))
+                .child(self.render_controls_help(cx));
         }
-        bar = bar.child(Button::new("mv-reload").xsmall().ghost().icon(Icon::new(IconName::RefreshCw)).tooltip("Read the map again").on_click(cx.listener(|this, _, _, cx| {
-            if let Some(p) = this.path.clone() {
-                this.open(p, None, false, None, cx);
-            }
-        })));
         bar.into_any_element()
     }
 
@@ -1143,16 +1305,17 @@ impl MapEditor {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(gpui::black().opacity(0.35))
+                .bg(theme.overlay)
                 .child(
                     v_flex()
                         .w(px(420.0))
+                        .max_w(gpui::relative(0.94))
                         .p_4()
                         .gap_3()
                         .rounded_lg()
                         .border_1()
                         .border_color(theme.border)
-                        .bg(theme.background)
+                        .bg(theme.popover)
                         .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(c.title.clone()))
                         .child(div().text_xs().text_color(theme.muted_foreground).child(c.message.clone()))
                         .child(
@@ -1175,15 +1338,55 @@ impl Render for MapEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         self.pump_meshes(cx);
-        let side = self.render_side(cx);
+        let side = self.render_side(window, cx);
         let center: AnyElement = if self.loading {
             div().flex_1().min_w_0().child(crate::studio::ui::loading("Reading the map and its sublevels…", &theme)).into_any_element()
         } else if let Some(e) = &self.error {
-            div().flex_1().min_w_0().child(crate::studio::ui::error("This map could not be opened", e.clone(), &theme)).into_any_element()
+            let err_text = super::ui::explain_error(e);
+            let retry_path = self.path.clone();
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    crate::studio::ui::error("This map could not be opened", err_text, &theme).child(
+                        h_flex()
+                            .pt_2()
+                            .gap_2()
+                            .when_some(retry_path, |d, p| {
+                                d.child(Button::new("map-err-reload").small().icon(Icon::new(IconName::RefreshCw)).label("Reload").on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open(p.clone(), None, false, None, cx);
+                                })))
+                            })
+                            .child(Button::new("map-err-choose").small().ghost().label("Choose another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx)))),
+                    ),
+                )
+                .into_any_element()
         } else if self.path.is_none() {
-            div().flex_1().min_w_0().child(crate::studio::ui::empty(IconName::Map, "No map open", "Pick a map on the left to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee).", &theme)).into_any_element()
+            let side_shown = self.shared.get().side();
+            let copy = if side_shown {
+                "Pick a map on the left to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee)."
+            } else {
+                "Choose a map to see it in 3D, move what is in it, and edit its scripts (Kismet) and cutscenes (Matinee)."
+            };
+            let empty = crate::studio::ui::empty(IconName::Map, "No map open", copy, &theme).when(!side_shown, |d| {
+                let tip = format!("Show maps & outliner ({})", super::commands::key_hint("⌘B"));
+                d.child(
+                    h_flex().pt_2().child(
+                        Button::new("map-empty-browse")
+                            .small()
+                            .icon(Icon::new(IconName::PanelLeft))
+                            .label("Browse maps…")
+                            .tooltip(tip)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                super::layout::update(&this.shared, |p| p.toggle_side());
+                                cx.notify();
+                            })),
+                    ),
+                )
+            });
+            div().flex_1().min_w_0().child(empty).into_any_element()
         } else {
-            let toolbar = self.render_toolbar(cx);
+            let toolbar = self.render_toolbar(window, cx);
             let body: AnyElement = if self.mode == Mode::Kismet {
                 self.render_kismet(window, cx)
             } else {
@@ -1235,7 +1438,53 @@ impl Render for MapEditor {
             },
             cx,
         );
+        if std::mem::take(&mut self.focus_modal)
+            && (self.bake.open || self.export.open || self.confirm.is_some())
+            && !self.focus.is_focused(window)
+            && !self.focus.contains_focused(window, cx)
+        {
+            self.focus.focus(window, cx);
+        }
         let dialogs: Vec<AnyElement> = [self.render_export(cx), self.render_bake(window, cx), self.render_confirm(cx)].into_iter().flatten().collect();
-        div().id("map-editor").track_focus(&self.focus).size_full().relative().child(layout).children(dialogs)
+        div()
+            .id("map-editor")
+            .track_focus(&self.focus)
+            .size_full()
+            .relative()
+            .on_action(cx.listener(|this, _: &super::Cancel, window, cx| {
+                if this.field.take().is_some() {
+                    cx.notify();
+                } else if this.bake.open {
+                    if !this.bake.busy {
+                        this.bake.open = false;
+                        this.focus.focus(window, cx);
+                        cx.notify();
+                    }
+                } else if this.export.open {
+                    if !this.export.busy {
+                        this.export.open = false;
+                        this.focus.focus(window, cx);
+                        cx.notify();
+                    }
+                } else if this.palette.open {
+                    this.palette.open = false;
+                    if let Some(f) = &this.view.focus {
+                        f.focus(window, cx);
+                    }
+                    cx.notify();
+                } else if this.kismet.adding.take().is_some() {
+                    if let Some(f) = &this.kismet.focus {
+                        f.focus(window, cx);
+                    }
+                    cx.notify();
+                } else if this.confirm.take().is_some() {
+                    this.focus.focus(window, cx);
+                    cx.notify();
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .child(layout)
+            .children(dialogs)
     }
 }

@@ -15,6 +15,8 @@ mod grid;
 mod row;
 mod side;
 
+pub(crate) use side::friendly_table;
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Duration;
 
@@ -80,7 +82,10 @@ fn cell_text(v: &J) -> String {
     match v {
         J::Null => String::new(),
         J::String(s) => s.clone(),
-        J::Object(o) if o.contains_key("rows") => format!("{} rows", o["rows"]),
+        J::Object(o) if o.contains_key("rows") => {
+            let n = &o["rows"];
+            format!("{n} {}", if n.as_u64() == Some(1) { "row" } else { "rows" })
+        }
         other => other.to_string(),
     }
 }
@@ -169,6 +174,8 @@ struct Doc {
     dirty: bool,
     /// What Undo would take back, last first.
     undo: Vec<String>,
+    /// What Redo would put back.
+    redo: Vec<String>,
     header: Vec<(String, J)>,
     tables: Vec<Table>,
 }
@@ -181,6 +188,7 @@ impl Doc {
             function: d["function"].as_str().unwrap_or_default().to_string(),
             dirty: d["dirty"].as_bool().unwrap_or(false),
             undo: d["undo"].as_array().into_iter().flatten().filter_map(|u| u.as_str().map(str::to_string)).collect(),
+            redo: d["redo"].as_array().into_iter().flatten().filter_map(|u| u.as_str().map(str::to_string)).collect(),
             header: d["header"].as_array().into_iter().flatten().map(|h| (h["name"].as_str().unwrap_or_default().to_string(), h["value"].clone())).collect(),
             tables: d["tables"]
                 .as_array()
@@ -280,6 +288,10 @@ pub struct Assembly {
     /// The filter the rows were asked with (the field's text, applied after a pause).
     filter_text: String,
     filter_task: Option<Task<()>>,
+    /// On `DATA_SET_BOTS`, filter out non-playable deployables, walls and mounts.
+    champions_only: bool,
+    /// Playable champion `BOT_ID`s from the Champion Vendor, for `champions_only`.
+    champion_bots: HashSet<i64>,
     table_filter: Entity<InputState>,
     /// Files whose header fields are shown in the side list (folded by default).
     headers_open: HashSet<String>,
@@ -330,7 +342,7 @@ pub struct Assembly {
 
 impl Assembly {
     pub fn new(backend: Backend, studio: WeakEntity<Studio>, panes: super::layout::Shared, sizes: Vec<f32>, id_range: Option<(i64, i64)>, window: &mut Window, cx: &mut Context<Self>) -> Assembly {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows (any cell contains…)"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows…"));
         let table_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tables"));
         let edit_input = cx.new(|cx| InputState::new(window, cx));
         let edit_area = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 10));
@@ -351,8 +363,14 @@ impl Assembly {
                 }
                 match e {
                     InputEvent::PressEnter { .. } => this.commit_edit(Move::Down, window, cx),
-                    // Leaving the field applies it (Escape is the way out).
-                    InputEvent::Blur => this.commit_edit(Move::Stay, window, cx),
+                    // Leaving a single-row field applies it; with multiple rows marked, blur cancels so only explicit Enter batch-overwrites.
+                    InputEvent::Blur => {
+                        if this.multi_row_cell_edit() {
+                            this.cancel_edit(cx);
+                        } else {
+                            this.commit_edit(Move::Stay, window, cx);
+                        }
+                    }
                     _ => {}
                 }
             }),
@@ -360,9 +378,13 @@ impl Assembly {
                 if this.edit.as_ref().is_none_or(|e| !e.in_area()) {
                     return;
                 }
-                // Enter is a line break here: ⌘Enter (bound in `AsmEdit`) or leaving the field applies.
+                // Enter is a line break here: ⌘Enter (bound in `AsmEdit`) or leaving a single-row field applies.
                 if matches!(e, InputEvent::Blur) {
-                    this.commit_edit(Move::Stay, window, cx);
+                    if this.multi_row_cell_edit() {
+                        this.cancel_edit(cx);
+                    } else {
+                        this.commit_edit(Move::Stay, window, cx);
+                    }
                 }
             }),
         ];
@@ -384,6 +406,8 @@ impl Assembly {
             filter,
             filter_text: String::new(),
             filter_task: None,
+            champions_only: true,
+            champion_bots: HashSet::new(),
             table_filter,
             headers_open: HashSet::new(),
             sort: None,
@@ -478,13 +502,39 @@ impl Assembly {
     pub(super) fn open(&mut self, reload: bool, cx: &mut Context<Self>) {
         self.loading = true;
         self.error = None;
-        let call = self.backend.call("mcts.open", json!({ "reload": reload }));
-        let valid = self.backend.call("mcts.validValues", json!({}));
+        let backend = self.backend.clone();
         cx.spawn(async move |this, cx| {
-            let r = call.await;
-            let v = valid.await;
+            let r = backend.call("mcts.open", json!({ "reload": reload })).await;
+            let (v, b) = if r.is_ok() {
+                let v = backend.call("mcts.validValues", json!({})).await;
+                let b = backend.call("mcts.choices", json!({ "kind": "bot", "limit": 1000 })).await;
+                (Some(v), Some(b))
+            } else {
+                (None, None)
+            };
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
+                if let Some(Ok(v)) = v {
+                    if let Some(m) = v.json.as_object() {
+                        this.valid = m.iter().filter_map(|(k, x)| Some((k.parse().ok()?, x["text"].as_str()?.to_string()))).collect();
+                        this.chars_stale = true;
+                    }
+                }
+                if let Some(Ok(b)) = b {
+                    this.champion_bots = b
+                        .json
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|x| {
+                            let Some(ref_name) = x["detail"].as_str().and_then(|d| d.strip_prefix("champion · ")) else {
+                                return false;
+                            };
+                            !ref_name.eq_ignore_ascii_case("horse") && !ref_name.eq_ignore_ascii_case("mount")
+                        })
+                        .filter_map(|x| x["id"].as_i64())
+                        .collect();
+                }
                 match r {
                     Ok(r) => {
                         this.docs = r.json["docs"].as_array().into_iter().flatten().map(Doc::of).collect();
@@ -501,15 +551,15 @@ impl Assembly {
                             this.labels.clear();
                             this.label_wanted.clear();
                             this.load_table(cx);
+                        } else if this.active_champions_only() && !this.champion_bots.is_empty() {
+                            this.pages.remove(&0);
+                            this.rows.clear();
+                            this.positions.clear();
+                            this.seq += 1;
+                            this.load_page(0, cx);
                         }
                     }
                     Err(e) => this.error = Some(e),
-                }
-                if let Ok(v) = v {
-                    if let Some(m) = v.json.as_object() {
-                        this.valid = m.iter().filter_map(|(k, x)| Some((k.parse().ok()?, x["text"].as_str()?.to_string()))).collect();
-                        this.chars_stale = true;
-                    }
                 }
                 cx.notify();
             });
@@ -525,7 +575,7 @@ impl Assembly {
             return;
         }
         let me = cx.entity().downgrade();
-        dialogs::confirm(window, cx, "Reload the assembly files?", "Their edits are dropped and the files are read again from the game folder.", "Reload", true, move |_, cx| {
+        dialogs::confirm(window, cx, "Reload the game data?", "Your changes are dropped and the game data is read again from the game folder.", "Reload", true, move |_, cx| {
             let _ = me.update(cx, |this, cx| this.open(true, cx));
         });
     }
@@ -536,6 +586,9 @@ impl Assembly {
             d.dirty = j["dirty"].as_bool().unwrap_or(d.dirty);
             if let Some(u) = j["undo"].as_array() {
                 d.undo = u.iter().filter_map(|u| u.as_str().map(str::to_string)).collect();
+            }
+            if let Some(r) = j["redo"].as_array() {
+                d.redo = r.iter().filter_map(|r| r.as_str().map(str::to_string)).collect();
             }
         }
         cx.notify();
@@ -565,6 +618,11 @@ impl Assembly {
 
     fn current_doc(&self) -> Option<&Doc> {
         self.docs.iter().find(|d| Some(&d.id) == self.doc.as_ref())
+    }
+
+    /// Whether the file on screen has an undone edit to put back.
+    pub fn can_redo(&self) -> bool {
+        self.docs.iter().any(|d| Some(&d.id) == self.doc.as_ref() && !d.redo.is_empty())
     }
 
     pub fn unsaved_count(&self) -> usize {
@@ -645,6 +703,7 @@ impl Assembly {
             self.sort = None;
             self.filter_text.clear();
             self.filter_task = None;
+            self.champions_only = true;
         }
         self.pending_select = select;
         self.hscroll.set_offset(gpui::point(gpui::px(0.0), gpui::px(0.0)));
@@ -714,9 +773,31 @@ impl Assembly {
         cx.notify();
     }
 
+    /// Whether the `"Champions only"` filter is active on top-level `DATA_SET_BOTS`.
+    pub(super) fn active_champions_only(&self) -> bool {
+        self.champions_only && self.doc.as_deref() == Some("assembly") && self.path.is_empty() && self.table.as_deref() == Some("DATA_SET_BOTS")
+    }
+
+    pub(super) fn toggle_champions_only(&mut self, cx: &mut Context<Self>) {
+        self.champions_only = !self.champions_only;
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        self.reload_rows(cx);
+    }
+
+    fn is_playable_champion_row(&self, cells: &Map<String, J>) -> bool {
+        let ref_name = cells.get("REFERENCE_NAME").and_then(|v| v.as_str()).unwrap_or("");
+        if ref_name.eq_ignore_ascii_case("horse") || ref_name.eq_ignore_ascii_case("mount") {
+            return false;
+        }
+        if !self.champion_bots.is_empty() {
+            return cells.get("BOT_ID").and_then(cell_id).is_some_and(|id| self.champion_bots.contains(&id));
+        }
+        cells.get("BOT_TYPE_VALUE_ID").and_then(cell_id).is_some_and(|id| id == 10849 || self.valid.get(&id).is_some_and(|t| t.eq_ignore_ascii_case("champion")))
+    }
+
     /// The rows are in file order: a row's position is its index.
     fn plain_order(&self) -> bool {
-        self.filter_text.is_empty() && self.sort.is_none()
+        self.filter_text.is_empty() && self.sort.is_none() && !self.active_champions_only()
     }
 
     /// Apply the filter field once typing pauses.
@@ -760,10 +841,16 @@ impl Assembly {
 
     fn load_page(&mut self, page: usize, cx: &mut Context<Self>) {
         let (Some(doc), Some(table)) = (self.doc.clone(), self.table.clone()) else { return };
+        let champs_only = self.active_champions_only();
+        if champs_only && page > 0 {
+            return;
+        }
         if !self.pages.insert(page) {
             return;
         }
-        let mut params = json!({ "doc": doc, "path": path_json(&self.path), "table": table, "offset": page * PAGE, "limit": PAGE, "filter": self.filter_text });
+        let offset = if champs_only { 0 } else { page * PAGE };
+        let limit = if champs_only { 5000 } else { PAGE };
+        let mut params = json!({ "doc": doc, "path": path_json(&self.path), "table": table, "offset": offset, "limit": limit, "filter": self.filter_text });
         if let Some((c, desc)) = &self.sort {
             params["sort"] = json!(c);
             params["desc"] = json!(desc);
@@ -778,17 +865,37 @@ impl Assembly {
                 }
                 match r {
                     Ok(r) => {
-                        this.total = r.json["total"].as_u64().unwrap_or(0) as usize;
-                        let offset = r.json["offset"].as_u64().unwrap_or(0) as usize;
-                        for (k, row) in r.json["rows"].as_array().into_iter().flatten().enumerate() {
-                            let index = row[0].as_u64().unwrap_or(0) as usize;
-                            let cells = row[1].as_object().cloned().unwrap_or_default();
-                            this.rows.insert(offset + k, (index, cells));
-                            this.positions.insert(index, offset + k);
+                        if champs_only {
+                            let mut pos = 0usize;
+                            for row in r.json["rows"].as_array().into_iter().flatten() {
+                                let index = row[0].as_u64().unwrap_or(0) as usize;
+                                let cells = row[1].as_object().cloned().unwrap_or_default();
+                                if this.is_playable_champion_row(&cells) {
+                                    this.rows.insert(pos, (index, cells));
+                                    this.positions.insert(index, pos);
+                                    pos += 1;
+                                }
+                            }
+                            this.total = pos;
+                        } else {
+                            this.total = r.json["total"].as_u64().unwrap_or(0) as usize;
+                            let offset = r.json["offset"].as_u64().unwrap_or(0) as usize;
+                            for (k, row) in r.json["rows"].as_array().into_iter().flatten().enumerate() {
+                                let index = row[0].as_u64().unwrap_or(0) as usize;
+                                let cells = row[1].as_object().cloned().unwrap_or_default();
+                                this.rows.insert(offset + k, (index, cells));
+                                this.positions.insert(index, offset + k);
+                            }
                         }
                         this.chars_stale = true;
                         this.want_labels(cx);
                         if let Some(r) = this.pending_select.take() {
+                            if champs_only && !this.positions.contains_key(&r) {
+                                this.champions_only = false;
+                                this.pending_select = Some(r);
+                                this.reload_rows(cx);
+                                return;
+                            }
                             this.select(r, cx);
                             this.reveal_index(r);
                         }
@@ -798,6 +905,11 @@ impl Assembly {
                                 this.want_pos = None;
                                 this.user_select(index, cx);
                             }
+                        }
+                        let hidden_sel = champs_only && this.selected.is_some_and(|s| !this.positions.contains_key(&s));
+                        if page == 0 && (this.selected.is_none() || hidden_sel) && this.pending_select.is_none() && this.want_pos.is_none() && this.total > 0 {
+                            let first = this.rows.get(&0).map(|(index, _)| *index).unwrap_or(0);
+                            this.select(first, cx);
                         }
                     }
                     Err(e) => this.toast(Tone::Error, format!("Could not load the rows: {e}"), cx),
@@ -1066,11 +1178,19 @@ impl Assembly {
 
     // ----- edits ----------------------------------------------------------------------
 
+    fn multi_row_cell_edit(&self) -> bool {
+        self.marked.len() > 1 && matches!(self.edit, Some(Edit::Cell { .. } | Edit::Field { .. }))
+    }
+
     /// Start editing: `draft` is the text shown; `select_all` replaces it on typing.
     fn start_edit(&mut self, edit: Edit, draft: String, original: String, select_all: bool, window: &mut Window, cx: &mut Context<Self>) {
-        // An edit left open is applied first, like leaving its field.
+        // An edit left open is applied first, like leaving its field (cancelled if multiple rows are marked).
         if self.edit.is_some() {
-            self.commit_edit(Move::Stay, window, cx);
+            if self.multi_row_cell_edit() {
+                self.cancel_edit(cx);
+            } else {
+                self.commit_edit(Move::Stay, window, cx);
+            }
         }
         self.edit_from = original;
         if edit.in_area() {
@@ -1333,6 +1453,7 @@ impl Assembly {
                     };
                     let msgs = match r.json["messages"].as_array().map(|m| m.len()).unwrap_or(0) {
                         0 => String::new(),
+                        1 => ", 1 message copied".into(),
                         n => format!(", {n} messages copied"),
                     };
                     this.toast(Tone::Success, format!("{what} added at the end{id}{msgs}"), cx);
@@ -1341,6 +1462,7 @@ impl Assembly {
                     this.marked.clear();
                     this.sort = None;
                     this.filter_text.clear();
+                    this.champions_only = false;
                     this.pending_select = Some(index);
                     this.reload_rows(cx);
                     this.record(cx);
@@ -1494,7 +1616,7 @@ impl Assembly {
     pub(super) fn export_copies(&mut self, cx: &mut Context<Self>) {
         let docs: Vec<(String, String)> = self.docs.iter().filter(|d| d.dirty).map(|d| (d.id.clone(), d.path.clone())).collect();
         if docs.is_empty() {
-            self.toast(Tone::Info, "No assembly file has edits to export", cx);
+            self.toast(Tone::Info, "No game data has changes to export", cx);
             return;
         }
         let pick = cx.prompt_for_paths(gpui::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Export here".into()) });
@@ -1595,7 +1717,16 @@ impl Assembly {
             let text = serde_json::to_string_pretty(&json!({ "tempestRows": table, "rows": out })).unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-                this.toast(Tone::Success, format!("{n} row(s) copied; paste them into this table with {}", super::commands::key_hint("⌘V")), cx);
+                this.toast(
+                    Tone::Success,
+                    format!(
+                        "{} copied; paste {} into this table with {}",
+                        if n == 1 { "1 row".to_string() } else { format!("{n} rows") },
+                        if n == 1 { "it" } else { "them" },
+                        super::commands::key_hint("⌘V")
+                    ),
+                    cx,
+                );
             });
         })
         .detach();
@@ -1615,7 +1746,7 @@ impl Assembly {
         }
         let n = lines.len() - 1;
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(lines.join("\n")));
-        self.set_status(format!("Copied {n} row(s) as tab-separated text"), cx);
+        self.set_status(format!("Copied {} as tab-separated text", if n == 1 { "1 row".to_string() } else { format!("{n} rows") }), cx);
     }
 
     /// Paste: rows copied with Copy are appended with fresh ids; plain text sets the active cell (of every marked row).
@@ -1665,10 +1796,19 @@ impl Assembly {
             let _ = this.update(cx, |this, cx| {
                 this.refresh_doc(doc, cx);
                 if n > 0 {
-                    this.toast(Tone::Success, format!("{n} row(s) pasted at the end with fresh ids"), cx);
+                    this.toast(
+                        Tone::Success,
+                        format!(
+                            "{} pasted at the end with {}",
+                            if n == 1 { "1 row".to_string() } else { format!("{n} rows") },
+                            if n == 1 { "a fresh id" } else { "fresh ids" }
+                        ),
+                        cx,
+                    );
                     this.marked.clear();
                     this.sort = None;
                     this.filter_text.clear();
+                    this.champions_only = false;
                     this.pending_select = last;
                     this.reload_rows(cx);
                 }
@@ -1831,6 +1971,7 @@ impl Assembly {
             "vendor" => self.champion_vendor(window, cx),
             "skins" => self.skins(window, cx),
             "export-mod" => self.export_mod(window, cx),
+            "champions-only" => self.toggle_champions_only(cx),
             "sort" => self.set_sort(rest.to_string(), cx),
             "dump" => {
                 let mut j = self.state_json();
@@ -1858,12 +1999,11 @@ impl Render for Assembly {
         if self.docs.is_empty() {
             return self.render_empty(cx).into_any_element();
         }
-        let side = self.render_side(cx);
+        let side = self.render_side(window, cx);
         let grid = self.render_grid(window, cx);
         let row = self.render_row(cx);
         div()
             .key_context("Assembly")
-            .track_focus(&self.focus)
             .size_full()
             .on_action(cx.listener(|this, _: &super::Up, window, cx| this.key_step(-1, false, window, cx)))
             .on_action(cx.listener(|this, _: &super::Down, window, cx| this.key_step(1, false, window, cx)))
@@ -1911,7 +2051,11 @@ impl Assembly {
         if self.loading {
             return super::ui::loading("Reading the game data (assembly.dat and the language files)…", &theme);
         }
-        let detail = self.error.clone().unwrap_or_else(|| "There is no assembly.dat next to this folder's packages. Open the game's ChaosGame/CookedPCConsole folder.".into());
+        let detail = self
+            .error
+            .as_deref()
+            .map(super::ui::explain_error)
+            .unwrap_or_else(|| "There is no assembly.dat next to this folder's packages. Open the game's ChaosGame/CookedPCConsole folder.".into());
         super::ui::error("The game data could not be read", detail, &theme).child(Button::new("asm-retry").small().label("Try again").on_click(cx.listener(|this, _, _, cx| this.open(false, cx))))
     }
 }

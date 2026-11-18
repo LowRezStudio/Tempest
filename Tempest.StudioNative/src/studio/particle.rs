@@ -18,7 +18,8 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::Input;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Selectable, Sizable};
+use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -47,8 +48,16 @@ struct Drag {
 /// Where each curve was drawn, by (module, property): mouse events find their points with it.
 type Graphs = Rc<RefCell<HashMap<(usize, String), Bounds<Pixels>>>>;
 
+#[derive(Clone)]
+pub(super) struct UnappliedParticle {
+    pub path: String,
+    pub export: Option<usize>,
+    pub name: String,
+    pub curves: usize,
+}
+
 pub struct ParticleState {
-    path: String,
+    pub(super) path: String,
     /// The system as `particle.system` returned it (module JSON replaced as edits apply).
     system: J,
     /// Every export of the system: selecting one of them keeps the preview.
@@ -84,6 +93,25 @@ impl ParticleState {
 
     fn module_json(&self, index: usize) -> Option<&J> {
         self.emitters().iter().flat_map(particles::modules).map(|(m, _)| m).find(|m| m["index"].as_u64() == Some(index as u64))
+    }
+
+    fn replace_module_json(&mut self, index: usize, json: J) {
+        if let Some(emitters) = self.system["emitters"].as_array_mut() {
+            for e in emitters {
+                for lod in e["lods"].as_array_mut().into_iter().flatten() {
+                    for k in ["required", "spawn", "typeData"] {
+                        if lod[k]["index"].as_u64() == Some(index as u64) {
+                            lod[k] = json.clone();
+                        }
+                    }
+                    for m in lod["modules"].as_array_mut().into_iter().flatten() {
+                        if m["index"].as_u64() == Some(index as u64) {
+                            *m = json.clone();
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// The stored distribution of a curve (what Revert goes back to).
@@ -131,7 +159,8 @@ impl ParticleState {
 
     fn summary(&self) -> String {
         let n = self.view.as_ref().map(|v| v.borrow().view.count()).unwrap_or(0);
-        format!("{n} particles · {} emitters · approximate preview · drag to orbit, wheel to zoom, double-click to fit", self.emitters().len())
+        let em_n = self.emitters().len();
+        format!("{n} particles · {em_n} {} · approximate preview · drag to orbit, wheel to zoom, double-click to fit", if em_n == 1 { "emitter" } else { "emitters" })
     }
 }
 
@@ -212,6 +241,7 @@ impl Studio {
             drag: None,
             graphs: Default::default(),
         });
+        self.sync_cooker(cx);
         let backend = self.backend.clone();
         cx.spawn(async move |this, cx| {
             let r = match call.await {
@@ -332,6 +362,135 @@ impl Studio {
         cx.notify();
     }
 
+    pub(super) fn unapplied_particle_count(&self) -> usize {
+        usize::from(self.particles.as_ref().is_some_and(|p| !p.drafts.is_empty()))
+    }
+
+    pub(super) fn unapplied_particle_curves(&self) -> usize {
+        self.particles.as_ref().map(|p| p.drafts.len()).unwrap_or(0)
+    }
+
+    pub(super) fn unapplied_particle_item(&self) -> Option<UnappliedParticle> {
+        let p = self.particles.as_ref().filter(|p| !p.drafts.is_empty())?;
+        let export = p.system["root"]
+            .as_u64()
+            .map(|r| r as usize)
+            .or(p.module)
+            .or(p.emitter)
+            .or_else(|| p.members.iter().copied().min());
+        let name = p.system["name"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| p.system["path"].as_str().and_then(|s| s.rsplit('.').next()).filter(|s| !s.is_empty()).map(str::to_string))
+            .or_else(|| {
+                let i = export?;
+                let t = self.open.as_ref().filter(|t| t.path == p.path)?;
+                t.exports.get(i).map(|e| e.name.clone())
+            })
+            .unwrap_or_else(|| "Particle system".to_string());
+        Some(UnappliedParticle { path: p.path.clone(), export, name, curves: p.drafts.len() })
+    }
+
+    pub(super) fn pending_particle_applies(&self) -> Vec<(String, usize, Dist)> {
+        let Some(p) = self.particles.as_ref().filter(|p| !p.drafts.is_empty()) else {
+            return Vec::new();
+        };
+        let mut out: Vec<_> = p.drafts.iter().map(|(k, d)| (p.path.clone(), k.0, d.clone())).collect();
+        out.sort_by(|a, b| (a.1, &a.2.prop).cmp(&(b.1, &b.2.prop)));
+        out
+    }
+
+    pub(super) fn apply_particle_drafts(&mut self, cx: &mut Context<Self>) {
+        let Some(p) = &self.particles else { return };
+        if p.drafts.is_empty() {
+            return;
+        }
+        let path = p.path.clone();
+        let mut items: Vec<((usize, String), Dist)> = p.drafts.iter().map(|(k, d)| (k.clone(), d.clone())).collect();
+        items.sort_by(|a, b| (a.0.0, &a.0.1).cmp(&(b.0.0, &b.0.1)));
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let mut applied = Vec::new();
+            let mut failed = None;
+            for (key, d) in items {
+                match backend
+                    .call(
+                        "particle.setTable",
+                        json!({
+                            "path": path,
+                            "index": key.0,
+                            "prop": d.prop,
+                            "table": d.table(),
+                            "timeScale": d.time_scale,
+                            "startTime": d.start_time,
+                        }),
+                    )
+                    .await
+                {
+                    Ok(r) => applied.push((key, d.prop, r.json)),
+                    Err(e) => {
+                        failed = Some((d.prop, e));
+                        break;
+                    }
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                if !applied.is_empty() {
+                    this.dirty.insert(path.clone());
+                    let mut refresh_sel = None;
+                    if let Some(p) = this.particles.as_mut().filter(|p| p.path == path) {
+                        for (key, _, module_json) in &applied {
+                            p.replace_module_json(key.0, module_json.clone());
+                            p.drafts.remove(key);
+                            if this.selected_export == Some(key.0) {
+                                refresh_sel = Some(key.0);
+                            }
+                        }
+                        if failed.is_none() {
+                            p.drafts.clear();
+                        }
+                        p.point = None;
+                        p.rebuild();
+                    }
+                    let status = if applied.len() == 1 {
+                        format!("{} updated", applied[0].1)
+                    } else {
+                        format!("{} particle curves updated", applied.len())
+                    };
+                    this.set_status(status, cx);
+                    if let Some(i) = refresh_sel {
+                        this.select_export(i, cx);
+                    }
+                    if let Some(c) = this.cooker.clone() {
+                        c.update(cx, |c, cx| c.refresh(cx));
+                    }
+                }
+                if let Some((prop, e)) = failed {
+                    this.toast(Tone::Error, format!("{prop} not applied: {e}"), cx);
+                }
+                this.sync_cooker(cx);
+                cx.refresh_windows();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn discard_particle_drafts(&mut self, cx: &mut Context<Self>) {
+        let Some(p) = &mut self.particles else { return };
+        if p.drafts.is_empty() {
+            return;
+        }
+        p.drafts.clear();
+        p.point = None;
+        p.drag = None;
+        p.rebuild();
+        self.sync_cooker(cx);
+        cx.refresh_windows();
+        cx.notify();
+    }
+
     /// Change a curve's draft (the preview follows it).
     fn particles_draft(&mut self, key: (usize, String), d: Dist, cx: &mut Context<Self>) {
         let Some(p) = &mut self.particles else { return };
@@ -341,6 +500,9 @@ impl Studio {
             p.drafts.insert(key, d);
         }
         p.rebuild();
+        self.last_undo_was_assembly = false;
+        self.last_undo_was_wwise = false;
+        self.sync_cooker(cx);
         cx.notify();
     }
 
@@ -357,30 +519,20 @@ impl Studio {
                     this.dirty.insert(path.clone());
                     if let Some(p) = this.particles.as_mut().filter(|p| p.path == path) {
                         // The module as stored now replaces its JSON; the draft is done.
-                        if let Some(emitters) = p.system["emitters"].as_array_mut() {
-                            for e in emitters {
-                                for lod in e["lods"].as_array_mut().into_iter().flatten() {
-                                    for k in ["required", "spawn", "typeData"] {
-                                        if lod[k]["index"].as_u64() == Some(key.0 as u64) {
-                                            lod[k] = r.json.clone();
-                                        }
-                                    }
-                                    for m in lod["modules"].as_array_mut().into_iter().flatten() {
-                                        if m["index"].as_u64() == Some(key.0 as u64) {
-                                            *m = r.json.clone();
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        p.replace_module_json(key.0, r.json);
                         p.drafts.remove(&key);
                         p.rebuild();
+                    }
+                    this.sync_cooker(cx);
+                    if let Some(c) = this.cooker.clone() {
+                        c.update(cx, |c, cx| c.refresh(cx));
                     }
                     this.set_status(format!("{} updated", d.prop), cx);
                     // The inspector shows the module's properties: read them again.
                     if this.selected_export == Some(key.0) {
                         this.select_export(key.0, cx);
                     }
+                    cx.refresh_windows();
                 }
                 Err(e) => this.toast(Tone::Error, format!("{} not applied: {e}", d.prop), cx),
             });
@@ -489,14 +641,22 @@ impl Studio {
                 _ => "sprite",
             };
             let off = model.as_ref().is_some_and(|m| !m.enabled);
+            let ring = theme.ring;
+            let hover_bg = theme.secondary;
             let row = h_flex()
                 .id(("pt-emitter", k))
+                .focusable()
+                .tab_index(0)
                 .gap_2()
                 .px_1()
                 .rounded_sm()
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .focus_visible(move |s| s.border_color(ring))
+                .cursor_pointer()
                 .text_sm()
                 .when(selected, |d| d.bg(theme.primary.opacity(0.15)))
-                .hover(|d| d.bg(theme.secondary))
+                .hover(move |d| d.bg(hover_bg))
                 .child(Checkbox::new(("pt-show", k)).checked(visible).on_click(cx.listener(move |this, v: &bool, _, cx| {
                     if let Some(view) = this.particles.as_ref().and_then(|p| p.view.clone()) {
                         let mut view = view.borrow_mut();
@@ -510,10 +670,21 @@ impl Studio {
                 .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(name))
                 .children(model.as_ref().filter(|m| !m.unsupported.is_empty()).map(|m| {
                     let text = format!("Not simulated here: {}", m.unsupported.iter().map(|c| short_class(c)).collect::<Vec<_>>().join(", "));
-                    div().id(("pt-unsupported", k)).px_1().rounded_sm().text_xs().text_color(theme.warning).bg(theme.warning.opacity(0.12)).child("partial").tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx))
+                    super::ui::badge(None, "partial", theme.warning, &theme).id(("pt-unsupported", k)).tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx))
                 }))
                 .child(div().text_xs().text_color(theme.muted_foreground).child(if off { format!("{kind} · off") } else { kind.to_string() }))
                 .child(div().w(px(48.0)).text_right().text_xs().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(count.to_string()))
+                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        if let Some(p) = &mut this.particles {
+                            p.emitter = Some(ei);
+                            p.module = None;
+                        }
+                        cx.notify();
+                    }
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(p) = &mut this.particles {
                         p.emitter = Some(ei);
@@ -533,7 +704,7 @@ impl Studio {
                 let class = short_class(m["class"].as_str().unwrap_or_default());
                 let label = if role.is_empty() || role == class { class } else { format!("{class} ({role})") };
                 let edited = p.drafts.keys().any(|(k, _)| *k == mi);
-                let b = Button::new(("pt-module", mi)).xsmall().label(if edited { format!("{label} •") } else { label }).tooltip("Double-click: show it in the package");
+                let b = Button::new(("pt-module", mi)).xsmall().label(if edited { format!("{label} (edited)") } else { label }).tooltip("Double-click: show it in the package");
                 let b = b.ghost().selected(p.module == Some(mi));
                 list = list.child(b.on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                     if e.click_count() == 2 {
@@ -594,9 +765,10 @@ impl Studio {
                         p.point = None;
                         p.rebuild();
                     }
+                    this.sync_cooker(cx);
                     cx.notify();
                 })))
-                .child(Button::new(("pt-apply", key.0 * 64 + key.1.len())).xsmall().primary().label("Apply").tooltip("Write it into the module (undoable, saved with the package)").on_click(cx.listener(move |this, _, _, cx| this.particles_apply(k2.clone(), cx))))
+                .child(Button::new(("pt-apply", key.0 * 64 + key.1.len())).xsmall().label("Apply").tooltip("Write it into the module (undoable, included in your mod)").on_click(cx.listener(move |this, _, _, cx| this.particles_apply(k2.clone(), cx))))
             });
         // The graph: a line per value, a dot per entry; drag a dot to change it.
         let graphs = p.graphs.clone();
@@ -708,30 +880,79 @@ impl Studio {
             }));
         let mut card = v_flex().gap_1().p_2().rounded_md().border_1().border_color(if focused { theme.primary.opacity(0.6) } else { theme.border }).child(header).child(graph_box);
         // The fields of the curve last touched: the chosen point, points, time scale, start.
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         if focused {
             let field = |id: &'static str, label: String, value: String, editable: bool, me: &Studio, cx: &mut Context<Studio>| -> AnyElement {
                 let ekey = format!("{FIELD}{id}");
                 let shown: AnyElement = if me.editing.as_deref() == Some(ekey.as_str()) {
                     div().w(px(80.0)).child(Input::new(&me.value_input).xsmall()).into_any_element()
                 } else {
-                    let v = value.clone();
+                    let (v, v_k, ekey_k) = (value.clone(), value.clone(), ekey.clone());
                     div()
                         .id(id)
                         .px_1()
                         .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
                         .font_family(crate::studio::ui::mono())
-                        .when(editable, |d| d.bg(theme.secondary).cursor_text())
+                        .when(editable, |d| {
+                            d.bg(theme.secondary)
+                                .focusable()
+                                .tab_index(0)
+                                .focus_visible(move |s| s.border_color(ring))
+                                .hover(move |s| s.bg(hover_bg))
+                                .cursor_text()
+                                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        this.start_edit(ekey_k.clone(), v_k.clone(), window, cx);
+                                    }
+                                }))
+                                .on_click(cx.listener(move |this, _, window, cx| this.start_edit(ekey.clone(), v.clone(), window, cx)))
+                        })
                         .child(value)
-                        .when(editable, |d| d.on_click(cx.listener(move |this, _, window, cx| this.start_edit(ekey.clone(), v.clone(), window, cx))))
                         .into_any_element()
                 };
                 h_flex().gap_1().text_xs().child(div().text_color(theme.muted_foreground).child(label)).child(shown).into_any_element()
             };
-            let mut fields = h_flex().flex_wrap().gap_3();
-            if let Some((i, k)) = chosen.filter(|(i, k)| d.entries.get(*i).is_some_and(|e| *k < e.len())) {
-                fields = fields.child(field("value", format!("#{i} {}", d.label(k)), d.entries[i][k].to_string(), true, self, cx));
+            let mut fields = h_flex().flex_wrap().items_center().gap_3();
+            let active_pt = chosen
+                .filter(|(i, k)| d.entries.get(*i).is_some_and(|e| *k < e.len()))
+                .or_else(|| d.entries.first().filter(|e| !e.is_empty()).map(|_| (0usize, 0usize)));
+            if let Some((i, k)) = active_pt {
+                let mut pairs = Vec::new();
+                for (pi, entry) in d.entries.iter().enumerate() {
+                    for ci in 0..entry.len() {
+                        pairs.push((pi, ci));
+                    }
+                }
+                let mut pt_row = h_flex().items_center().gap_0p5();
+                if pairs.len() > 1 {
+                    let pos = pairs.iter().position(|&x| x == (i, k)).unwrap_or(0);
+                    let prev_pair = pairs[(pos + pairs.len() - 1) % pairs.len()];
+                    let next_pair = pairs[(pos + 1) % pairs.len()];
+                    pt_row = pt_row
+                        .child(Button::new("pt-prev").xsmall().ghost().icon(Icon::new(IconName::ChevronLeft)).tooltip("Previous curve point").on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(p) = &mut this.particles {
+                                p.point = Some(prev_pair);
+                            }
+                            cx.notify();
+                        })))
+                        .child(field("value", format!("#{i} {}", d.label(k)), d.entries[i][k].to_string(), true, self, cx))
+                        .child(Button::new("pt-next").xsmall().ghost().icon(Icon::new(IconName::ChevronRight)).tooltip("Next curve point").on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(p) = &mut this.particles {
+                                p.point = Some(next_pair);
+                            }
+                            cx.notify();
+                        })));
+                } else {
+                    pt_row = pt_row.child(field("value", format!("#{i} {}", d.label(k)), d.entries[i][k].to_string(), true, self, cx));
+                }
+                fields = fields.child(pt_row);
             } else {
-                fields = fields.child(div().text_xs().text_color(theme.muted_foreground).child("Click a point to type its value"));
+                fields = fields.child(div().text_xs().text_color(theme.muted_foreground).child("No points in this curve yet"));
             }
             fields = fields
                 .child(field("points", "points".into(), d.entries.len().to_string(), true, self, cx))
@@ -739,13 +960,43 @@ impl Studio {
                 .child(field("start", "start".into(), d.start_time.to_string(), true, self, cx));
             card = card.child(fields).child(div().text_xs().text_color(theme.muted_foreground).child("Rotations: 1 = 360°. Sizes and positions in Unreal units. Entries are spread over the time span; life-relative curves run from 0 to 1."));
         } else {
-            card = card.child(div().id(("pt-focus", k3.0 * 64 + k3.1.len())).text_xs().text_color(theme.muted_foreground).cursor_pointer().child("Click the graph to edit values, points and timing").on_click(cx.listener(move |this, _, _, cx| {
-                if let Some(p) = &mut this.particles {
-                    p.focus = Some(k3.clone());
-                    p.point = None;
-                }
-                cx.notify();
-            })));
+            let k4 = k3.clone();
+            let init_pt = (!d.entries.is_empty() && !d.entries[0].is_empty()).then_some((0, 0));
+            card = card.child(
+                div()
+                    .id(("pt-focus", k3.0 * 64 + k3.1.len()))
+                    .focusable()
+                    .tab_index(0)
+                    .px_1()
+                    .py_0p5()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(ring))
+                    .hover(move |s| s.bg(hover_bg))
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .cursor_pointer()
+                    .child("Click or press Enter to edit values, points and timing")
+                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            if let Some(p) = &mut this.particles {
+                                p.focus = Some(k4.clone());
+                                p.point = init_pt;
+                            }
+                            cx.notify();
+                        }
+                    }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(p) = &mut this.particles {
+                            p.focus = Some(k3.clone());
+                            p.point = init_pt;
+                        }
+                        cx.notify();
+                    })),
+            );
         }
         card.into_any_element()
     }
@@ -803,6 +1054,8 @@ impl Studio {
                 let key = p.focus.clone().ok_or("no curve edited")?;
                 self.particles_apply(key, cx);
             }
+            "apply-all" => self.apply_particle_drafts(cx),
+            "discard" => self.discard_particle_drafts(cx),
             _ => return Err(format!("unknown particles step {verb}")),
         }
         cx.notify();

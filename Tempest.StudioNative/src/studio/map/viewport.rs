@@ -83,9 +83,6 @@ pub struct View3d {
     pub focus: Option<FocusHandle>,
 }
 
-const AXIS_COLORS: [u32; 3] = [0xf38ba8, 0xa6e3a1, 0x89b4fa];
-const HOT: u32 = 0xf9e2af;
-
 impl View3d {
     pub fn new() -> View3d {
         let scene = MapScene::new();
@@ -160,8 +157,11 @@ impl MapEditor {
         Some(Gizmo { center, axes, size })
     }
 
-    fn gizmo_lines(&self, g: &Gizmo, out: &mut Vec<Cv>) {
-        let col = |h: Handle, k: usize| rgba(if self.view.hot == Some(h) || matches!(&self.view.drag, Some(Drag::Gizmo(d)) if d.handle == h) { HOT } else { AXIS_COLORS[k] }, 1.0);
+    fn gizmo_lines(&self, g: &Gizmo, dark: bool, out: &mut Vec<Cv>) {
+        let axis_colors: [u32; 3] = if dark { [0xf38ba8, 0xa6e3a1, 0x89b4fa] } else { [0xaf0b2f, 0x1d6412, 0x154bc2] };
+        let hot: u32 = if dark { 0xf9e2af } else { 0x824d00 };
+        let uniform_col: u32 = if dark { 0xcdd6f4 } else { 0x383b50 };
+        let col = |h: Handle, k: usize| rgba(if self.view.hot == Some(h) || matches!(&self.view.drag, Some(Drag::Gizmo(d)) if d.handle == h) { hot } else { axis_colors[k] }, 1.0);
         let mut seg = |a: Vec3, b: Vec3, c: [f32; 4]| {
             out.push(Cv::new(a, c));
             out.push(Cv::new(b, c));
@@ -203,7 +203,7 @@ impl MapEditor {
                 }
                 out.extend(boxes);
                 let h = g.size * 0.07;
-                box_lines(g.center - Vec3::splat(h), g.center + Vec3::splat(h), rgba(if self.view.hot == Some(Handle::Uniform) { HOT } else { 0xcdd6f4 }, 1.0), out);
+                box_lines(g.center - Vec3::splat(h), g.center + Vec3::splat(h), rgba(if self.view.hot == Some(Handle::Uniform) { hot } else { uniform_col }, 1.0), out);
             }
             Tool::Select => {}
         }
@@ -528,6 +528,17 @@ impl MapEditor {
             "r" => self.tool = Tool::Scale,
             "q" => self.tool = Tool::Select,
             "f" => self.frame_selection(),
+            "h" if m.shift => {
+                self.hidden_actors.clear();
+                self.apply_visibility();
+            }
+            "h" => {
+                if let Some(sel) = self.selected.clone() {
+                    self.hidden_actors.insert(sel);
+                    self.select(None, false, cx);
+                    self.apply_visibility();
+                }
+            }
             "escape" => self.select(None, true, cx),
             "delete" | "backspace" => self.ask_remove(cx),
             "a" if m.shift => self.toggle_palette(window, cx),
@@ -609,19 +620,20 @@ impl MapEditor {
     // ----- drawing ----------------------------------------------------------------------
 
     /// What is drawn over the scene this frame: the selection's box and light reach, the gizmo, Matinee paths.
-    fn overlays(&mut self) {
+    fn overlays(&mut self, dark: bool) {
         let mut over = Vec::new();
         let mut top = Vec::new();
+        let sel_col = if dark { 0xf9e2af } else { 0x824d00 };
         if let Some(k) = self.selected_node() {
             if let Some((lo, hi)) = self.view.with(|s| s.bounds(0, k)).flatten() {
-                box_lines(lo, hi, rgba(0xf9e2af, 1.0), &mut over);
+                box_lines(lo, hi, rgba(sel_col, 1.0), &mut over);
             }
             self.light_reach(&mut over);
         }
-        self.matinee_paths(&mut over);
-        self.nav_links(&mut top);
+        self.matinee_paths(dark, &mut over);
+        self.nav_links(dark, &mut top);
         if let Some(g) = self.gizmo() {
-            self.gizmo_lines(&g, &mut top);
+            self.gizmo_lines(&g, dark, &mut top);
         }
         self.view.with(|s| {
             s.overlay = over;
@@ -631,20 +643,24 @@ impl MapEditor {
 
     pub(super) fn render_viewport(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let dark = theme.mode.is_dark();
         if self.view.focus.is_none() {
             self.view.focus = Some(cx.focus_handle());
         }
         if let Some(e) = self.view.error() {
-            return div().size_full().flex().items_center().justify_center().text_sm().text_color(theme.danger).child(format!("The 3D view needs a GPU: {e}")).into_any_element();
+            return div().size_full().p_4().flex().items_center().justify_center().text_sm().whitespace_normal().text_color(theme.danger).child(format!("The 3D view needs a GPU: {}", crate::studio::ui::explain_error(&e))).into_any_element();
         }
         // The background follows the theme (sRGB → linear for the clear colour).
         let bg = theme.background.to_rgb();
         let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
         let clear = [lin(bg.r), lin(bg.g), lin(bg.b)];
         if self.view.with(|s| std::mem::replace(&mut s.clear, clear) != clear) == Some(true) {
+            if self.nav.show {
+                self.rebuild_nav(dark);
+            }
             self.view.dirty();
         }
-        self.overlays();
+        self.overlays(dark);
         let inner = self.view.inner.clone();
         let _ = window;
         let view = canvas(
@@ -697,14 +713,37 @@ impl MapEditor {
         };
         let focus = self.view.focus.clone().expect("made above");
         let legend = self.heavy.then(|| {
-            let sw = |c: u32, t: &str| h_flex().gap_1p5().child(div().size(px(10.0)).rounded_sm().bg(super::hsla(c))).child(t.to_string());
-            let mut l = v_flex().absolute().top(px(8.0)).left(px(8.0)).p_2().gap_0p5().rounded_md().bg(theme.background.opacity(0.85)).text_xs().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Can't be stood on (m_bCanBaseOn False)"));
-            l = if self.xray { l.child(sw(0xff2d55, "flagged meshes (seen through walls)")).child(sw(0xffb020, "flagged volumes")) } else { l.child(sw(0xf24d66, "walls: heavy walls")).child(sw(0xfa994d, "slopes")).child(sw(0x9499b3, "roofs and floors (as intended)")) };
-            l.child(div().text_color(theme.muted_foreground).child(format!("{} actors flagged", self.rooftop_count())))
+            let sw = |c: gpui::Hsla, t: &str| h_flex().items_center().gap_1p5().child(div().size(px(10.0)).rounded_sm().bg(c)).child(t.to_string());
+            let mut l = v_flex().p_2().gap_0p5().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Can't be stood on (m_bCanBaseOn False)"));
+            l = if self.xray {
+                l.child(sw(theme.red, "flagged meshes (seen through walls)")).child(sw(theme.yellow, "flagged volumes"))
+            } else {
+                l.child(sw(theme.red, "walls: heavy walls")).child(sw(theme.yellow, "slopes")).child(sw(theme.muted_foreground, "roofs and floors (as intended)"))
+            };
+            let flagged = self.rooftop_count();
+            l.child(div().text_color(theme.muted_foreground).child(if flagged == 1 { "1 actor flagged".to_string() } else { format!("{flagged} actors flagged") }))
+        });
+        let col_legend = self.collision.enabled.then(|| {
+            let mut row = h_flex().gap_2().flex_wrap().p_2().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs();
+            for (id, label) in super::collision::BLOCKS {
+                row = row.child(h_flex().items_center().gap_1().child(div().size(px(8.0)).rounded_sm().bg(super::collision::block_ui_color(id, &theme))).child(*label));
+            }
+            row
+        });
+        let top_left = (legend.is_some() || col_legend.is_some()).then(|| {
+            let mut box_ = v_flex().absolute().top(px(8.0)).left(px(8.0)).gap_1p5();
+            if let Some(l) = legend {
+                box_ = box_.child(l);
+            }
+            if let Some(cl) = col_legend {
+                box_ = box_.child(cl);
+            }
+            box_
         });
         div()
             .id("map-viewport")
             .track_focus(&focus)
+            .tab_index(0)
             .size_full()
             .relative()
             .overflow_hidden()
@@ -725,24 +764,26 @@ impl MapEditor {
             .on_key_down(cx.listener(|this, e, window, cx| this.key_down(e, window, cx)))
             .on_key_up(cx.listener(|this, e, _, cx| this.key_up(e, cx)))
             .child(view)
-            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().bg(theme.background.opacity(0.8)).text_xs().font_family(crate::studio::ui::mono()).child(p)))
-            .children(legend)
+            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs().font_family(crate::studio::ui::mono()).child(p)))
+            .children(top_left)
             .child(
-                // On a plate of its own: readable over any scene.
                 div()
                     .absolute()
                     .bottom(px(8.0))
                     .right(px(8.0))
-                    .px_2()
+                    .px_2p5()
                     .py_1()
                     .rounded_md()
-                    .bg(theme.background.opacity(0.75))
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.popover)
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .text_right()
-                    .child(if azerty(cx) { "left drag orbit · right drag look, + ZQSD fly (A E down/up) · middle drag pan · arrows fly · wheel zoom" } else { "left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom" })
-                    .child("click select · W move · E rotate · R scale · Q select only · F frame")
-                    .child("⇧A add an actor · ⌘D duplicate · Delete delete"),
+                    .child(if azerty(cx) {
+                        "Right-drag + ZQSD to fly · click an actor to inspect or move · H hides"
+                    } else {
+                        "Right-drag + WASD to fly · click an actor to inspect or move · H hides"
+                    }),
             )
             .into_any_element()
     }
@@ -768,7 +809,7 @@ impl MapEditor {
 }
 
 /// Whether the keyboard is laid out AZERTY (French, Belgian): flying is then ZQSD, A and E down and up.
-fn azerty(cx: &gpui::App) -> bool {
+pub(super) fn azerty(cx: &gpui::App) -> bool {
     let id = cx.keyboard_layout().id().to_ascii_lowercase();
     ["french", "belgian", "azerty"].iter().any(|l| id.contains(l))
 }

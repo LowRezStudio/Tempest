@@ -321,7 +321,7 @@ pub fn inspected(v: &J) -> Inspected {
     }
     let note = match kind.as_str() {
         "raw" => Some((true, format!("The header of this export could not be parsed: {}\n{} bytes: {}", str_of(v, "error"), v["size"], str_of(v, "hex")))),
-        "empty" => Some((false, "Empty placeholder left by the cooker (or a deleted object).".to_string())),
+        "empty" => Some((false, "Empty placeholder left when the game was built (or a deleted object).".to_string())),
         "script" => Some((false, format!("{}\n\nScript objects are edited as source: see the Source tab.", str_of(v, "text")))),
         _ => None,
     };

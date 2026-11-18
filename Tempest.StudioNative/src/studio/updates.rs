@@ -88,8 +88,10 @@ impl Studio {
     /// recovery file when anything is unsaved. `None`: nothing to keep.
     pub(super) fn keep_for_restart(&mut self, cx: &mut Context<Self>) -> Option<impl std::future::Future<Output = Result<crate::backend::Reply, String>> + use<>> {
         let dir = self.dir.clone()?;
+        let movie_applies = self.pending_movie_applies(cx);
         let out = if self.project.is_some() {
             let mut edited: Vec<String> = self.dirty.iter().cloned().collect();
+            edited.extend(movie_applies.iter().map(|(p, ..)| p.clone()));
             edited.extend(self.assembly.as_ref().map(|a| a.read(cx).unsaved_files()).unwrap_or_default());
             let p = self.project.as_mut()?;
             p.note_files(edited);
@@ -101,7 +103,14 @@ impl Studio {
         } else {
             return None;
         };
-        Some(self.backend.call("twrk.save", json!({ "out": out, "mode": "linked", "state": self.twrk_state() })))
+        let backend = self.backend.clone();
+        let state = self.twrk_state();
+        Some(async move {
+            for (path, index, edits) in movie_applies {
+                backend.call("swf.apply", json!({ "path": path, "index": index, "edits": edits })).await?;
+            }
+            backend.call("twrk.save", json!({ "out": out, "mode": "linked", "state": state })).await
+        })
     }
 
     /// Download the update, keep every window's work, swap it in and quit.
@@ -113,7 +122,7 @@ impl Studio {
         };
         let unsaved: usize = studios(cx).iter().map(|s| s.read(cx).unsaved_total(cx)).sum();
         let body = if unsaved > 0 {
-            format!("The Studio downloads version {}, closes and opens again. Your changes ({unsaved} files) are kept: a named mod saves itself, an unnamed one is offered back when the Studio reopens.", rel.version)
+            format!("The Studio downloads version {}, closes and opens again. Your changes ({unsaved} file{}) are kept: a named mod saves itself, an unnamed one is offered back when the Studio reopens.", rel.version, if unsaved == 1 { "" } else { "s" })
         } else {
             format!("The Studio downloads version {}, closes and opens again.", rel.version)
         };
@@ -199,10 +208,10 @@ impl Studio {
                     .child(div().flex_1().min_w_0().child(format!("Tempest Studio {} is out (you have {}).", rel.version, update::current())))
                     .child(Button::new("upd-notes").xsmall().ghost().label("What's new").on_click(move |_, _, cx| cx.open_url(&page)))
                     .child(div().relative().child(if installable {
-                        Button::new("upd-go").xsmall().primary().label("Restart to update").on_click(cx.listener(|this, _, window, cx| this.restart_to_update(window, cx)))
+                        Button::new("upd-go").xsmall().label("Restart to update").on_click(cx.listener(|this, _, window, cx| this.restart_to_update(window, cx)))
                     } else {
                         let page = rel.page.clone();
-                        Button::new("upd-go").xsmall().primary().label("Download").tooltip("This copy cannot update itself: download the new one").on_click(move |_, _, cx| cx.open_url(&page))
+                        Button::new("upd-go").xsmall().label("Download").tooltip("This copy cannot update itself: download the new one").on_click(move |_, _, cx| cx.open_url(&page))
                     }).child(crate::driver::probe("upd-go")))
                     .child(later)
             }

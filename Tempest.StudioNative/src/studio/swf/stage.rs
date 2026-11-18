@@ -1079,7 +1079,7 @@ impl MovieEditor {
             Vec::new()
         };
         let knob_line = if transform { rect.and_then(|r| self.knob(&r, scale)) } else { None };
-        let (line, edited_c, accent, warn, bg) = (gpui::white().opacity(0.25), theme.warning.opacity(0.8), theme.primary, theme.warning.opacity(0.7), theme.background);
+        let (line, edited_c, accent, warn, bg, checker) = (theme.foreground.opacity(0.35), theme.warning, theme.primary, theme.warning.opacity(0.7), theme.background, theme.foreground.opacity(0.05));
         let r0 = rect;
         let poly_paint = poly.clone();
         let stage = canvas(
@@ -1106,7 +1106,7 @@ impl MovieEditor {
                         let y = oy + j as f32 * tile + shift.1 - tile * 2.0;
                         let q = Bounds::new(point(px(x.max(ox)), px(y.max(oy))), size(px((x + tile).min(ox + f32::from(b.size.width)) - x.max(ox)), px((y + tile).min(oy + f32::from(b.size.height)) - y.max(oy))));
                         if f32::from(q.size.width) > 0.0 && f32::from(q.size.height) > 0.0 {
-                            window.paint_quad(fill(q, gpui::white().opacity(0.04)));
+                            window.paint_quad(fill(q, checker));
                         }
                     }
                 }
@@ -1184,6 +1184,7 @@ impl MovieEditor {
         let mut out = div()
             .id("movie-stage")
             .track_focus(&self.stage.focus)
+            .tab_index(0)
             .relative()
             .size_full()
             .overflow_hidden()
@@ -1218,20 +1219,20 @@ impl MovieEditor {
         }
         if let Some(o) = outline_rect.zip(rect) {
             let (x, y) = self.to_stage(&o.1, scale, o.0.x, o.0.y);
-            out = out.child(div().absolute().left(px(x as f32)).top(px((y - 14.0) as f32)).px_1().bg(theme.warning.opacity(0.8)).text_color(theme.background).text_xs().child("stage"));
+            out = out.child(div().absolute().left(px(x as f32)).top(px((y - 14.0) as f32)).px_1().bg(theme.warning).text_color(theme.warning_foreground).text_xs().child("stage"));
         }
         if !ready && self.stage.error.is_none() {
             out = out.child(div().absolute().inset_0().flex().items_center().justify_center().text_xs().text_color(theme.muted_foreground).child("Rendering…"));
         }
         if let Some(e) = &self.stage.error {
-            out = out.child(div().absolute().top(px(12.0)).left(px(12.0)).right(px(12.0)).p_2().rounded_md().bg(theme.danger.opacity(0.9)).text_color(theme.background).text_xs().child(v_text("The preview could not be rendered", e)));
+            out = out.child(div().absolute().top(px(12.0)).left(px(12.0)).right(px(12.0)).p_2().rounded_md().bg(theme.danger).text_color(theme.danger_foreground).text_xs().child(v_text("The preview could not be rendered", &crate::studio::ui::explain_error(e))));
         }
         if self.stage.busy && ready {
-            out = out.child(div().absolute().top(px(8.0)).right(px(8.0)).px_2().rounded_sm().bg(theme.background.opacity(0.9)).text_xs().child("updating view…"));
+            out = out.child(div().absolute().top(px(8.0)).right(px(8.0)).px_2().rounded_sm().border_1().border_color(theme.border).bg(theme.background).text_color(theme.foreground).text_xs().child("updating view…"));
         }
         if !self.stage.missing.is_empty() {
             let n = self.stage.missing.len();
-            out = out.child(div().absolute().bottom_0().left_0().right_0().px_2().bg(theme.warning.opacity(0.9)).text_color(theme.background).text_xs().font_family(crate::studio::ui::mono()).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("{n} image{} not found: {}", if n == 1 { "" } else { "s" }, self.stage.missing[0])));
+            out = out.child(div().absolute().bottom_0().left_0().right_0().px_2().bg(theme.warning).text_color(theme.warning_foreground).text_xs().font_family(crate::studio::ui::mono()).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("{n} image{} not found: {}", if n == 1 { "" } else { "s" }, self.stage.missing[0])));
         }
         out.into_any_element()
     }

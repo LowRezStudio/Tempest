@@ -17,7 +17,6 @@ use tempest_assets::matinee_curve::{eval, Mode, Point};
 use super::matinee::{points, KeyRef};
 use super::MapEditor;
 
-const COLORS: [u32; 4] = [0xf38ba8, 0xa6e3a1, 0x89b4fa, 0xf9e2af];
 const PAD: f32 = 8.0;
 /// Handle length on screen, in points.
 const HANDLE: f32 = 40.0;
@@ -264,17 +263,26 @@ impl MapEditor {
             self.matinee.curve_view.fit_for = fit_key;
             self.fit_curve();
         }
-        let mut head = h_flex().h(px(24.0)).px_2().gap_2().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(name));
+        let colors = [theme.red, theme.green, theme.blue, theme.yellow];
+        let mut head = h_flex().h(px(24.0)).px_2().gap_2().items_center().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(name));
         for (k, n) in names.iter().enumerate() {
             let shown = !self.matinee.curve_view.hidden.contains(&k);
-            head = head.child(h_flex().gap_1().text_color(super::hsla(COLORS[k % 4])).child(Checkbox::new(("cv-comp", k)).checked(shown).on_click(cx.listener(move |this, v: &bool, _, cx| {
-                if *v {
-                    this.matinee.curve_view.hidden.remove(&k);
-                } else {
-                    this.matinee.curve_view.hidden.insert(k);
-                }
-                cx.notify();
-            }))).child(n.clone()));
+            head = head.child(
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .text_color(theme.foreground)
+                    .child(Checkbox::new(("cv-comp", k)).checked(shown).on_click(cx.listener(move |this, v: &bool, _, cx| {
+                        if *v {
+                            this.matinee.curve_view.hidden.remove(&k);
+                        } else {
+                            this.matinee.curve_view.hidden.insert(k);
+                        }
+                        cx.notify();
+                    })))
+                    .child(div().size(px(8.0)).rounded_full().bg(colors[k % 4]))
+                    .child(n.clone()),
+            );
         }
         head = head
             .child(div().flex_1())
@@ -293,7 +301,7 @@ impl MapEditor {
         let sel = self.sel_key();
         let live = self.matinee.curve_view.live;
         let grab = self.matinee.curve_view.grab.map(|g| g.0);
-        let (zero_c, head_c, sel_c, dot_border) = (theme.foreground.opacity(0.2), theme.warning, super::hsla(0xf9e2af), gpui::black().opacity(0.5));
+        let (zero_c, head_c, sel_c, dot_border, dot_fill) = (theme.foreground.opacity(0.2), theme.warning, theme.warning, theme.border, theme.background);
         let painted = canvas(
             move |b, _, _| {
                 bounds.set(b);
@@ -326,7 +334,7 @@ impl MapEditor {
                             if i == 0 { p.move_to(q) } else { p.line_to(q) }
                         }
                         if let Ok(p) = p.build() {
-                            window.paint_path(p, super::hsla(COLORS[k % 4]));
+                            window.paint_path(p, colors[k % 4]);
                         }
                     }
                 }
@@ -335,7 +343,7 @@ impl MapEditor {
                         if hidden.contains(&k) {
                             continue;
                         }
-                        let color = super::hsla(COLORS[k % 4]);
+                        let color = colors[k % 4];
                         let dragging_key = matches!(grab, Some(Grab::Key { key, comp }) if key == i && comp == k);
                         let (t, v) = match (dragging_key, live) {
                             (true, Some((t, v, None))) => (t, v),
@@ -349,7 +357,7 @@ impl MapEditor {
                                 };
                                 let hp = m.handle(p, k, arrive, slope);
                                 line((m.sx(p.time), m.sy(p.out[k])), hp, color.opacity(0.6), 1.0, window);
-                                window.paint_quad(gpui::quad(Bounds::new(at(hp.0 - 4.0, hp.1 - 4.0), size(px(8.0), px(8.0))), px(4.0), gpui::white(), px(1.0), color, Default::default()));
+                                window.paint_quad(gpui::quad(Bounds::new(at(hp.0 - 4.0, hp.1 - 4.0), size(px(8.0), px(8.0))), px(4.0), dot_fill, px(1.0), color, Default::default()));
                             }
                         }
                         let r = if sel == Some(i) { 5.0 } else { 4.0 };

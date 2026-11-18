@@ -1,62 +1,106 @@
 //! The start page of an open game folder: what to change (each task opens the
 //! view made for it), the mod the changes go into, and how the Studio works.
 
-use gpui::{div, prelude::*, px, AnyElement, Context, Hsla, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, Hsla, KeyDownEvent, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 
-use super::{commands, ui, Studio, View};
+use super::{commands, ui, Cmd, Place, Studio, View};
 
 /// A task of the start page: its icon and colour, what it is, and where it leads.
 struct Task {
     id: &'static str,
     icon: IconName,
+    tone: usize,
     title: &'static str,
     detail: &'static str,
     go: fn(&mut Studio, &mut Window, &mut Context<Studio>),
 }
 
-const TASKS: [Task; 6] = [
-    Task { id: "task-look", icon: IconName::Shirt, title: "Change a champion's look", detail: "Skins, weapons and models: swap textures, materials and meshes.", go: |s, w, cx| s.set_view(View::Champions, w, cx) },
-    Task { id: "task-data", icon: IconName::SlidersHorizontal, title: "Change stats, cards and items", detail: "Damage, cooldowns, talents, loadout cards, prices, loot.", go: |s, w, cx| s.set_view(View::Assembly, w, cx) },
-    Task { id: "task-sound", icon: IconName::AudioLines, title: "Replace voice lines, music and sounds", detail: "Listen to every sound of the game and swap in your own.", go: |s, w, cx| s.set_view(View::Audio, w, cx) },
-    Task { id: "task-map", icon: IconName::Map, title: "Edit a map", detail: "Move props, change lighting, collision, paths and cutscenes.", go: |s, w, cx| s.set_view(View::Map, w, cx) },
-    Task { id: "task-ui", icon: IconName::LayoutGrid, title: "Change the menus and HUD", detail: "The interface movies: texts, images and layouts.", go: |s, w, cx| s.open_palette("ui_sf", w, cx) },
-    Task { id: "task-new", icon: IconName::Sparkles, title: "Add something new", detail: "A new skin, ability, card, item or even a champion, step by step.", go: |s, w, cx| s.open_wizard(None, None, w, cx) },
+const GAMEPLAY_TASKS: [Task; 3] = [
+    Task { id: "task-look", icon: IconName::Shirt, tone: 0, title: "Change a champion's look", detail: "Skins, weapons and models: swap textures, materials and meshes.", go: |s, w, cx| s.set_view(View::Champions, w, cx) },
+    Task {
+        id: "task-data",
+        icon: IconName::SlidersHorizontal,
+        tone: 1,
+        title: "Change stats, cards and items",
+        detail: "Damage, cooldowns, talents, loadout cards, prices, loot.",
+        go: |s, w, cx| {
+            let place = Place::Assembly { file: "assembly".into(), path: Vec::new(), table: Some("DATA_SET_DEVICES".into()), row: Some(0) };
+            s.record(place.clone());
+            s.go(place, w, cx);
+        },
+    },
+    Task { id: "task-map", icon: IconName::Map, tone: 3, title: "Edit a map", detail: "Move props, change lighting, collision, paths and cutscenes.", go: |s, w, cx| s.set_view(View::Map, w, cx) },
+];
+
+const CONTENT_TASKS: [Task; 3] = [
+    Task { id: "task-sound", icon: IconName::AudioLines, tone: 2, title: "Replace voice lines, music and sounds", detail: "Listen to every sound of the game and swap in your own.", go: |s, w, cx| s.set_view(View::Audio, w, cx) },
+    Task { id: "task-ui", icon: IconName::LayoutGrid, tone: 4, title: "Change the menus and HUD", detail: "Main menu, lobby and in-match HUD movies: texts, images and layouts.", go: |s, w, cx| s.open_palette_ui(w, cx) },
+    Task { id: "task-new", icon: IconName::Sparkles, tone: 5, title: "Add something new", detail: "A new skin, ability, card, item or even a champion, step by step.", go: |s, w, cx| s.open_wizard(None, None, w, cx) },
 ];
 
 impl Studio {
     pub(super) fn render_home(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let tones: [Hsla; 6] = [theme.magenta, theme.yellow, theme.green, theme.blue, theme.cyan, theme.red];
-        let mut tasks = v_flex().gap_1();
-        for (k, t) in TASKS.iter().enumerate() {
-            let go = t.go;
-            tasks = tasks.child(
-                h_flex()
-                    .id(t.id)
-                    .relative()
-                    .gap_3()
-                    .px_3()
-                    .py_2p5()
-                    .rounded_lg()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme.list_hover))
-                    .on_click(cx.listener(move |this, _, window, cx| go(this, window, cx)))
-                    .child(div().flex_none().size(px(36.0)).rounded_md().bg(tones[k].opacity(0.14)).flex().items_center().justify_center().child(Icon::new(t.icon).text_color(tones[k])))
-                    .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(t.title)).child(div().text_xs().text_color(theme.muted_foreground).child(t.detail)))
-                    .child(Icon::new(IconName::ChevronRight).small().text_color(theme.muted_foreground))
-                    .child(crate::driver::probe(t.id)),
-            );
-        }
+        let build_group = |heading: &'static str, items: &[Task], cx: &mut Context<Self>| {
+            let mut group = v_flex().gap_1().child(ui::section(heading, &theme));
+            for t in items {
+                let go = t.go;
+                let tone = tones[t.tone];
+                group = group.child(
+                    h_flex()
+                        .id(t.id)
+                        .relative()
+                        .focusable()
+                        .tab_index(0)
+                        .gap_3()
+                        .px_3()
+                        .py_2p5()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.list_hover))
+                        .focus_visible(|s| s.border_color(theme.ring).bg(theme.list_hover))
+                        .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                go(this, window, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| go(this, window, cx)))
+                        .child(div().flex_none().size(px(36.0)).rounded_md().bg(tone.opacity(0.14)).flex().items_center().justify_center().child(Icon::new(t.icon).text_color(tone)))
+                        .child(v_flex().flex_1().min_w_0().child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(t.title)).child(div().text_xs().text_color(theme.muted_foreground).child(t.detail)))
+                        .child(Icon::new(IconName::ChevronRight).small().text_color(theme.muted_foreground))
+                        .child(crate::driver::probe(t.id))
+                        .when(t.id == "task-data", |d| d.child(crate::driver::probe("task-stats"))),
+                );
+            }
+            group
+        };
+        let tasks = v_flex()
+            .gap_3()
+            .child(build_group("Gameplay & champions", &GAMEPLAY_TASKS, cx))
+            .child(build_group("Audio, interface & new content", &CONTENT_TASKS, cx));
+        let game_what = self.launcher_game().unwrap_or_else(|| {
+            let label = self.game_label();
+            if label.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                format!("Paladins {label}")
+            } else {
+                format!("the game in {label}")
+            }
+        });
         let left = v_flex()
             .flex_1()
             .min_w(px(340.0))
             .max_w(px(560.0))
             .gap_2()
             .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).child("What do you want to change?"))
-            .child(div().pb_2().text_sm().text_color(theme.muted_foreground).child(format!("Working on {}. Pick a task, or press {} to find anything by name.", self.launcher_game().unwrap_or_else(|| format!("the game in {}", self.game_label())), commands::key_hint("⌘K"))))
+            .child(div().pb_1().text_sm().text_color(theme.muted_foreground).child(format!("Working on {game_what}. Pick a task, or press {} to find anything by name.", commands::key_hint("⌘K"))))
             .child(tasks);
         let right = v_flex().w(px(300.0)).flex_none().gap_5().child(self.render_home_mod(cx)).child(self.render_home_steps(cx)).children(self.render_home_recent(cx));
         div().id("home").size_full().overflow_y_scroll().child(h_flex().w_full().justify_center().items_start().flex_wrap().gap_10().px_8().py_10().child(left).child(right))
@@ -71,12 +115,18 @@ impl Studio {
             None if changes > 0 => ("Your mod".to_string(), format!("Unnamed · {changes} change{} kept as a draft. Name it to give it its own folder.", if changes == 1 { "" } else { "s" })),
             None => ("Your mod".to_string(), "No changes yet. Change anything and it is kept here automatically.".to_string()),
         };
-        let mut actions = h_flex().gap_2().pt_1();
+        let mut actions = h_flex().gap_2().pt_1().flex_wrap();
         if self.project.is_none() && changes > 0 {
             actions = actions.child(Button::new("home-name").small().label("Name this mod…").on_click(cx.listener(|this, _, window, cx| this.new_project_dialog(window, cx))));
         }
         if self.project.is_some() || changes > 0 {
-            actions = actions.child(Button::new("home-build").small().primary().icon(Icon::new(IconName::Hammer)).label("Build mod").on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx))));
+            // Secondary button here: the header already holds the surface's single `.primary()` "Build mod" CTA.
+            actions = actions.child(
+                div()
+                    .relative()
+                    .child(Button::new("home-build").small().icon(Icon::new(IconName::Hammer)).label("Build mod").on_click(cx.listener(|this, _, window, cx| this.set_view(View::Mod, window, cx))))
+                    .child(crate::driver::probe("home-build")),
+            );
         } else {
             actions = actions.child(Button::new("home-open-mod").small().ghost().icon(Icon::new(IconName::Briefcase)).label("Open a mod…").on_click(cx.listener(|this, _, _, cx| this.pick_project(cx))));
         }
@@ -109,6 +159,16 @@ impl Studio {
             .child(step("1", "Change anything", "Textures, numbers, sounds, maps. The game's own files are never touched."))
             .child(step("2", "It is kept in your mod", "Every change is saved as you work; Undo and Redo take it back and forth."))
             .child(step("3", "Build mod", "Packs your changes into one file that Tempest Launcher installs and that you can share."))
+            .child(
+                h_flex().pt_0p5().child(
+                    Button::new("home-guide")
+                        .xsmall()
+                        .ghost()
+                        .icon(Icon::new(IconName::BookOpen))
+                        .label("How modding works (quick guide)…")
+                        .on_click(cx.listener(|this, _, window, cx| this.run(Cmd::QuickGuide, window, cx))),
+                ),
+            )
             .into_any_element()
     }
 
@@ -123,16 +183,29 @@ impl Studio {
         let mut list = v_flex().gap_0p5();
         for (k, f) in files.into_iter().enumerate() {
             let name = std::path::Path::new(&f).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let f_key = f.clone();
             list = list.child(
                 h_flex()
                     .id(("home-recent", k))
+                    .focusable()
+                    .tab_index(0)
                     .gap_2()
                     .px_2()
                     .py_1()
                     .rounded_md()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme.list_hover))
+                    .focus_visible(|s| s.border_color(theme.ring).bg(theme.list_hover))
                     .text_sm()
+                    .on_key_down(cx.listener(move |this, e: &KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.open_project(f_key.clone(), cx);
+                        }
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| this.open_project(f.clone(), cx)))
                     .child(Icon::new(IconName::Briefcase).small().text_color(theme.muted_foreground))
                     .child(name),

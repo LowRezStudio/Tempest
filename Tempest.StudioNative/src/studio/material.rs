@@ -68,7 +68,7 @@ impl Studio {
                 }
                 match r {
                     Ok(r) => this.show_material(i, &r, cx),
-                    Err(e) => this.set_status(format!("Material preview: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Material preview: {e}"), cx),
                 }
             });
         })
@@ -510,20 +510,40 @@ impl Studio {
         );
         panel = panel.child(h_flex().gap_1().child(Button::new("new-instance").xsmall().label("New instance of this material").tooltip("A MaterialInstanceConstant whose parent is this material, with no overrides of its own").on_click(cx.listener(|this, _, _, cx| this.new_instance(cx)))));
         // Parent chain.
+        let ring = theme.ring;
+        let hover_bg = theme.list_hover;
         panel = panel.child(section("Parent chain"));
         for (k, c) in info["chain"].as_array().into_iter().flatten().enumerate() {
             let (pkg, obj, class) = (c["package"].as_str().unwrap_or_default().to_string(), c["object"].as_str().unwrap_or_default().to_string(), c["class"].as_str().unwrap_or_default().to_string());
             let full = format!("{pkg}.{obj}");
-            let target = obj.clone();
+            let (target, target_k) = (obj.clone(), obj.clone());
+            let class_k = class.clone();
             panel = panel.child(
                 div()
                     .id(("chain", k))
                     .pl(px(k as f32 * 12.0))
+                    .pr_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
                     .text_sm()
-                    .text_color(theme.link)
-                    .cursor_pointer()
-                    .hover(|s| s.underline())
-                    .when(k > 0, |d| d.on_click(cx.listener(move |this, _, _, cx| this.open_object_path(target.clone(), Some(class.clone()), cx))))
+                    .when(k == 0, |d| d.text_color(theme.muted_foreground))
+                    .when(k > 0, |d| {
+                        d.focusable()
+                            .tab_index(0)
+                            .focus_visible(move |s| s.border_color(ring))
+                            .text_color(theme.link)
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.open_object_path(target_k.clone(), Some(class_k.clone()), cx);
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, _, cx| this.open_object_path(target.clone(), Some(class.clone()), cx)))
+                    })
                     .child(if k == 0 { format!("{obj} (this)") } else { full }),
             );
         }
@@ -541,7 +561,7 @@ impl Studio {
                 None => div().size(px(44.0)).flex_none().rounded_sm().bg(theme.muted).into_any_element(),
             };
             let (p1, p2, tj) = (param.clone(), param.clone(), t.clone());
-            let open_path = tpath.clone();
+            let (open_path, open_path_k) = (tpath.clone(), tpath.clone());
             panel = panel.child(
                 h_flex()
                     .gap_2()
@@ -551,8 +571,34 @@ impl Studio {
                             .flex_1()
                             .min_w_0()
                             .child(h_flex().gap_1().text_sm().child(param.clone()).child(div().text_xs().text_color(theme.muted_foreground).child(t["slot"].as_str().unwrap_or_default().to_string())))
-                            .child(div().id(("tex", k)).text_xs().text_color(theme.link).cursor_pointer().overflow_hidden().text_ellipsis().whitespace_nowrap().on_click(cx.listener(move |this, _, _, cx| this.open_object_path(open_path.clone(), None, cx))).child(tpath.clone()))
-                            .when_some(t["error"].as_str(), |d, e| d.child(div().text_xs().text_color(theme.danger).child(e.to_string()))),
+                            .child(
+                                div()
+                                    .id(("tex", k))
+                                    .focusable()
+                                    .tab_index(0)
+                                    .px_0p5()
+                                    .rounded_sm()
+                                    .border_1()
+                                    .border_color(gpui::transparent_black())
+                                    .focus_visible(move |s| s.border_color(ring))
+                                    .text_xs()
+                                    .text_color(theme.link)
+                                    .cursor_pointer()
+                                    .hover(|s| s.underline())
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                            window.prevent_default();
+                                            cx.stop_propagation();
+                                            this.open_object_path(open_path_k.clone(), None, cx);
+                                        }
+                                    }))
+                                    .on_click(cx.listener(move |this, _, _, cx| this.open_object_path(open_path.clone(), None, cx)))
+                                    .child(tpath.clone()),
+                            )
+                            .when_some(t["error"].as_str(), |d, e| d.child(div().text_xs().text_color(theme.danger).child(crate::studio::ui::explain_error(e)))),
                     )
                     .child(Button::new(("tex-change", k)).xsmall().ghost().label("Change…").tooltip("Use another texture of any package").on_click(cx.listener(move |this, _, window, cx| this.open_picker(Pick::Texture(p1.clone()), window, cx))))
                     .child(Button::new(("tex-file", k)).xsmall().ghost().label("From a file…").tooltip("A new texture from a PNG or DDS, made like the current one and put next to the material").on_click(cx.listener(move |this, _, _, cx| {
@@ -568,15 +614,28 @@ impl Studio {
             let value: AnyElement = if editing.as_deref() == Some(key.as_str()) {
                 div().flex_1().min_w_0().child(Input::new(&self.value_input).xsmall()).into_any_element()
             } else {
+                let (key_k, draft_k) = (key.clone(), draft.clone());
                 div()
                     .id((kind, k))
                     .flex_1()
                     .px_1()
                     .rounded_sm()
+                    .focusable()
+                    .tab_index(0)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(ring))
                     .cursor_text()
-                    .hover(|s| s.bg(theme.list_hover))
+                    .hover(move |s| s.bg(hover_bg))
                     .font_family(crate::studio::ui::mono())
                     .text_xs()
+                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.start_edit(key_k.clone(), draft_k.clone(), window, cx);
+                        }
+                    }))
                     .on_click(cx.listener(move |this, _, window, cx| this.start_edit(key.clone(), draft.clone(), window, cx)))
                     .child(shown)
                     .into_any_element()
@@ -635,7 +694,9 @@ impl Studio {
             let class = s["material"]["class"].as_str().map(|c| c.to_string());
             let sections = s["sections"].as_u64().unwrap_or(0);
             let badge = |t: &str| div().px_1().rounded_sm().text_xs().bg(theme.secondary).text_color(theme.muted_foreground).child(t.to_string());
-            let open = mpath.clone();
+            let (open, open_k) = (mpath.clone(), mpath.clone());
+            let class_k = class.clone();
+            let ring = theme.ring;
             let name: AnyElement = if mref == 0 {
                 div().text_xs().text_color(theme.muted_foreground).child("none (map props take theirs from where they are placed)").into_any_element()
             } else {
@@ -643,12 +704,33 @@ impl Studio {
                     .id(("slot-mat", k))
                     .flex_1()
                     .min_w_0()
+                    .px_0p5()
+                    .rounded_sm()
+                    .focusable()
+                    .tab_index(0)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(move |s| s.border_color(ring))
                     .text_sm()
                     .text_color(theme.link)
                     .cursor_pointer()
+                    .hover(|s| s.underline())
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
+                    .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            if mref > 0 {
+                                let i = (mref - 1) as usize;
+                                this.reveal(i, cx);
+                                this.user_select_export(i, cx);
+                            } else {
+                                this.open_object_path(open_k.clone(), class_k.clone(), cx);
+                            }
+                        }
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if mref > 0 {
                             let i = (mref - 1) as usize;

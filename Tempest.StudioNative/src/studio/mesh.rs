@@ -116,93 +116,168 @@ pub fn is_mesh(class: &str) -> bool {
     matches!(class.to_ascii_lowercase().as_str(), "staticmesh" | "skeletalmesh")
 }
 
+#[derive(IntoElement)]
+struct Viewport<V: Scene + 'static> {
+    id: &'static str,
+    state: Rc<RefCell<MeshState<V>>>,
+    height: f32,
+    bar: Option<AnyElement>,
+    bg: Hsla,
+    muted: Hsla,
+}
+
+fn apply_viewport_key<V: Scene>(st: &mut MeshState<V>, e: &gpui::KeyDownEvent) -> bool {
+    let m = &e.keystroke.modifiers;
+    if m.platform || m.control || m.alt {
+        return false;
+    }
+    let step = if m.shift { 0.25 } else { 0.1 };
+    let k = e.keystroke.key.as_str();
+    let kc = e.keystroke.key_char.as_deref();
+    match k {
+        "left" => st.view.camera_mut().yaw += step,
+        "right" => st.view.camera_mut().yaw -= step,
+        "up" => {
+            let cam = st.view.camera_mut();
+            cam.pitch = (cam.pitch + step).clamp(-1.5, 1.5);
+        }
+        "down" => {
+            let cam = st.view.camera_mut();
+            cam.pitch = (cam.pitch - step).clamp(-1.5, 1.5);
+        }
+        "+" | "=" => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance * 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        "-" | "_" => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance / 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        "f" | "0" if !m.shift => st.fit(),
+        _ if kc == Some("+") || kc == Some("=") => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance * 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        _ if kc == Some("-") => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance / 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        _ => return false,
+    }
+    st.dirty = true;
+    true
+}
+
+impl<V: Scene + 'static> RenderOnce for Viewport<V> {
+    fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
+        let Viewport { id, state, height, bar, bg, muted } = self;
+        let ring = cx.theme().ring;
+        let summary = state.borrow().summary.clone();
+        // The picture's background follows the theme (sRGB → linear for the clear colour).
+        {
+            let c = bg.to_rgb();
+            let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
+            let clear = [lin(c.r), lin(c.g), lin(c.b)];
+            let mut st = state.borrow_mut();
+            if *st.view.clear_mut() != clear {
+                *st.view.clear_mut() = clear;
+                st.dirty = true;
+            }
+        }
+        let (s1, s2, s3, s4, s5, s6, s7) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state);
+        let view = canvas(
+            move |bounds: Bounds<Pixels>, window: &mut Window, _| {
+                let scale = window.scale_factor();
+                let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
+                let mut st = s1.borrow_mut();
+                if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
+                    let image = st.view.render(size.0, size.1);
+                    if let Some((old, _)) = st.image.replace((image, size)) {
+                        st.stale.push(old);
+                    }
+                    st.dirty = false;
+                }
+                for old in std::mem::take(&mut st.stale) {
+                    let _ = window.drop_image(old);
+                }
+                st.image.as_ref().map(|(i, _)| i.clone())
+            },
+            |bounds, image, window, _| {
+                if let Some(image) = image {
+                    let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+                }
+            },
+        )
+        .size_full();
+        div()
+            .id(id)
+            .focusable()
+            .tab_index(0)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus_visible(move |s| s.border_color(ring))
+            .w_full()
+            .h(px(height))
+            .flex_none()
+            .relative()
+            .rounded_md()
+            .overflow_hidden()
+            .bg(bg)
+            .on_key_down(move |e: &gpui::KeyDownEvent, window, cx| {
+                if apply_viewport_key(&mut s7.borrow_mut(), e) {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    window.refresh();
+                }
+            })
+            .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some(e.position))
+            .on_mouse_up(MouseButton::Left, move |_, _, _| s3.borrow_mut().drag = None)
+            .on_mouse_move(move |e: &gpui::MouseMoveEvent, window, _| {
+                let mut st = s4.borrow_mut();
+                let Some(from) = st.drag else { return };
+                if !e.dragging() {
+                    st.drag = None;
+                    return;
+                }
+                let d = e.position - from;
+                st.drag = Some(e.position);
+                let cam = st.view.camera_mut();
+                cam.yaw -= f32::from(d.x) * 0.01;
+                cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
+                st.dirty = true;
+                window.refresh();
+            })
+            .on_scroll(move |e: &gpui::ScrollEvent, window, cx| {
+                // The wheel zooms the view, never the pane around it.
+                cx.stop_propagation();
+                let mut st = s5.borrow_mut();
+                let dy = f32::from(e.delta.pixel_delta(px(16.0)).y);
+                let r = st.view.radius();
+                let cam = st.view.camera_mut();
+                cam.distance = (cam.distance * (1.0 - dy * 0.002)).clamp(r * 0.3, r * 20.0);
+                st.dirty = true;
+                window.refresh();
+            })
+            .on_click(move |e: &gpui::ClickEvent, window, _| {
+                if e.click_count() == 2 {
+                    s6.borrow_mut().fit();
+                    window.refresh();
+                }
+            })
+            .child(view)
+            .children(bar.map(|b| h_flex().absolute().top(px(6.0)).left(px(6.0)).gap_1().child(b)))
+            .child(div().absolute().bottom(px(6.0)).left(px(8.0)).text_xs().text_color(muted).child(summary))
+    }
+}
+
 /// The interactive view of `state`, `height` tall, with `bar` over its top
 /// left corner and `summary` at the bottom.
 pub fn viewport<V: Scene + 'static>(id: &'static str, state: Rc<RefCell<MeshState<V>>>, height: f32, bar: Option<AnyElement>, bg: Hsla, muted: Hsla) -> AnyElement {
-    let summary = state.borrow().summary.clone();
-    // The picture's background follows the theme (sRGB → linear for the clear colour).
-    {
-        let c = bg.to_rgb();
-        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
-        let clear = [lin(c.r), lin(c.g), lin(c.b)];
-        let mut st = state.borrow_mut();
-        if *st.view.clear_mut() != clear {
-            *st.view.clear_mut() = clear;
-            st.dirty = true;
-        }
-    }
-    let (s1, s2, s3, s4, s5, s6) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone());
-    let view = canvas(
-        move |bounds: Bounds<Pixels>, window: &mut Window, _| {
-            let scale = window.scale_factor();
-            let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
-            let mut st = s1.borrow_mut();
-            if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
-                let image = st.view.render(size.0, size.1);
-                if let Some((old, _)) = st.image.replace((image, size)) {
-                    st.stale.push(old);
-                }
-                st.dirty = false;
-            }
-            for old in std::mem::take(&mut st.stale) {
-                let _ = window.drop_image(old);
-            }
-            st.image.as_ref().map(|(i, _)| i.clone())
-        },
-        |bounds, image, window, _| {
-            if let Some(image) = image {
-                let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
-            }
-        },
-    )
-    .size_full();
-    div()
-        .id(id)
-        .w_full()
-        .h(px(height))
-        .flex_none()
-        .relative()
-        .rounded_md()
-        .overflow_hidden()
-        .bg(bg)
-        .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some(e.position))
-        .on_mouse_up(MouseButton::Left, move |_, _, _| s3.borrow_mut().drag = None)
-        .on_mouse_move(move |e: &gpui::MouseMoveEvent, window, _| {
-            let mut st = s4.borrow_mut();
-            let Some(from) = st.drag else { return };
-            if !e.dragging() {
-                st.drag = None;
-                return;
-            }
-            let d = e.position - from;
-            st.drag = Some(e.position);
-            let cam = st.view.camera_mut();
-            cam.yaw -= f32::from(d.x) * 0.01;
-            cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
-            st.dirty = true;
-            window.refresh();
-        })
-        .on_scroll(move |e: &gpui::ScrollEvent, window, cx| {
-            // The wheel zooms the view, never the pane around it.
-            cx.stop_propagation();
-            let mut st = s5.borrow_mut();
-            let dy = f32::from(e.delta.pixel_delta(px(16.0)).y);
-            let r = st.view.radius();
-            let cam = st.view.camera_mut();
-            cam.distance = (cam.distance * (1.0 - dy * 0.002)).clamp(r * 0.3, r * 20.0);
-            st.dirty = true;
-            window.refresh();
-        })
-        .on_click(move |e: &gpui::ClickEvent, window, _| {
-            if e.click_count() == 2 {
-                s6.borrow_mut().fit();
-                window.refresh();
-            }
-        })
-        .child(view)
-        .children(bar.map(|b| h_flex().absolute().top(px(6.0)).left(px(6.0)).gap_1().child(b)))
-        .child(div().absolute().bottom(px(6.0)).left(px(8.0)).text_xs().text_color(muted).child(summary))
-        .into_any_element()
+    Viewport { id, state, height, bar, bg, muted }.into_any_element()
 }
 
 impl Studio {
@@ -230,7 +305,17 @@ impl Studio {
             (m.view.camera, m.view.textured, m.view.wireframe)
         });
         cx.spawn(async move |this, cx| {
-            let Ok(r) = call.await else { return };
+            let r = match call.await {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.selected_export == Some(i) {
+                            this.toast(super::Tone::Error, format!("Mesh preview: {e}"), cx);
+                        }
+                    });
+                    return;
+                }
+            };
             let Some(glb) = r.bin(&r.json["glb"]).map(|b| b.to_vec()) else { return };
             let t = std::time::Instant::now();
             let busy = crate::backend::Busy::new();
@@ -248,14 +333,14 @@ impl Studio {
                             view.wireframe = wireframe;
                         }
                         let n = |k: &str| r.json[k].as_u64().unwrap_or(0);
-                        let summary = format!("{} verts · {} tris · {} materials · {} textures · {} ms · drag to orbit, wheel to zoom, double-click to fit", n("vertices"), view.triangles, n("materials"), n("images"), t.elapsed().as_millis());
+                        let summary = format!("{} verts · {} tris · {} materials · {} textures · {} ms · drag/arrows orbit, wheel/+- zoom, F/double-click fit", n("vertices"), view.triangles, n("materials"), n("images"), t.elapsed().as_millis());
                         view.use_game = this.game_shaders;
                         let state = Rc::new(RefCell::new(MeshState::new(i, lod, view, summary)));
                         this.mesh = Some(state.clone());
                         this.mesh_game = None;
                         this.load_mesh_game(path.clone(), i, lod, state, cx);
                     }
-                    Err(e) => this.set_status(format!("Mesh preview: {e}"), cx),
+                    Err(e) => this.toast(super::Tone::Error, format!("Mesh preview: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -409,7 +494,7 @@ impl Studio {
         for l in info["lods"].as_array().into_iter().flatten() {
             let index = l["index"].as_u64().unwrap_or(0);
             lines = lines.child(match l["error"].as_str() {
-                Some(e) => div().text_color(theme.danger).child(format!("LOD {index}: {e}")),
+                Some(e) => div().text_color(theme.danger).child(format!("LOD {index}: {}", crate::studio::ui::explain_error(e))),
                 None => {
                     let sections: Vec<String> = l["sections"].as_array().into_iter().flatten().map(|s| format!("{} ({})", s["material"]["path"].as_str().filter(|p| !p.is_empty()).unwrap_or("no material"), s["triangles"])).collect();
                     div().whitespace_normal().child(format!("LOD {index}: {} vertices, {} triangles: {}", l["vertices"], l["triangles"], sections.join(", ")))
@@ -421,12 +506,7 @@ impl Studio {
 }
 
 fn toggle_lod(l: usize, on: bool) -> Button {
-    let b = Button::new(("lod", l)).xsmall().label(format!("LOD {l}"));
-    if on {
-        b.primary()
-    } else {
-        b.ghost()
-    }
+    Button::new(("lod", l)).xsmall().label(format!("LOD {l}")).ghost().selected(on)
 }
 
 /// Grid and Skeleton switches of a viewport.
