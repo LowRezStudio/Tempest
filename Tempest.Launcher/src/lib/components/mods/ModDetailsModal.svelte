@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Tabs } from "bits-ui";
-	import { marked } from "marked";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { m } from "$lib/paraglide/messages";
+	import { renderUntrustedMarkdown } from "$lib/utils/markdown";
 	import type { ModRecord } from "$lib/core/mods";
 
 	interface Props {
@@ -23,9 +23,7 @@
 	let isReadmeMarkdown = $derived(mod?.Readme ? mod.Readme.toLowerCase().endsWith(".md") : false);
 
 	let readmeContent = $derived(
-		mod?.ReadmeContent && isReadmeMarkdown
-			? (marked.parse(mod.ReadmeContent, { async: false }) as string)
-			: "",
+		mod?.ReadmeContent && isReadmeMarkdown ? renderUntrustedMarkdown(mod.ReadmeContent) : "",
 	);
 </script>
 
