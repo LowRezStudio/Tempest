@@ -42,7 +42,7 @@ plus id-less event lines (`{"event": "search.progress", ...}`). It keeps the `Cl
 opened package (keyed by canonical path) and a per-package search index in memory (built on a
 background thread from `workspace.open`, ≈2 s for a full cooked folder, joined by `index_all` before
 the first search, batch plan or textured mesh/material preview). Methods:
-`workspace.{open,packages,search,summary}`, `package.{open,tables,close,dirty,save,rewrite,verify}`,
+`workspace.{open,packages,search,summary,trim}`, `package.{open,tables,close,dirty,save,rewrite,verify}`,
 `object.{get,text,set,rename,delete,copy,deps,extract}`,
 `texture.{info,preview,export,exportAll,import}`, `mesh.{info,preview,export}`,
 `media.{preview,export,import}`, `mod.dir`. `script.{source,compile,export}` drive
@@ -65,6 +65,10 @@ and a decompile of each script package opened (`script_jobs`, used when the file
 `Package::read_summary` reads 64 KiB (4 MiB only on failure); chunks are (de)compressed in parallel
 (`par_map`); cross-package lookups for previews share loaded packages between requests
 (`material_ops::load_shared`, 768 MiB LRU, invalidated by size/mtime and `forget_shared` on save).
+Unedited packages closed with `package.close` are kept for reopening within 256 MiB of file size
+(about twice that in memory). `workspace.trim` drops both caches and the preview and movie caches
+and returns the memory to the system (`upk` runs on mimalloc, `mi_collect`): Match Ledger sends it
+once its reads go quiet, as a tool kept between bursts otherwise grows by gigabytes.
 The class database is reused when the same folder is reopened with unchanged script packages.
 Compiler/decompiler lookups are cached (`Context` import resolution reset on every package load,
 per-struct child names and operator lists, model name index): keep caches keyed on state that only

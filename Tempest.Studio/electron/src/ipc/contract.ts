@@ -1257,6 +1257,8 @@ export interface UpkMethods {
 	ping: { params: Record<string, never>; result: { version: string; pid: number } };
 	"workspace.open": { params: { dir: string }; result: Workspace };
 	"workspace.packages": { params: Record<string, never>; result: WorkspacePackage[] };
+	/** Drops the read caches (closed packages, shared packages, previews) and frees their memory. */
+	"workspace.trim": { params: Record<string, never>; result: { closed: number } };
 	"workspace.search": {
 		/** `class`: exactly that class; `isA`: that class or a subclass. */
 		params: { query: string; class?: string; isA?: string; limit?: number };

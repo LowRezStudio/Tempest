@@ -11,6 +11,11 @@ use tempest_assets::verify::{merge_classes, verify_dir, verify_package};
 use tempest_unrealscript::par;
 use tempest_upk::{Package, PackageFile, PackageIndex, WriteOptions};
 
+// Faster than the system heap for serve's many small parse allocations, and
+// gives freed memory back (`workspace.trim`).
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 type Res = Result<(), Box<dyn std::error::Error>>;
 
 fn usage() -> ExitCode {

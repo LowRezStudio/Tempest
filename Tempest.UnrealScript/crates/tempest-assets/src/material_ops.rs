@@ -160,6 +160,13 @@ pub fn file_package(path: &Path) -> Option<std::sync::Arc<Package>> {
     load_shared(path).map(|(pkg, _, _)| pkg)
 }
 
+/// Empty the shared cache.
+pub fn forget_all_shared() {
+    let mut sh = shared().lock().unwrap_or_else(|e| e.into_inner());
+    sh.entries.clear();
+    sh.bytes = 0;
+}
+
 /// Drop a file from the shared cache (it was written).
 pub fn forget_shared(path: &Path) {
     // Matched by file name: the cache holds paths as listed from the folder,

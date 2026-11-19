@@ -428,9 +428,10 @@ impl Server {
 
     /// Keeps an unedited package after `package.close`, newest last, within a
     /// budget of file bytes: readers that close a package after each read come
-    /// back to it, and reading it again costs tens of milliseconds.
+    /// back to it, and reading it again costs tens of milliseconds. A kept
+    /// package holds about twice its file size, decompressed and parsed.
     fn keep_closed(&mut self, k: String, ed: Editor<'static>) {
-        const BUDGET: u64 = 768 << 20;
+        const BUDGET: u64 = 256 << 20;
         let stamp = file_stamp(Path::new(&k));
         if stamp.is_none() {
             return;
@@ -442,6 +443,23 @@ impl Server {
             let (_, s, _) = self.closed.remove(0);
             total -= s.map_or(0, |(len, _)| len);
         }
+    }
+
+    /// Drops what only speeds up reads (closed packages, packages shared by
+    /// previews, preview and movie caches) and returns the freed memory to the
+    /// system: for a client that goes idle between bursts of reads.
+    fn workspace_trim(&mut self) -> J {
+        let closed = self.closed.len();
+        self.closed.clear();
+        crate::material_ops::forget_all_shared();
+        self.png_cache.clear();
+        self.swf_cache = None;
+        self.swf_embeds.clear();
+        self.swf_libs.clear();
+        self.swf_subset_cache.clear();
+        // SAFETY: no arguments to uphold; outside a mimalloc process it only visits mimalloc's own, empty heap.
+        unsafe { libmimalloc_sys::mi_collect(true) };
+        json!({ "closed": closed })
     }
 
     fn editor(&mut self, path: &str) -> Res<&mut Editor<'static>> {
@@ -503,6 +521,7 @@ impl Server {
                 let ed = self.editor(path)?;
                 Ok(json::export_row(&ed.pkg, i))
             }
+            "workspace.trim" => Ok(self.workspace_trim()),
             "workspace.packages" => Ok(self.workspace_packages()),
             "workspace.search" => self.workspace_search(p),
             "workspace.summary" => self.workspace_summary(s(p, "path")?),
