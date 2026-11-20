@@ -339,12 +339,20 @@ impl Studio {
         let playing = self.player.playing();
         let w = self.wwise.as_ref().filter(|w| Some(w.export) == self.selected_export)?;
         let info = &w.info;
-        let pck = info["pck"].as_str().map(file_name);
+        // A language folder's package (voice lines) is named with its folder.
+        let pck = info["pck"].as_str().map(|p| {
+            let path = std::path::Path::new(p);
+            let in_folder = self.open.as_ref().and_then(|t| std::path::Path::new(&t.path).parent().map(|d| path.parent() == Some(d))).unwrap_or(true);
+            match path.parent().and_then(|d| d.file_name()).filter(|_| !in_folder) {
+                Some(folder) => format!("{}/{}", folder.to_string_lossy(), file_name(p)),
+                None => file_name(p),
+            }
+        });
         let bank = info["bank"].as_str().unwrap_or_default();
         let mut body = v_flex().gap_1().child(super::ui::section("Sound bank", &theme));
         body = body.child(div().text_sm().child(match &pck {
             Some(p) => format!("Sound bank {bank} in {p}"),
-            None => format!("Sound bank {bank}: {bank}.pck was not found in this game folder"),
+            None => format!("Sound bank {bank}: {bank}.pck was not found in this game folder or its language folders"),
         }));
         if info["found"] == false {
             body = body.child(div().text_xs().text_color(theme.warning).child("The event was not found in its bank"));

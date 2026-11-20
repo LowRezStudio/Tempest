@@ -11,7 +11,7 @@ use std::sync::Arc;
 use gpui::{canvas, div, prelude::*, px, AnyElement, Bounds, Context, Corners, Hsla, MouseButton, Pixels, Point, RenderImage, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{h_flex, ActiveTheme, Disableable, Sizable, Selectable};
-use serde_json::json;
+use serde_json::{json, Value as J};
 
 use super::Studio;
 use crate::mesh_view::{Camera, MeshView};
@@ -110,6 +110,23 @@ impl MeshState {
         self.view.wireframe = !self.view.wireframe;
         self.dirty = true;
     }
+}
+
+/// Materials a mesh is drawn with instead of its slots' own, by slot,
+/// without changing the mesh.
+pub struct MaterialPreview {
+    pub package: String,
+    pub export: usize,
+    pub slots: std::collections::BTreeMap<usize, PreviewSlot>,
+}
+
+/// A material of any package: its file, export and names.
+#[derive(Clone)]
+pub struct PreviewSlot {
+    pub file: String,
+    pub export: usize,
+    pub package: String,
+    pub object: String,
 }
 
 pub fn is_mesh(class: &str) -> bool {
@@ -283,6 +300,10 @@ pub fn viewport<V: Scene + 'static>(id: &'static str, state: Rc<RefCell<MeshStat
 impl Studio {
     /// Fetch and upload the mesh of export `i` (the GPU work off the main thread).
     pub(super) fn load_mesh(&mut self, path: String, i: usize, lod: usize, cx: &mut Context<Self>) {
+        if self.mesh_preview.as_ref().is_some_and(|p| p.export != i || p.package != path) {
+            self.mesh_preview = None;
+        }
+        let materials = self.preview_materials();
         // What the mesh holds per LOD (asked once per mesh).
         if self.mesh_info.as_ref().is_none_or(|(k, _)| *k != i) {
             self.mesh_info = None;
@@ -298,7 +319,7 @@ impl Studio {
             })
             .detach();
         }
-        let call = self.backend.call("mesh.preview", json!({ "path": path, "index": i, "lod": lod }));
+        let call = self.backend.call("mesh.preview", json!({ "path": path, "index": i, "lod": lod, "materials": materials }));
         // A LOD switch keeps the camera and the view settings.
         let keep = self.mesh.as_ref().filter(|m| m.borrow().export == i).map(|m| {
             let m = m.borrow();
@@ -338,7 +359,7 @@ impl Studio {
                         let state = Rc::new(RefCell::new(MeshState::new(i, lod, view, summary)));
                         this.mesh = Some(state.clone());
                         this.mesh_game = None;
-                        this.load_mesh_game(path.clone(), i, lod, state, cx);
+                        this.load_mesh_game(path.clone(), i, lod, materials.clone(), state, cx);
                     }
                     Err(e) => this.toast(super::Tone::Error, format!("Mesh preview: {e}"), cx),
                 }
@@ -350,7 +371,7 @@ impl Studio {
 
     /// Ask for the game shaders of each section's material (sections sharing
     /// a material share its pass) and draw the sections with them.
-    fn load_mesh_game(&mut self, path: String, i: usize, lod: usize, state: Rc<RefCell<MeshState>>, cx: &mut Context<Self>) {
+    fn load_mesh_game(&mut self, path: String, i: usize, lod: usize, materials: J, state: Rc<RefCell<MeshState>>, cx: &mut Context<Self>) {
         let sections = state.borrow().view.sections();
         cx.spawn(async move |this, cx| {
             let current = |this: &Studio| this.mesh.as_ref().is_some_and(|m| Rc::ptr_eq(m, &state));
@@ -359,7 +380,7 @@ impl Studio {
             let mut errors: Vec<String> = Vec::new();
             let mut animated = false;
             for s in sections.iter().copied() {
-                let Ok(Some(call)) = this.update(cx, |this, _| current(this).then(|| this.backend.call("material.gameShader", json!({ "path": path, "index": i, "lod": lod, "section": s, "textureSize": 512, "platform": crate::game_material::platform() })))) else { return };
+                let Ok(Some(call)) = this.update(cx, |this, _| current(this).then(|| this.backend.call("material.gameShader", json!({ "path": path, "index": i, "lod": lod, "section": s, "materials": materials, "textureSize": 512, "platform": crate::game_material::platform() })))) else { return };
                 let r = match call.await {
                     Ok(r) => r,
                     Err(e) => {
@@ -400,6 +421,63 @@ impl Studio {
             });
         })
         .detach();
+    }
+
+    /// `materials` of `mesh.preview` and `material.gameShader`: the previewed
+    /// material by slot (null: the slot's own).
+    fn preview_materials(&self) -> J {
+        let Some(p) = &self.mesh_preview else { return J::Null };
+        let n = p.slots.keys().max().map_or(0, |m| m + 1);
+        J::from((0..n).map(|s| p.slots.get(&s).map_or(J::Null, |m| json!({ "path": m.file, "index": m.export }))).collect::<Vec<_>>())
+    }
+
+    /// The mesh shown, again (same LOD and camera).
+    pub(super) fn reload_mesh(&mut self, cx: &mut Context<Self>) {
+        if let (Some(path), Some(m)) = (self.open.as_ref().map(|t| t.path.clone()), self.mesh.clone()) {
+            let (i, lod) = {
+                let st = m.borrow();
+                (st.export, st.lod)
+            };
+            self.load_mesh(path, i, lod, cx);
+        }
+    }
+
+    /// Draw a slot of the selected mesh with another material, without changing the mesh.
+    pub(super) fn preview_slot_material(&mut self, slot: usize, m: PreviewSlot, cx: &mut Context<Self>) {
+        let (Some(path), Some(i)) = (self.open.as_ref().map(|t| t.path.clone()), self.selected_export) else { return };
+        let name = m.object.rsplit('.').next().unwrap_or_default().to_string();
+        let p = self.mesh_preview.get_or_insert_with(|| MaterialPreview { package: path.clone(), export: i, slots: Default::default() });
+        if p.package != path || p.export != i {
+            *p = MaterialPreview { package: path, export: i, slots: Default::default() };
+        }
+        p.slots.insert(slot, m);
+        self.set_status(format!("Slot {slot} previewed with {name}; the mesh is unchanged"), cx);
+        self.reload_mesh(cx);
+    }
+
+    /// Draw a slot (or every slot) with its own material again.
+    pub(super) fn stop_material_preview(&mut self, slot: Option<usize>, cx: &mut Context<Self>) {
+        let Some(p) = &mut self.mesh_preview else { return };
+        match slot {
+            Some(s) => {
+                p.slots.remove(&s);
+            }
+            None => p.slots.clear(),
+        }
+        if p.slots.is_empty() {
+            self.mesh_preview = None;
+        }
+        self.reload_mesh(cx);
+        cx.notify();
+    }
+
+    /// Make the slot draw with the material it is previewed with (a change to the mesh).
+    pub(super) fn keep_material_preview(&mut self, slot: usize, cx: &mut Context<Self>) {
+        let Some(m) = self.mesh_preview.as_mut().and_then(|p| p.slots.remove(&slot)) else { return };
+        if self.mesh_preview.as_ref().is_some_and(|p| p.slots.is_empty()) {
+            self.mesh_preview = None;
+        }
+        self.set_slot_material(slot, m.file, m.export, cx);
     }
 
     /// Redraw a mesh whose materials read the clock, while it is shown with them.

@@ -29,6 +29,9 @@ pub struct Section {
     pub material_name: String,
     /// Material slot of the mesh (what a component's `Materials[]` overrides).
     pub slot: usize,
+    /// The package `material` is an export of, when not the mesh's (a
+    /// preview drawing the slot with another package's material).
+    pub material_package: Option<String>,
 }
 
 /// Triangle-list geometry of one LOD.
@@ -240,7 +243,7 @@ pub fn static_mesh_geometry(pkg: &Package, m: &StaticMesh, lod: usize) -> Result
         s => return Err(Error::Format(format!("index size {s}"))),
     };
     for e in &l.elements {
-        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material), slot: e.material_index.max(0) as usize });
+        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material), slot: e.material_index.max(0) as usize, material_package: None });
     }
     Ok(g)
 }
@@ -314,7 +317,7 @@ pub fn skeletal_mesh_geometry(pkg: &Package, m: &SkeletalMesh, lod: usize) -> Re
     g.indices = l.index_container.to_u32();
     for s in &l.sections {
         let material = m.materials.get(s.material_index as usize).copied().unwrap_or_default();
-        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material), slot: s.material_index as usize });
+        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material), slot: s.material_index as usize, material_package: None });
     }
     Ok(g)
 }
@@ -880,7 +883,7 @@ pub fn attach_materials(
     let mut jobs: Vec<(String, std::sync::Arc<Package>, String, usize, Object)> = Vec::new();
     let mut failed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for sec in &g.sections.clone() {
-        let (textures, unresolved) = material_textures_ext(cache, pkg_name, sec.material);
+        let (textures, unresolved) = material_textures_ext(cache, sec.material_package.as_deref().unwrap_or(pkg_name), sec.material);
         for u in unresolved {
             warn(&mut warnings, format!("{}: {u}: not found in the folder", sec.material_name));
         }

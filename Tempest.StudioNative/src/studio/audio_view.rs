@@ -17,7 +17,8 @@ use serde_json::{json, Value as J};
 use super::{file_name, layout, Studio, Tone};
 
 pub struct AudioBrowser {
-    packages: Vec<(String, String, u64)>,
+    /// Name, path, size and subfolder (`English(US)` for voice lines) of each `.pck`.
+    packages: Vec<(String, String, u64, Option<String>)>,
     filter: Entity<InputState>,
     events_filter: Entity<InputState>,
     banks_focus: FocusHandle,
@@ -134,7 +135,7 @@ impl Studio {
                                 .as_array()
                                 .into_iter()
                                 .flatten()
-                                .map(|p| (p["name"].as_str().unwrap_or("").to_string(), p["path"].as_str().unwrap_or("").to_string(), p["size"].as_u64().unwrap_or(0)))
+                                .map(|p| (p["name"].as_str().unwrap_or("").to_string(), p["path"].as_str().unwrap_or("").to_string(), p["size"].as_u64().unwrap_or(0), p["folder"].as_str().map(str::to_string)))
                                 .collect();
                         }
                     }
@@ -295,7 +296,7 @@ impl Studio {
         let shown = a.shown_banks(cx);
         range
             .filter_map(|k| shown.get(k).map(|&i| (k, &a.packages[i])))
-            .map(|(k, (name, path, size))| {
+            .map(|(k, (name, path, size, folder))| {
                 let sel = a.open.as_deref() == Some(path.as_str());
                 let is_dirty = self.dirty.contains(path);
                 let p = path.clone();
@@ -303,6 +304,7 @@ impl Studio {
                 h_flex()
                     .id(("pck", k))
                     .focusable()
+                    .w_full()
                     .min_h(row_h)
                     .py_0p5()
                     .px_2()
@@ -319,6 +321,7 @@ impl Studio {
                         bf.focus(window, cx);
                     }))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(name.clone()))
+                    .when_some(folder.clone(), |d, f| d.child(super::ui::folder_mark(("pck-folder", k), f, &theme)))
                     .when(is_dirty, |d| {
                         d.child(
                             h_flex()

@@ -41,6 +41,7 @@ pub mod mergedindex;
 pub mod mesh;
 pub mod mesh_import;
 pub mod fbx;
+pub mod folder;
 pub mod havok;
 pub mod wwise;
 pub mod audio;

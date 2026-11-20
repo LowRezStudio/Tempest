@@ -30,7 +30,8 @@ current sources.
   is), .wav and .wem (re-encoded).
 
 - **Wwise** (`wwise/` in tempest-assets): AkEvent and AkBank exports preview what they play: the
-  bank name (the event's `RequiredBank`) names the `<bank>.pck` in the workspace folder, the event
+  bank name (the event's `RequiredBank`) names the `<bank>.pck` in the workspace folder or a
+  subfolder (`English(US)/` for voice lines), the event
   name's FNV-1 hash finds the event in the bank's `HIRC`, play actions are followed through
   containers to sounds/music tracks and their media ids; every media file gets Play (Wwise Vorbis
   converted to Ogg on the fly), Export (.ogg/.wav/.wem), Replace (.ogg/.wav/.wem, re-encoded to

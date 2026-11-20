@@ -58,6 +58,7 @@ pub enum Cmd {
     ZoomReset,
     ToggleTheme,
     GameShaders,
+    StopMaterialPreview,
     ShaderModel,
     ShowAudio,
     Rewrite,
@@ -157,6 +158,7 @@ impl Cmd {
         Cmd::ToggleTheme,
         Cmd::GameShaders,
         Cmd::ShaderModel,
+        Cmd::StopMaterialPreview,
         Cmd::ShowAudio,
         Cmd::Rewrite,
         Cmd::ModFolder,
@@ -246,6 +248,7 @@ impl Cmd {
             Cmd::ZoomReset => i("Reset zoom", "View", "⌘0", ""),
             Cmd::ToggleTheme => i("Toggle light / dark theme", "View", "", ""),
             Cmd::GameShaders => i("Toggle game shaders in previews", "View", "", "materials and meshes drawn by their compiled game shaders, or with their base colour"),
+            Cmd::StopMaterialPreview => i("Stop previewing other materials on the mesh", "View", "", "draw every slot with its own material again"),
             Cmd::ShaderModel => i("Switch game shaders between shader model 5 and 3", "View", "", "the Direct3D 11 shaders the game runs by default, or its Direct3D 9 ones"),
             Cmd::ShowAudio => i("Show the sounds", "View", "⌘4", "every sound bank (.pck): listen, export, replace voice lines, music and effects"),
             Cmd::Rewrite => i("Rewrite this package compressed / uncompressed…", "Package", "", "a copy of the file on disk in the other storage"),
@@ -321,6 +324,7 @@ impl Cmd {
             Cmd::SaveAll => !s.dirty.is_empty(),
             Cmd::NewInstance => class.as_deref().is_some_and(material::is_material),
             Cmd::OwnMaterials => class.as_deref().is_some_and(mesh::is_mesh),
+            Cmd::StopMaterialPreview => s.mesh_preview.is_some(),
             Cmd::SaveWorkspace | Cmd::SaveWorkspacePortable | Cmd::NewProject => s.dir.is_some(),
             Cmd::CloseProject => s.project.is_some(),
             Cmd::Create | Cmd::NewPackage | Cmd::BatchImport | Cmd::GoToPackage | Cmd::SearchAll => s.dir.is_some(),
@@ -452,6 +456,7 @@ impl Studio {
             Cmd::ToggleTheme => self.toggle_theme(window, cx),
             Cmd::GameShaders => self.toggle_game_shaders(cx),
             Cmd::ShaderModel => self.toggle_shader_model(cx),
+            Cmd::StopMaterialPreview => self.stop_material_preview(None, cx),
             Cmd::ShowAudio => self.set_view(View::Audio, window, cx),
             Cmd::Rewrite => self.rewrite_dialog(window, cx),
             Cmd::ModFolder => self.mod_folder_dialog(window, cx),
@@ -815,6 +820,21 @@ impl Studio {
             "meshwire" => {
                 if let Some(m) = self.mesh.clone() {
                     m.borrow_mut().toggle_wireframe();
+                }
+            }
+            // `meshpreview <slot> <package> <export>` / `meshpreview stop`
+            "meshpreview" => {
+                let a: Vec<&str> = arg.split_whitespace().collect();
+                match a.as_slice() {
+                    ["stop"] => self.stop_material_preview(None, cx),
+                    [slot, package, export] => {
+                        let p = self.packages.iter().find(|p| p.name.eq_ignore_ascii_case(package)).ok_or("no such package")?;
+                        let (file, package) = (p.path.clone(), p.name.clone());
+                        let export = export.parse::<usize>().map_err(|_| "meshpreview <slot> <package> <export>")?;
+                        let slot = slot.parse::<usize>().map_err(|_| "meshpreview <slot> <package> <export>")?;
+                        self.preview_slot_material(slot, mesh::PreviewSlot { file, export, package, object: format!("export {export}") }, cx);
+                    }
+                    _ => return Err("meshpreview <slot> <package> <export> | meshpreview stop".into()),
                 }
             }
             "meshlod" => {

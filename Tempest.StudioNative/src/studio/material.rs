@@ -16,7 +16,8 @@ use std::sync::Arc;
 use gpui::{div, img, prelude::*, px, AnyElement, Context, Image, ImageFormat, ObjectFit, PathPromptOptions, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, Selectable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
+use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -427,10 +428,7 @@ impl Studio {
             let (i, paths) = (m.export, texture_paths(&m.info));
             self.load_game_material(i, paths, cx);
         }
-        if let (Some(path), Some(m)) = (self.open.as_ref().map(|t| t.path.clone()), self.mesh.clone()) {
-            let (i, lod) = { let st = m.borrow(); (st.export, st.lod) };
-            self.load_mesh(path, i, lod, cx);
-        }
+        self.reload_mesh(cx);
         if let Some(map) = self.map.clone() {
             map.update(cx, |m, cx| m.reload_game(cx));
         }
@@ -680,6 +678,7 @@ impl Studio {
         }
         let skeletal = s.info["skeletal"].as_bool().unwrap_or(false);
         let n = slots.len();
+        let previewed = self.mesh_preview.as_ref().filter(|p| p.export == s.export).map(|p| p.slots.clone()).unwrap_or_default();
         let mut list = v_flex().gap_1().child(
             h_flex()
                 .gap_1()
@@ -703,7 +702,7 @@ impl Studio {
                 div()
                     .id(("slot-mat", k))
                     .flex_1()
-                    .min_w_0()
+                    .min_w(px(120.0))
                     .px_0p5()
                     .rounded_sm()
                     .focusable()
@@ -748,13 +747,26 @@ impl Studio {
                     .gap_2()
                     .child(div().w(px(44.0)).flex_none().text_xs().text_color(theme.muted_foreground).child(format!("slot {slot}")))
                     .child(name)
-                    .when(mref != 0, |d| d.child(div().text_xs().text_color(theme.muted_foreground).max_w(px(220.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().child(mpath.rsplit_once('.').map(|(g, _)| format!("in {g}")).unwrap_or_default())))
+                    .when(mref != 0, |d| d.child(div().text_xs().text_color(theme.muted_foreground).min_w_0().max_w(px(220.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().child(mpath.rsplit_once('.').map(|(g, _)| format!("in {g}")).unwrap_or_default())))
                     .when(mref != 0, |d| d.child(badge(if s["instance"].as_bool().unwrap_or(false) { "instance" } else { "base material" })))
                     .when(s["external"].as_bool().unwrap_or(false), |d| d.child(badge("other package")))
                     .child(Button::new(("slot-change", k)).xsmall().ghost().label("Change…").tooltip("Draw this slot with another material or instance").on_click(cx.listener(move |this, _, window, cx| this.open_picker(Pick::SlotMaterial(slot), window, cx))))
+                    .child(div().relative().child(Button::new(("slot-preview", k)).xsmall().ghost().label("Preview…").tooltip("See the mesh drawn with another material, without changing it").on_click(cx.listener(move |this, _, window, cx| this.open_picker(Pick::PreviewMaterial(slot), window, cx)))).when(k == 0, |d| d.child(crate::driver::probe("slot-preview"))))
                     .when(mref != 0, |d| d.child(Button::new(("slot-own", k)).xsmall().ghost().label("Make it this mesh's own").tooltip("A copy of the instance (or a new instance of a base material) next to the mesh, used by this slot only").on_click(cx.listener(move |this, _, _, cx| this.own_slot(slot, cx)))))
                     .when(skeletal && n > 1, |d| d.child(Button::new(("slot-rm", k)).xsmall().ghost().label("Remove").disabled(sections > 0).tooltip(if sections > 0 { "Sections draw with it: import a mesh that does not use it first" } else { "Remove this slot (later slots move down)" }).on_click(cx.listener(move |this, _, _, cx| this.slot_op("mesh.removeSlot", Some(slot), cx))))),
             );
+            if let Some(m) = previewed.get(&slot) {
+                list = list.child(
+                    h_flex()
+                        .gap_2()
+                        .pl(px(52.0))
+                        .text_xs()
+                        .child(Icon::new(IconName::Eye).xsmall().text_color(theme.info))
+                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.info).child(format!("Previewed with {} (in {}); the mesh is unchanged", m.object.rsplit('.').next().unwrap_or_default(), m.package)))
+                        .child(Button::new(("slot-keep", k)).xsmall().ghost().label("Keep").tooltip("Make the slot draw with it (a change to the mesh)").on_click(cx.listener(move |this, _, _, cx| this.keep_material_preview(slot, cx))))
+                        .child(Button::new(("slot-unpreview", k)).xsmall().ghost().label("Stop").tooltip("Draw the slot with its own material again").on_click(cx.listener(move |this, _, _, cx| this.stop_material_preview(Some(slot), cx)))),
+                );
+            }
         }
         Some(list.into_any_element())
     }

@@ -205,6 +205,14 @@ packets; 196 carry a seek table). Ids are FNV-1 of lower-case names (`wwb_pc_kha
 `WWB_PC_Khan.pck`; event names from the AkEvent exports). `upk wwise
 ls|event|export|import|convert|rewrite` is the CLI; the Studio methods are
 `wwise.{packages,open,preview,export,import,replacePcm,forObject}` and `sound.replacePcm`.
+Localized banks (every `WWB_VOX_*`/`WWB_VGS_*`, the announcers: 677 files) and 4 `WW_*` packages
+live in the language folder `CookedPCConsole/English(US)/`, some banks with an empty package of the
+same name in `CookedPCConsole`. The server reads the workspace folder with its subfolders
+(`folder.rs`: `.upk`/`.u` for the package list, lookups by name and the object path index, `.pck`,
+`.tfc`; hidden folders such as `.tempest/` left out; listings carry `folder`, the subfolder).
+`wwise.packages` leaves those empty packages out; `wwise.forObject` prefers a subfolder's package
+that holds the bank, as Wwise opens a bank as localized first. Edits keep the file's path, so a mod's
+entry targets `ChaosGame/CookedPCConsole/English(US)/<file>`.
 
 Converting: `vorbis::wem_to_ogg` is ww2ogg's algorithm (codebooks rebuilt from the library,
 floors/residues/mappings/modes expanded, audio packets given back their type bit and window flags;

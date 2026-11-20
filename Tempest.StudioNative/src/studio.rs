@@ -185,6 +185,8 @@ pub struct Studio {
     mesh: Option<std::rc::Rc<std::cell::RefCell<mesh::MeshState>>>,
     /// `mesh.info` of the mesh shown: (export, its LODs).
     mesh_info: Option<(usize, serde_json::Value)>,
+    /// Other materials the mesh shown is drawn with.
+    mesh_preview: Option<mesh::MaterialPreview>,
     material: Option<material::MaterialState>,
     /// The mesh preview's game shaders: sections, drawn, errors (`None` while they load).
     mesh_game: Option<serde_json::Value>,
@@ -355,6 +357,7 @@ impl Studio {
             drafts: std::collections::HashMap::new(),
             mesh: None,
             mesh_info: None,
+            mesh_preview: None,
             material: None,
             mesh_game: None,
             game_shaders: true,

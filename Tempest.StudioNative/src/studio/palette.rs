@@ -101,6 +101,8 @@ pub enum Pick {
     ReplaceWith,
     /// The material of a mesh slot.
     SlotMaterial(usize),
+    /// A material to preview a mesh slot with.
+    PreviewMaterial(usize),
     /// The texture of a material's parameter.
     Texture(String),
     /// The value of a `*_VALUE_ID` cell of the assembly: a row index, the column, the valid values.
@@ -113,6 +115,7 @@ impl Pick {
             Pick::CopyTo => "The package to copy it into",
             Pick::ReplaceWith => "An object of the same class in another package",
             Pick::SlotMaterial(_) => "A material or material instance, e.g. mic_ or a champion's name",
+            Pick::PreviewMaterial(_) => "A material to preview the slot with, e.g. mic_ or a champion's name",
             Pick::Texture(_) => "A texture of any package",
             Pick::AssemblyValue { .. } => "A valid value, by name or id",
         }
@@ -123,7 +126,7 @@ impl Pick {
         match self {
             Pick::CopyTo | Pick::AssemblyValue { .. } => None,
             Pick::ReplaceWith => studio.selection_class(),
-            Pick::SlotMaterial(_) => Some("MaterialInterface".into()),
+            Pick::SlotMaterial(_) | Pick::PreviewMaterial(_) => Some("MaterialInterface".into()),
             Pick::Texture(_) => Some("Texture".into()),
         }
     }
@@ -857,6 +860,7 @@ impl Studio {
             }
             (Pick::ReplaceWith, Item::Hit { path, index, .. }) => self.replace_with(path, index, window, cx),
             (Pick::SlotMaterial(slot), Item::Hit { path, index, .. }) => self.set_slot_material(slot, path, index, cx),
+            (Pick::PreviewMaterial(slot), Item::Hit { package, path, index, object, .. }) => self.preview_slot_material(slot, super::mesh::PreviewSlot { file: path, export: index, package, object }, cx),
             (Pick::Texture(name), Item::Hit { path, index, .. }) => self.set_texture(name, path, index, cx),
             (Pick::AssemblyValue { row, field, .. }, Item::Value { id, .. }) => {
                 if let Some(a) = self.assembly.clone() {

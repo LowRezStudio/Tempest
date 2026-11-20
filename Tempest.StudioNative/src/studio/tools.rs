@@ -49,7 +49,7 @@ impl Studio {
         }
         // Outside the game folder: listed with the folder's packages while the window lives.
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        self.packages.push(model::PackageEntry { name: file_name(&path), path: path.clone(), size, script: false, map: false });
+        self.packages.push(model::PackageEntry { name: file_name(&path), path: path.clone(), size, script: false, map: false, folder: None });
         self.view = super::View::Packages;
         self.refresh_rows(cx);
         self.user_open_package(path, cx);

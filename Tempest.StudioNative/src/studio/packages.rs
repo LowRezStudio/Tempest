@@ -73,6 +73,7 @@ impl Studio {
         self.inspected = None;
         self.preview = None;
         self.mesh = None;
+        self.mesh_preview = None;
         self.material = None;
         self.slots = None;
         self.sound = None;
@@ -98,6 +99,7 @@ impl Studio {
             Some(i) => {
                 self.reveal(i, cx);
                 self.mesh = None;
+                self.mesh_preview = None;
                 self.material = None;
                 self.slots = None;
                 self.sound = None;
@@ -168,6 +170,7 @@ impl Studio {
             self.dump = None;
             if !keep_mesh {
                 self.mesh = None;
+                self.mesh_preview = None;
             }
             self.material = None;
             self.slots = None;
@@ -505,6 +508,7 @@ impl Studio {
                                 .child("edited"),
                         )
                     })
+                    .when_some(p.folder.clone(), |d, f| d.child(super::ui::folder_mark(("pkg-folder", k), f, &theme)))
                     .child(div().text_xs().text_color(theme.muted_foreground).child(badge))
                     .child(div().text_xs().text_color(theme.muted_foreground).child(model::human_size(p.size)))
                     .child(crate::driver::probe(format!("pkg-{k}")))

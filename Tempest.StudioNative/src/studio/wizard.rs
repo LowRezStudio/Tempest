@@ -2216,6 +2216,7 @@ impl Studio {
                                 size: 0,
                                 script: false,
                                 map: false,
+                                folder: None,
                             });
                             pkgs.sort_by_key(|p| p.name.to_ascii_lowercase());
                         }

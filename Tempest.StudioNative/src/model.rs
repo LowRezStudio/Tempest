@@ -9,7 +9,7 @@ fn str_of(v: &J, k: &str) -> String {
     v.get(k).and_then(|x| x.as_str()).unwrap_or_default().to_string()
 }
 
-/// One package file of the workspace folder.
+/// One package file of the workspace folder or its subfolders.
 #[derive(Clone, Debug)]
 pub struct PackageEntry {
     pub name: String,
@@ -17,6 +17,8 @@ pub struct PackageEntry {
     pub size: u64,
     pub script: bool,
     pub map: bool,
+    /// The subfolder it is in (`English(US)`), `None` in the folder itself.
+    pub folder: Option<String>,
 }
 
 pub fn packages(v: &J) -> Vec<PackageEntry> {
@@ -29,6 +31,7 @@ pub fn packages(v: &J) -> Vec<PackageEntry> {
             size: p.get("size").and_then(|x| x.as_u64()).unwrap_or(0),
             script: p.get("script").and_then(|x| x.as_bool()).unwrap_or(false),
             map: p.get("map").and_then(|x| x.as_bool()).unwrap_or(false),
+            folder: p.get("folder").and_then(|x| x.as_str()).map(str::to_string),
         })
         .collect()
 }

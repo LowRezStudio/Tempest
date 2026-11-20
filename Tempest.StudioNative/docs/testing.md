@@ -28,7 +28,7 @@ coordinates: the content runs under the transparent title bar), `@probe:x,y` for
 from a probe's top-left corner (clicks, moves and both ends of `drag`), `drag`, `scroll x y dy
 [dx]`, `size w h`, `wait ms`) or app steps (`package <name>`, `select <index|name>`, `run <command
 id>`, `view home|champions|packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
-<text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `material own-all|own
+<text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `meshpreview <slot> <package> <export>|stop`, `material own-all|own
 <slot>|scalar <name> <v>|pick-texture <param>|game on|off`, `sound select a b|edit|trim|fade-in s|gain
 dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)); probes `game-<n>` (welcome), `task-*` (start page), `champ-<name>`, `skin-<n>`, `dev-<n>` and `file-<n>` (Champions), `cook-build`, `cooker refresh|preview <n>|name <text>|tab files|details|publish`,
 `twrk-save <path>`, `twrk-open <path>`, `project new <folder> <name>|open <file>|close|save`,
@@ -41,7 +41,8 @@ Never save into the game folder from a test run.
 `studio_state.assembly` is the Assembly view's `state_json` (file, path, table, row, column, total,
 marks, columns, what is edited, unsaved files, undo labels). `studio_state.material` says whether the
 material preview is drawn with game shaders (pair, animated, missing textures, or `gameError`);
-`studio_state.meshGame` counts the mesh sections drawn with them and why the others are not. The wizard has `wizard range <a> <b>`
+`studio_state.meshGame` counts the mesh sections drawn with them and why the others are not;
+`studio_state.meshPreview` lists the slots previewed with another material. The wizard has `wizard range <a> <b>`
 and `wizard dump` (step, a skin's parts, slots, next ids). A sweep is the cheapest crash hunt: open
 every map (`map open`, collision, nav mesh, Kismet) and select objects of every class of many
 packages through MCP (`studio_open_package`, `studio_select`), in a debug build (overflow checks) and

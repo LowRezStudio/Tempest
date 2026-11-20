@@ -18,8 +18,10 @@ and replace, Batch import, Discard, Check (`package.verify`). Previews: texture,
 viewport over `mesh_view.rs`: wgpu off-screen into a canvas; LODs and per-LOD vertices, triangles
 and section materials from `mesh.info`, textures, wireframe, Fit) with
 its material slots, material (`material.rs`: sphere, parent chain, textures with Change…/From a
-file…, scalars and colours edited, New instance; slots: Change…, Make it this mesh's own, Own
-materials for every slot, add/remove slot). Game shaders (`game_material.rs`): the material
+file…, scalars and colours edited, New instance; slots: Change…, Preview… (`mesh_preview`: the
+slot drawn with a material of any package, passed as `materials` `{path, index}` to `mesh.preview`
+and `material.gameShader`, the mesh unchanged; Keep / Stop per slot, `Cmd::StopMaterialPreview`),
+Make it this mesh's own, Own materials for every slot, add/remove slot). Game shaders (`game_material.rs`): the material
 sphere and each mesh section are drawn by their material's compiled shaders (`material.gameShader`,
 translated to WGSL; a `GamePass` per material, constants filled by name each frame, one directional
 light and a sky that follow the camera, no fog, white renderer textures; materials compiled for
@@ -61,7 +63,8 @@ details; empty `None` placeholder exports are left out of the tree; export rows 
 readable class names (`pretty_class`, `class_icon`). Texture preview (`texture.rs`): Fit / 1:1 / 2×,
 any stored mip, dark / grey / light background, size, format and where the mip lives. Mesh viewport:
 the wheel zooms without scrolling the pane, the background follows the theme. **Audio** view (⌘4,
-`audio_view.rs`): every `.pck` of the folder, its events by name, the media of one event or all,
+`audio_view.rs`): every `.pck` of the folder and its subfolders (`ui::folder_mark`, as in the
+package list; the empty packages the folder keeps for `English(US)/` are hidden), its events by name, the media of one event or all,
 Play / Export / Replace. Package info (package context menu). A linked recovery workspace file every
 2 minutes with unsaved edits outside a project (`recovery/<hash>.twrk`, offered in a banner when the
 folder opens). A `.upk` argument opens its folder and the package. Assembly toolbar: New content,

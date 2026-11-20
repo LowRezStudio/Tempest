@@ -62,6 +62,13 @@ pub fn toolbar(theme: &Theme) -> Div {
     h_flex().flex_none().min_h(px(TOOLBAR)).px_2().gap_1().border_b_1().border_color(theme.border).bg(theme.background)
 }
 
+/// A file list row's mark for a file in a subfolder of the game folder
+/// (`English(US)` keeps the voice lines): an icon naming it in its tooltip.
+pub fn folder_mark(id: impl Into<gpui::ElementId>, folder: String, theme: &Theme) -> gpui::Stateful<Div> {
+    let tip = format!("In the {folder} folder");
+    div().id(id).flex_none().child(Icon::new(IconName::Folder).size_3().text_color(theme.muted_foreground)).tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+}
+
 /// A label over a group of fields or rows inside a pane.
 pub fn section(title: impl Into<SharedString>, theme: &Theme) -> Div {
     div().pt_3().pb_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.into())

@@ -899,6 +899,7 @@ impl Server {
                     "script": p.flags & pkgf::CONTAINS_SCRIPT != 0,
                     "map": p.flags & pkgf::CONTAINS_MAP != 0,
                     "open": self.editors.contains_key(&key(&p.path.to_string_lossy())),
+                    "folder": self.dir.as_deref().and_then(|d| crate::folder::subfolder(d, &p.path)),
                 })
             })
             .collect();
@@ -2715,7 +2716,7 @@ impl Server {
                         }
                         g.normals = vec![[0.0, 0.0, 1.0]; g.positions.len()];
                         g.uvs = vec![[0.0, 0.0]; g.positions.len()];
-                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0 });
+                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0, material_package: None });
                         meshes.push((format!("{name}_brush"), g));
                         Some(meshes.len() - 1)
                     } else {
@@ -3238,6 +3239,8 @@ impl Server {
         let textures = opt_b(p, "textures").unwrap_or(true);
         let skin = opt_b(p, "skin").unwrap_or(true);
         let o = self.mesh_object(path, i)?;
+        let over: Vec<J> = p.get("materials").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        flush_overrides(&mut self.editors, &over);
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
         let owners = if textures {
@@ -3256,18 +3259,22 @@ impl Server {
         if !skin {
             g.bones.clear();
         }
-        // A placed component's overrides (`Materials[slot]`, object paths in
-        // the mesh's package): the map view draws each mesh as placed.
-        if let Some(over) = p.get("materials").and_then(|v| v.as_array()) {
-            let find = |path: &str| -> Option<PackageIndex> {
-                let pkg = &ed.pkg;
-                (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
-            };
-            for sec in g.sections.iter_mut() {
-                if let Some(m) = over.get(sec.slot).and_then(|v| v.as_str()).and_then(find) {
+        // Material overrides by slot: a placed component's (the map view draws
+        // each mesh as placed) or a preview's, from any package.
+        let mut foreign: Vec<(String, PathBuf)> = Vec::new();
+        for sec in g.sections.iter_mut() {
+            match over.get(sec.slot).and_then(|v| material_override(&ed.pkg, path, v)) {
+                Some(MaterialOverride::Local(m)) => {
                     sec.material = m;
                     sec.material_name = ed.pkg.object_path(m);
                 }
+                // Only materials with textures need the other package.
+                Some(MaterialOverride::Foreign(name, file, m)) if textures => {
+                    sec.material = m;
+                    sec.material_package = Some(name.clone());
+                    foreign.push((name, file));
+                }
+                _ => {}
             }
         }
         let mut warnings = Vec::new();
@@ -3278,6 +3285,14 @@ impl Server {
             cache.set_lookup(|p| index_lookup(index, pkgs, p));
             if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
                 cache.insert(&ed.name, ed.pkg.clone());
+            }
+            for (name, file) in &foreign {
+                cache_package(&mut cache, &self.editors, name, file);
+            }
+            for sec in g.sections.iter_mut() {
+                if let Some(lp) = sec.material_package.as_deref().and_then(|n| cache.get(n)) {
+                    sec.material_name = lp.pkg.object_path(sec.material);
+                }
             }
             let mut png_cache = std::mem::take(&mut self.png_cache);
             warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name, PackageIndex::export(i), max_size, &mut png_cache);
@@ -4433,19 +4448,21 @@ impl Server {
 
     // ----- Wwise -------------------------------------------------------------
 
-    /// `wwise.packages`: the `.pck` files of the workspace folder.
+    /// `wwise.packages`: the `.pck` files of the workspace folder and its
+    /// subfolders (`folder`), without the empty packages the folder keeps
+    /// for a language folder's.
     fn wwise_packages(&mut self) -> Res<J> {
         let dir = self.dir()?.to_path_buf();
+        let files = pck_files(&dir);
+        let localized: HashSet<String> = files.iter().filter(|f| f.folder.is_some()).map(|f| f.name.to_ascii_lowercase()).collect();
         let mut out = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let path = e.path();
-                if path.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("pck")).unwrap_or(false) {
-                    out.push(json!({ "name": path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), "path": path.to_string_lossy(), "size": e.metadata().map(|m| m.len()).unwrap_or(0) }));
-                }
+        for f in files {
+            if f.folder.is_none() && localized.contains(&f.name.to_ascii_lowercase()) && is_empty_pck(&f.path, f.size) {
+                continue;
             }
+            out.push(json!({ "name": f.name, "path": f.path.to_string_lossy(), "size": f.size, "folder": f.folder }));
         }
-        out.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_ascii_lowercase()));
+        out.sort_by(|a, b| (a["name"].as_str().unwrap_or("").to_ascii_lowercase(), a["folder"].as_str()).cmp(&(b["name"].as_str().unwrap_or("").to_ascii_lowercase(), b["folder"].as_str())));
         Ok(json!({ "packages": out }))
     }
 
@@ -4656,8 +4673,10 @@ impl Server {
     }
 
     /// `wwise.forObject`: the package and media behind an AkEvent or AkBank
-    /// export (bank name → `<name>.pck` in the workspace folder, event name →
-    /// FNV id).
+    /// export (bank name → `<name>.pck` of the workspace folder, event name →
+    /// FNV id). A language folder's package comes first, as Wwise opens a
+    /// bank as localized before trying the shared one; voice banks live in
+    /// `English(US)/` with an empty package of the same name in the folder.
     fn wwise_for_object(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?.to_string();
         let i = self.export_of(&path, p)?;
@@ -4678,9 +4697,19 @@ impl Server {
             (class, name, bank_name)
         };
         let is_event = class.eq_ignore_ascii_case("AkEvent");
-        let pck = std::fs::read_dir(&dir).ok().and_then(|rd| rd.flatten().map(|e| e.path()).find(|f| f.file_stem().map(|x| x.to_string_lossy().eq_ignore_ascii_case(&bank_name)).unwrap_or(false) && f.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("pck")).unwrap_or(false)));
         let event_id = if is_event { Some(fnv::name_id(&name)) } else { None };
         let bank_id = fnv::name_id(&bank_name);
+        let mut candidates: Vec<PckFile> = pck_files(&dir).into_iter().filter(|f| f.name.eq_ignore_ascii_case(&bank_name)).collect();
+        candidates.sort_by_key(|f| (f.folder.is_none(), !f.folder.as_deref().is_some_and(|l| l.eq_ignore_ascii_case("English(US)")), f.folder.clone()));
+        let mut pck = candidates.first().map(|f| f.path.clone());
+        if candidates.len() > 1 {
+            for f in &candidates {
+                if self.wwise_package(&f.path.to_string_lossy()).is_ok_and(|pkg| pkg.banks.iter().any(|e| e.id == bank_id as u64)) {
+                    pck = Some(f.path.clone());
+                    break;
+                }
+            }
+        }
         let Some(pck) = pck else {
             return Ok(json!({ "pck": null, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "media": [], "trail": [] }));
         };
@@ -5655,26 +5684,25 @@ impl Server {
         use crate::material_shader::{game_shader, storages, storages_sm5, texture_is_srgb, SamplerSource};
         let path = s(p, "path")?;
         let i = self.export_of(path, p)?;
-        let material = {
+        let over: Vec<J> = p.get("materials").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        flush_overrides(&mut self.editors, &over);
+        let (material, foreign) = {
             let ed = self.editor(path)?;
             let class = ed.pkg.class_name_of(PackageIndex::export(i));
             if ed.db.class_is_a(&class, "MaterialInterface") {
-                PackageIndex::export(i)
+                (PackageIndex::export(i), None)
             } else {
                 let section = opt_u(p, "section").ok_or("give the mesh section whose material to draw")?;
                 let o = ed.object(i)?.clone();
                 let g = mesh_ops::geometry(&ed.pkg, &o, opt_u(p, "lod").unwrap_or(0))?;
                 let sec = g.sections.get(section).ok_or_else(|| format!("the mesh has {} sections", g.sections.len()))?;
-                // A placed component's override of the slot (`materials`, as `mesh.preview` takes them).
-                let over = p.get("materials").and_then(|v| v.as_array()).and_then(|a| a.get(sec.slot)).and_then(|v| v.as_str()).and_then(|path| {
-                    let pkg = &ed.pkg;
-                    (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
-                });
-                let m = over.unwrap_or(sec.material);
-                if m.is_null() {
-                    return Err("the section has no material".into());
+                // The slot's override (`materials`, as `mesh.preview` takes them).
+                match over.get(sec.slot).and_then(|v| material_override(&ed.pkg, path, v)) {
+                    Some(MaterialOverride::Local(m)) => (m, None),
+                    Some(MaterialOverride::Foreign(name, file, m)) => (m, Some((name, file))),
+                    None if sec.material.is_null() => return Err("the section has no material".into()),
+                    None => (sec.material, None),
                 }
-                m
             }
         };
         let max_size = opt_u(p, "textureSize").unwrap_or(512) as u32;
@@ -5706,13 +5734,20 @@ impl Server {
         if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
             cache.insert(&ed.name, ed.pkg.clone());
         }
-        let info = crate::material_ops::material_info(&mut cache, &ed.name, material);
+        let owner = match &foreign {
+            Some((name, file)) => {
+                cache_package(&mut cache, &self.editors, name, file);
+                name.clone()
+            }
+            None => ed.name.clone(),
+        };
+        let info = crate::material_ops::material_info(&mut cache, &owner, material);
         let material_path = info.chain.first().map(|(p, o, _)| format!("{p}.{o}"));
         // `resolveOnly`: which material it is (a map asks once per section, loads each material once).
         if opt_b(p, "resolveOnly").unwrap_or(false) {
             return Ok(json!({ "materialPath": material_path }));
         }
-        let gs = game_shader(&mut cache, &code, sm5.then_some(code5.as_slice()), &ed.name, &info)?;
+        let gs = game_shader(&mut cache, &code, sm5.then_some(code5.as_slice()), &owner, &info)?;
         let mut png_cache = std::mem::take(&mut self.png_cache);
         let mut sink = std::mem::take(&mut self.bins);
         let mut sampler_json = |cache: &mut PackageCache, list: &[crate::material_shader::Sampler]| -> Vec<J> {
@@ -6004,18 +6039,12 @@ impl Server {
     }
 }
 
+/// The packages of the folder and its subfolders.
 fn list_packages(dir: &Path) -> Vec<WorkspacePackage> {
-    let mut files: Vec<(PathBuf, u64)> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let path = e.path();
-            let ext = path.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            if ext != "upk" && ext != "u" {
-                continue;
-            }
-            files.push((path, e.metadata().map(|m| m.len()).unwrap_or(0)));
-        }
-    }
+    let files: Vec<(PathBuf, u64)> = crate::folder::files(dir, &["upk", "u"]).into_iter().map(|p| {
+        let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        (p, size)
+    }).collect();
     // A thousand summaries to read: spread the file opens over the cores.
     let mut out: Vec<WorkspacePackage> = tempest_unrealscript::par::map(&files, |(path, size)| {
         let flags = Package::read_summary(path).map(|s| s.package_flags).unwrap_or(0);
@@ -6507,6 +6536,75 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
 use crate::value::Value;
 
 /// What `anim.*` needs about a sequence.
+/// A mesh preview's material for a slot (`materials[slot]`).
+enum MaterialOverride {
+    Local(PackageIndex),
+    /// `(package name, file, export)`.
+    Foreign(String, PathBuf, PackageIndex),
+}
+
+/// An override is an object path in the mesh's package (a placed
+/// component's `Materials[slot]`) or `{path, index}`, an export of any
+/// package file (the mesh view's "Preview with").
+fn material_override(pkg: &Package, mesh_path: &str, v: &J) -> Option<MaterialOverride> {
+    if let Some(path) = v.as_str() {
+        return (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path)).map(MaterialOverride::Local);
+    }
+    let file = v["path"].as_str()?;
+    let index = PackageIndex::export(v["index"].as_u64()? as usize);
+    if key(file) == key(mesh_path) {
+        return Some(MaterialOverride::Local(index));
+    }
+    let name = Path::new(file).file_stem()?.to_string_lossy().to_string();
+    Some(MaterialOverride::Foreign(name, PathBuf::from(file), index))
+}
+
+/// Open packages that overrides point into, written back before a preview reads them.
+fn flush_overrides(editors: &mut HashMap<String, Editor<'static>>, over: &[J]) {
+    for f in over.iter().filter_map(|v| v["path"].as_str()) {
+        if let Some(e) = editors.get_mut(&key(f)) {
+            e.flush();
+        }
+    }
+}
+
+/// A package for a preview's cache: the open editor's copy when it has unsaved edits.
+fn cache_package(cache: &mut PackageCache, editors: &HashMap<String, Editor<'static>>, name: &str, file: &Path) {
+    let open = editors.get(&key(&file.to_string_lossy()));
+    if open.is_some_and(|e| e.is_dirty()) || !cache.insert_file(name, file) {
+        if let Some(e) = open {
+            cache.insert(name, e.pkg.clone());
+        }
+    }
+}
+
+/// A Wwise `.pck` of a folder (`folder`: the subfolder it is in).
+struct PckFile {
+    name: String,
+    path: PathBuf,
+    folder: Option<String>,
+    size: u64,
+}
+
+/// The `.pck` files of `dir` and its subfolders (Wwise's language folders,
+/// such as `English(US)`).
+fn pck_files(dir: &Path) -> Vec<PckFile> {
+    crate::folder::files(dir, &["pck"])
+        .into_iter()
+        .map(|path| PckFile {
+            name: path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
+            folder: crate::folder::subfolder(dir, &path),
+            size: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            path,
+        })
+        .collect()
+}
+
+/// Whether a `.pck` holds nothing (read only when small).
+fn is_empty_pck(path: &Path, size: u64) -> bool {
+    size < 4096 && std::fs::read(path).ok().and_then(|b| akpk::Package::parse(&b).ok()).is_some_and(|p| p.banks.is_empty() && p.streams.is_empty() && p.externals.is_empty())
+}
+
 /// A Wwise `.pck` with replaced media, kept in memory until saved.
 struct PckEdit {
     path: PathBuf,
@@ -7529,5 +7627,31 @@ impl Server {
         let ed = self.editor(&path)?;
         crate::material_ops::set_parameter(ed, i, &name, crate::material_ops::ParamValue::Texture(tex))?;
         self.material_preview(&json!({ "path": path, "index": i }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pck_files_of_language_folders() {
+        let dir = std::env::temp_dir().join(format!("tempest-pck-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("English(US)")).unwrap();
+        let mut empty = akpk::Package::default();
+        empty.version = 1;
+        let mut full = empty.clone();
+        full.streams.push(akpk::Entry { id: 7, block: 1, language: 1, data: vec![1, 2, 3] });
+        std::fs::write(dir.join("WWB_VOX_Test.pck"), empty.to_bytes()).unwrap();
+        std::fs::write(dir.join("English(US)").join("WWB_VOX_Test.pck"), full.to_bytes()).unwrap();
+        std::fs::write(dir.join("WWB_SFX_Test.pck"), full.to_bytes()).unwrap();
+        let mut files = pck_files(&dir);
+        files.sort_by_key(|f| (f.name.clone(), f.folder.clone()));
+        let seen: Vec<(&str, Option<&str>)> = files.iter().map(|f| (f.name.as_str(), f.folder.as_deref())).collect();
+        assert_eq!(seen, [("WWB_SFX_Test", None), ("WWB_VOX_Test", None), ("WWB_VOX_Test", Some("English(US)"))]);
+        assert!(is_empty_pck(&files[1].path, files[1].size));
+        assert!(!is_empty_pck(&files[2].path, files[2].size));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
