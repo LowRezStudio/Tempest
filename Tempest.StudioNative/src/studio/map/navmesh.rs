@@ -5,6 +5,8 @@
 //! the edits (delete faces, cut a region, move a vertex) written back by
 //! `map.navmeshEdit` into the HavokNavMeshActor of the persistent level: an
 //! unsaved, undoable edit of that package like any other map edit.
+//! Generate (`map.navmeshGenerate`) replaces the whole mesh with one built
+//! from what pawns collide with in the level and its streamed levels.
 
 use std::collections::HashSet;
 
@@ -13,7 +15,8 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Selectable, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Selectable, Sizable};
+use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
 use super::MapEditor;
@@ -109,11 +112,15 @@ pub struct Nav {
     pub selected: HashSet<u32>,
     /// Where the picked vertex goes (Unreal units).
     pub target: [f64; 3],
+    /// A generation is running.
+    pub generating: bool,
+    /// What the last generation reported (`generated` of the answer).
+    pub generated: Option<J>,
 }
 
 impl Nav {
     pub fn new(_window: &mut Window, _cx: &mut Context<MapEditor>) -> Nav {
-        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3] }
+        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3], generating: false, generated: None }
     }
 
     pub fn reset(&mut self) {
@@ -131,11 +138,11 @@ impl Nav {
 }
 
 /// Golden-ratio hues: neighbouring ids get distant colours.
-fn id_colour(id: i32) -> [f32; 4] {
+fn id_colour(id: i32, dark: bool) -> [f32; 4] {
     let h = ((id as f32 * 0.618_034) % 1.0 + 1.0) % 1.0;
-    let c = gpui::hsla(h, 0.55, 0.55, 1.0).to_rgb();
+    let c = gpui::hsla(h, 0.58, if dark { 0.55 } else { 0.36 }, 1.0).to_rgb();
     let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
-    [lin(c.r), lin(c.g), lin(c.b), 0.45]
+    [lin(c.r), lin(c.g), lin(c.b), if dark { 0.45 } else { 0.4 }]
 }
 
 impl MapEditor {
@@ -144,7 +151,7 @@ impl MapEditor {
         if self.nav.show {
             self.load_nav(false, cx);
         }
-        self.rebuild_nav();
+        self.rebuild_nav(cx.theme().mode.is_dark());
         cx.notify();
     }
 
@@ -173,7 +180,7 @@ impl MapEditor {
                         if this.nav.actors.is_empty() {
                             this.nav.error = Some("This map has no Havok nav mesh.".into());
                         }
-                        this.rebuild_nav();
+                        this.rebuild_nav(cx.theme().mode.is_dark());
                     }
                     Err(e) => this.nav.error = Some(e),
                 }
@@ -185,19 +192,24 @@ impl MapEditor {
     }
 
     /// The nav mesh's layer: faces by region or cluster (picked ones highlighted) and every edge.
-    pub(super) fn rebuild_nav(&mut self) {
+    pub(super) fn rebuild_nav(&mut self, dark: bool) {
         let mut nodes = Vec::new();
         if let (true, Some(d)) = (self.nav.show, self.nav.data()) {
             let lift = |v: u32| d.positions.get(v as usize).copied().unwrap_or_default() + Vec3::Y * LIFT;
             let mut faces = Vec::with_capacity(d.triangles.len() * 3);
+            let sel_c = rgba(if dark { 0xf9e2af } else { 0x824d00 }, 0.65);
             for (t, tri) in d.triangles.iter().enumerate() {
                 let f = d.tri_face.get(t).copied().unwrap_or(0);
-                let c = if self.nav.selected.contains(&f) { rgba(0xf9e2af, 0.6) } else { id_colour(if self.nav.by_cluster { d.face_cluster.get(f as usize).copied().unwrap_or(0) } else { d.face_region.get(f as usize).copied().unwrap_or(0) }) };
+                let c = if self.nav.selected.contains(&f) { sel_c } else { id_colour(if self.nav.by_cluster { d.face_cluster.get(f as usize).copied().unwrap_or(0) } else { d.face_region.get(f as usize).copied().unwrap_or(0) }, dark) };
                 for &v in tri {
                     faces.push(Cv::new(lift(v), c));
                 }
             }
-            let colours = [rgba(0x6c7086, 1.0), rgba(0xf38ba8, 1.0), rgba(0x89dceb, 1.0)];
+            let colours = if dark {
+                [rgba(0x6c7086, 1.0), rgba(0xf38ba8, 1.0), rgba(0x89dceb, 1.0)]
+            } else {
+                [rgba(0x52556d, 1.0), rgba(0xaf0b2f, 1.0), rgba(0x055d82, 1.0)]
+            };
             let mut lines = Vec::with_capacity(d.lines.len() * 2);
             for (i, l) in d.lines.iter().enumerate() {
                 let c = colours[d.line_kind.get(i).copied().unwrap_or(0).min(2) as usize];
@@ -216,9 +228,9 @@ impl MapEditor {
     }
 
     /// The jump links, over everything: both edges and an arc from A's middle to B's.
-    pub(super) fn nav_links(&self, out: &mut Vec<Cv>) {
+    pub(super) fn nav_links(&self, dark: bool, out: &mut Vec<Cv>) {
         let (true, Some(d)) = (self.nav.show, self.nav.data()) else { return };
-        let c = rgba(0x94e2d5, 1.0);
+        let c = rgba(if dark { 0x94e2d5 } else { 0x1d6412 }, 1.0);
         for l in d.links.as_chunks::<4>().0.iter() {
             let [a0, a1, b0, b1] = [l[0], l[1], l[2], l[3]].map(|p| p + Vec3::Y * LIFT);
             let (am, bm) = ((a0 + a1) * 0.5, (b0 + b1) * 0.5);
@@ -248,7 +260,7 @@ impl MapEditor {
                 self.nav.selected.clear();
                 self.nav.vertex = None;
             }
-            self.rebuild_nav();
+            self.rebuild_nav(cx.theme().mode.is_dark());
             cx.notify();
             return true;
         };
@@ -269,17 +281,17 @@ impl MapEditor {
         } else {
             self.nav.selected = [face].into();
         }
-        self.rebuild_nav();
+        self.rebuild_nav(cx.theme().mode.is_dark());
         cx.notify();
         true
     }
 
     /// Every face of the regions holding a picked face.
-    fn nav_whole_regions(&mut self) {
+    fn nav_whole_regions(&mut self, dark: bool) {
         let Some(d) = self.nav.data() else { return };
         let regions: HashSet<i32> = self.nav.selected.iter().filter_map(|f| d.face_region.get(*f as usize).copied()).collect();
         self.nav.selected = (0..d.face_region.len() as u32).filter(|f| regions.contains(&d.face_region[*f as usize])).collect();
-        self.rebuild_nav();
+        self.rebuild_nav(dark);
     }
 
     pub(crate) fn nav_edit(&mut self, op: &str, args: J, cx: &mut Context<Self>) {
@@ -304,10 +316,49 @@ impl MapEditor {
                         this.nav.selected.clear();
                         this.nav.vertex = None;
                         this.note_edit(&level, cx);
-                        this.rebuild_nav();
+                        this.rebuild_nav(cx.theme().mode.is_dark());
                         this.toast(Tone::Success, format!("Nav mesh edited: {} faces, {} regions", r.json["faces"], r.json["regions"]), cx);
                     }
                     Err(e) => this.toast(Tone::Error, format!("Nav mesh edit failed: {e}"), cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Replace the nav mesh with one generated from the level's collision.
+    pub(crate) fn nav_generate(&mut self, cx: &mut Context<Self>) {
+        let (Some(index), Some(level)) = (self.nav.data().map(|d| d.info["index"].clone()), self.nav.level.clone()) else { return };
+        if self.nav.generating {
+            return;
+        }
+        self.nav.generating = true;
+        let call = self.call("map.navmeshGenerate", json!({ "path": level, "index": index }));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| {
+                this.nav.generating = false;
+                match r {
+                    Ok(r) => {
+                        let fresh = NavData::decode(&r.json, &r);
+                        let k = this.nav.current;
+                        if k < this.nav.actors.len() {
+                            this.nav.actors[k] = fresh;
+                        }
+                        let g = r.json["generated"].clone();
+                        this.nav.selected.clear();
+                        this.nav.vertex = None;
+                        this.note_edit(&level, cx);
+                        this.rebuild_nav(cx.theme().mode.is_dark());
+                        let missing = g["missingLevels"].as_array().map(|a| a.len()).unwrap_or(0);
+                        let cover = |k: &str| (g["coverage"][k].as_f64().unwrap_or(0.0) * 100.0).round();
+                        let text = format!("Nav mesh generated: {} faces (was {}), {} clusters; covers {}% of the old one, {}% of it lies on the old one{}", g["faces"], g["oldFaces"], g["clusters"], cover("oldCovered"), cover("newCovered"), if missing > 0 { format!("; {missing} streamed levels are not in the folder") } else { String::new() });
+                        this.toast(if missing > 0 { Tone::Warning } else { Tone::Success }, text, cx);
+                        this.nav.generated = Some(g);
+                    }
+                    Err(e) => this.toast(Tone::Error, format!("Nav mesh generation failed: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -338,11 +389,12 @@ impl MapEditor {
             .p_2()
             .gap_2()
             .rounded_md()
-            .bg(theme.background.opacity(0.92))
-            .shadow_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover)
             .text_xs()
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(h_flex().gap_2().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Havok nav mesh")).when(self.nav.loading, |d| d.child(div().text_color(theme.muted_foreground).child("reading…"))).child(div().flex_1()).child(Button::new("nav-close").xsmall().ghost().label("✕").tooltip("Hide the nav mesh").on_click(cx.listener(|this, _, _, cx| this.toggle_nav(cx)))));
+            .child(h_flex().gap_2().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Havok nav mesh")).when(self.nav.loading, |d| d.child(div().text_color(theme.muted_foreground).child("reading…"))).child(div().flex_1()).child(Button::new("nav-close").xsmall().ghost().icon(Icon::new(IconName::X)).tooltip("Hide the nav mesh").on_click(cx.listener(|this, _, _, cx| this.toggle_nav(cx)))));
         if let Some(e) = &self.nav.error {
             return Some(p.child(div().text_color(theme.muted_foreground).child(e.clone())).into_any_element());
         }
@@ -361,7 +413,7 @@ impl MapEditor {
                             this.nav.current = k;
                             this.nav.selected.clear();
                             this.nav.vertex = None;
-                            this.rebuild_nav();
+                            this.rebuild_nav(cx.theme().mode.is_dark());
                             cx.notify();
                         });
                     }));
@@ -375,7 +427,7 @@ impl MapEditor {
                 .grid()
                 .grid_cols(2)
                 .gap_x_2()
-                .font_family("Menlo")
+                .font_family(crate::studio::ui::mono())
                 .text_color(theme.muted_foreground)
                 .child(format!("{} faces", i["faces"]))
                 .child(format!("{} vertices", i["vertices"]))
@@ -397,25 +449,46 @@ impl MapEditor {
                         menu.item(PopupMenuItem::new("by region").on_click(move |_, _, cx| {
                             let _ = m1.update(cx, |this, cx| {
                                 this.nav.by_cluster = false;
-                                this.rebuild_nav();
+                                this.rebuild_nav(cx.theme().mode.is_dark());
                                 cx.notify();
                             });
                         }))
                         .item(PopupMenuItem::new("by cluster").on_click(move |_, _, cx| {
                             let _ = m2.update(cx, |this, cx| {
                                 this.nav.by_cluster = true;
-                                this.rebuild_nav();
+                                this.rebuild_nav(cx.theme().mode.is_dark());
                                 cx.notify();
                             });
                         }))
                     }))
                     .child(Checkbox::new("nav-xray").label("X-ray").checked(self.nav.xray).tooltip("Draw the nav mesh through the level").on_click(cx.listener(|this, v: &bool, _, cx| {
                         this.nav.xray = *v;
-                        this.rebuild_nav();
+                        this.rebuild_nav(cx.theme().mode.is_dark());
                         cx.notify();
                     }))),
             )
-            .child(h_flex().gap_2().text_color(theme.muted_foreground).children([(0xf38ba8, "boundary"), (0x89dceb, "user edges"), (0x94e2d5, "jump links")].map(|(c, t)| h_flex().gap_1().child(div().w(px(12.0)).h(px(2.0)).bg(super::hsla(c))).child(t))));
+            .child(h_flex().gap_2().text_color(theme.muted_foreground).children([(theme.red, "boundary"), (theme.cyan, "user edges"), (theme.green, "jump links")].map(|(c, t)| h_flex().items_center().gap_1().child(div().w(px(12.0)).h(px(2.0)).bg(c)).child(t))));
+        let gen_busy = self.nav.generating;
+        let gen_empty = self.nav.actors.is_empty();
+        p = p.child(
+            h_flex()
+                .gap_2()
+                .child(
+                    Button::new("nav-generate")
+                        .xsmall()
+                        .label(if gen_busy { "Generating…" } else { "Generate from the level" })
+                        .disabled(gen_busy || gen_empty)
+                        .tooltip(if gen_busy {
+                            "Generating nav mesh from level collision…"
+                        } else if gen_empty {
+                            "This level has no HavokNavMeshActor to populate"
+                        } else {
+                            "Replace this nav mesh with one built from what pawns collide with (blocking meshes, volumes, BSP) in the level and its streamed levels; floors no player start or current face reaches are left out, and jump links go. One undoable edit"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.nav_generate(cx))),
+                )
+                .when_some(self.nav.generated.as_ref(), |d, g| d.child(div().text_color(theme.muted_foreground).child(format!("generated: {} faces, {} ms", g["faces"], g["ms"])))),
+        );
         let mut modes = h_flex().gap_0p5();
         for (m, id, label, tip) in [(Pick::Off, "nav-off", "Actors", "Clicks select actors"), (Pick::Faces, "nav-faces", "Faces", "Clicks pick nav mesh faces (Shift adds)"), (Pick::Vertex, "nav-vertex", "Vertex", "Clicks pick the vertex of the face nearest the click")] {
             modes = modes.child(Button::new(id).xsmall().flex_1().label(label).tooltip(tip).selected(self.nav.pick == m).on_click(cx.listener(move |this, _, _, cx| {
@@ -431,21 +504,21 @@ impl MapEditor {
                     h_flex()
                         .flex_wrap()
                         .gap_1()
-                        .child(Button::new("nav-regions").xsmall().label("Whole regions").disabled(none).tooltip("Pick every face of the picked faces' regions").on_click(cx.listener(|this, _, _, cx| {
-                            this.nav_whole_regions();
+                        .child(Button::new("nav-regions").xsmall().label("Whole regions").disabled(none).tooltip(if none { "Click a face in the 3D view first" } else { "Pick every face of the picked faces' regions" }).on_click(cx.listener(|this, _, _, cx| {
+                            this.nav_whole_regions(cx.theme().mode.is_dark());
                             cx.notify();
                         })))
-                        .child(Button::new("nav-clear").xsmall().label("Clear").disabled(none).on_click(cx.listener(|this, _, _, cx| {
+                        .child(Button::new("nav-clear").xsmall().label("Clear").disabled(none).when(none, |b| b.tooltip("Click a face in the 3D view first")).on_click(cx.listener(|this, _, _, cx| {
                             this.nav.selected.clear();
                             this.nav.vertex = None;
-                            this.rebuild_nav();
+                            this.rebuild_nav(cx.theme().mode.is_dark());
                             cx.notify();
                         })))
-                        .child(Button::new("nav-delete").xsmall().danger().label("Delete faces").disabled(none).tooltip("Delete the picked faces: their neighbours' edges become boundaries, jump links to them go").on_click(cx.listener(|this, _, _, cx| {
+                        .child(Button::new("nav-delete").xsmall().danger().label("Delete faces").disabled(none).tooltip(if none { "Click a face in the 3D view first" } else { "Delete the picked faces: their neighbours' edges become boundaries, jump links to them go" }).on_click(cx.listener(|this, _, _, cx| {
                             let faces: Vec<u32> = this.nav.selected.iter().copied().collect();
                             this.nav_edit("deleteFaces", json!({ "faces": faces }), cx);
                         })))
-                        .child(Button::new("nav-cut").xsmall().danger().label("Cut region").disabled(none).tooltip("Delete every face connected to the picked ones").on_click(cx.listener(|this, _, _, cx| {
+                        .child(Button::new("nav-cut").xsmall().danger().label("Cut region").disabled(none).tooltip(if none { "Click a face in the 3D view first" } else { "Delete every face connected to the picked ones" }).on_click(cx.listener(|this, _, _, cx| {
                             let faces: Vec<u32> = this.nav.selected.iter().copied().collect();
                             this.nav_edit("deleteRegion", json!({ "faces": faces }), cx);
                         }))),
@@ -466,6 +539,6 @@ impl MapEditor {
             },
             Pick::Off => {}
         }
-        Some(p.child(div().text_color(theme.muted_foreground).opacity(0.7).child("Edits rebuild the face AABB tree and drop the clearance cache seeding; the cluster graph and the baked game data are left as they are. Undo with ⌘Z, save the level to keep them.")).into_any_element())
+        Some(p.child(div().text_color(theme.muted_foreground).child("Edits rebuild the face AABB tree and drop the clearance cache seeding; the cluster graph and the baked game data are left as they are. Undo with ⌘Z; changes are kept in your mod.")).into_any_element())
     }
 }

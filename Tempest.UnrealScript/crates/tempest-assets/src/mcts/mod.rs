@@ -31,6 +31,7 @@
 pub mod choices;
 pub mod create;
 pub mod skins;
+pub mod sounds;
 pub mod delta;
 pub mod doc;
 pub mod workspace;
@@ -396,7 +397,6 @@ pub struct Marshal {
 struct Reader<'a> {
     d: &'a [u8],
     pos: usize,
-    tokens: &'a Tokens,
     encoding: Option<u8>,
 }
 
@@ -566,7 +566,7 @@ pub fn parse(bytes: &[u8], tokens: &Tokens) -> Result<Marshal> {
         hash == 0 || tokens.function_name(hash).is_some() || tokens.functions.is_empty()
     };
     let attempt = |legacy: bool| -> Result<Marshal> {
-        let mut r = Reader { d: bytes, pos: 0, tokens, encoding: None };
+        let mut r = Reader { d: bytes, pos: 0, encoding: None };
         let (flags, function) = if legacy { (0, r.u16()? as u32) } else { (r.u8()?, r.u32()?) };
         let root = r.row()?;
         if r.pos != bytes.len() {
@@ -899,6 +899,99 @@ mod tests {
         assert_eq!(t.function("GET_DATA_ASSEMBLY"), 0x2E2EC0E9);
         assert_eq!(t.function_name(0x2E2EC0E9), Some("GET_DATA_ASSEMBLY"));
         assert_eq!(t.kind(t.token("ITEM_ID").unwrap()), Kind::Dword);
+    }
+
+    #[test]
+    fn undo_back_to_the_file_is_clean() {
+        let t = Tokens::builtin();
+        let items = t.token("DATA_SET_ITEMS").unwrap();
+        let price = t.token("PRICE").unwrap();
+        let mut row = Row::default();
+        row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
+        row.set(price, Value::Num(5));
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let dir = std::env::temp_dir().join(format!("tempest-mcts-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("assembly.dat");
+        std::fs::write(&file, write_obscured(&m, &t)).unwrap();
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        let path = [(items, 0usize)];
+        // Every edit undone: the document is the file again.
+        doc.set_text(&t, &path, price, "6").unwrap();
+        assert!(doc.dirty);
+        doc.undo().unwrap();
+        assert!(!doc.dirty);
+        // Saved with an edit, then undone below the save: unsaved until redone back to it, or for good after a new edit.
+        doc.set_text(&t, &path, price, "7").unwrap();
+        doc.save(&t, None).unwrap();
+        assert!(!doc.dirty);
+        doc.set_text(&t, &path, price, "8").unwrap();
+        doc.undo().unwrap();
+        assert!(!doc.dirty);
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        doc.set_text(&t, &path, price, "9").unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        // Edits put back without undo steps stay unsaved.
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        doc.mark_changed();
+        doc.set_text(&t, &path, price, "1").unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn redo_puts_undone_edits_back() {
+        let t = Tokens::builtin();
+        let items = t.token("DATA_SET_ITEMS").unwrap();
+        let price = t.token("PRICE").unwrap();
+        let mut row = Row::default();
+        row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
+        row.set(price, Value::Num(5));
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let dir = std::env::temp_dir().join(format!("tempest-mcts-redo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("assembly.dat");
+        std::fs::write(&file, write_obscured(&m, &t)).unwrap();
+        let mut doc = doc::Doc::open(&file, &t).unwrap();
+        let path = [(items, 0usize)];
+        let count = |doc: &doc::Doc| match doc.marshal.root.get(items) {
+            Some(Value::Rows(r)) => r.len(),
+            _ => 0,
+        };
+        let price_of = |doc: &doc::Doc| match doc.marshal.root.get(items) {
+            Some(Value::Rows(r)) => r[0].get(price).cloned(),
+            _ => None,
+        };
+        // A saved edit undone, then redone: clean again.
+        doc.set_text(&t, &path, price, "7").unwrap();
+        doc.save(&t, None).unwrap();
+        doc.undo().unwrap();
+        assert!(doc.dirty);
+        assert_eq!(doc.redo().unwrap().as_deref(), Some("set PRICE"));
+        assert!(!doc.dirty);
+        assert_eq!(price_of(&doc), Some(Value::Num(7)));
+        assert_eq!(doc.redo().unwrap(), None);
+        // Insert and delete come back in place.
+        let at = doc.insert(&t, &[], items, None, Some(0)).unwrap();
+        assert_eq!((at, count(&doc)), (1, 2));
+        doc.delete(&t, &[(items, 0)]).unwrap();
+        assert_eq!(count(&doc), 1);
+        doc.undo().unwrap();
+        doc.undo().unwrap();
+        assert_eq!(count(&doc), 1);
+        doc.redo().unwrap();
+        assert_eq!(count(&doc), 2);
+        doc.redo().unwrap();
+        assert_eq!(count(&doc), 1);
+        // A new edit drops what could be redone.
+        doc.undo().unwrap();
+        doc.set_text(&t, &path, price, "9").unwrap();
+        assert_eq!(doc.redo().unwrap(), None);
+        assert!(doc.redo_labels().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

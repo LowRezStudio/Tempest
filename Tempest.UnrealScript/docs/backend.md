@@ -45,6 +45,7 @@ the first search, batch plan or textured mesh/material preview). Methods:
 `workspace.{open,packages,search,summary,trim}`, `package.{open,tables,close,dirty,save,rewrite,verify}`,
 `object.{get,text,set,rename,delete,copy,deps,extract}`,
 `texture.{info,preview,export,exportAll,import}`, `mesh.{info,preview,export}`,
+`material.{preview,gameShader,setParameter,setTexture,newInstance}` (game shaders: assets.md),
 `media.{preview,export,import}`, `mod.dir`. `script.{source,compile,export}` drive
 `tempest_unrealscript::toolchain`: `source` decompiles the package once (cached) and returns the
 class owning the export; `compile` writes the cached sources with one class replaced to a temp dir,

@@ -11,7 +11,7 @@ use std::rc::Rc;
 use gpui::{div, prelude::*, px, Context, PathPromptOptions, SharedString, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Sizable, WindowExt, Selectable};
 use serde_json::{json, Value as J};
 
 use super::{file_name, Studio, Tone};
@@ -122,7 +122,18 @@ impl Studio {
         super::dialogs::confirm(window, cx, format!("Delete {name}?"), "Its sub-objects go too, and references to them are cleared. Undo (⌘Z) takes it back.", "Delete", true, move |_, cx| {
             let (path, name) = (path.clone(), name.clone());
             let _ = me.update(cx, |this, cx| {
-                this.change("object.delete", json!({ "path": path, "indices": [i] }), move |r| format!("Deleted {name} ({} references cleared)", r["cleared"]), |_, _| None, cx);
+                this.change(
+                    "object.delete",
+                    json!({ "path": path, "indices": [i] }),
+                    move |r| {
+                        format!(
+                            "Deleted {name} ({})",
+                            if r["cleared"].as_u64() == Some(1) { "1 reference cleared".to_string() } else { format!("{} references cleared", r["cleared"]) }
+                        )
+                    },
+                    |_, _| None,
+                    cx,
+                );
             });
         });
     }
@@ -144,7 +155,7 @@ impl Studio {
         let set = class.eq_ignore_ascii_case("animset");
         let opts = Rc::new(RefCell::new(Opts { format: 0, mip: 0, lod: 0, all: set, ..Default::default() }));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
             let o = opts.borrow().clone();
             let mut body = v_flex().gap_3();
@@ -157,7 +168,7 @@ impl Studio {
             }
             if k == Kind::Anim {
                 let flag = opts.clone();
-                body = body.child(Checkbox::new("exp-all").label("Every sequence of the animation set (one animation each)").checked(o.all).disabled(set).on_click(move |v, window, _| {
+                body = body.child(Checkbox::new("exp-all").label("Every sequence of the animation set (one animation each)").checked(o.all).disabled(set).when(set, |c| c.tooltip("An AnimSet always exports all of its sequences")).on_click(move |v, window, _| {
                     flag.borrow_mut().all = *v;
                     window.refresh();
                 }));
@@ -166,7 +177,7 @@ impl Studio {
                 body = body.child(div().text_xs().text_color(theme.muted_foreground).child("Textures are embedded (glTF, FBX). glTF is in metres, FBX in centimetres; the skeleton's joints point along the bones so Blender draws limbs."));
             }
             let (me, opts, path, name) = (me.clone(), opts.clone(), path.clone(), name.clone());
-            dialog.title(format!("Export {name}")).w(px(520.0)).child(body).footer(super::dialogs::footer("Choose where…", false, true, move |window, cx| {
+            dialog.title(format!("Export {name}")).w(px(520.0)).max_w(window.viewport_size().width * 0.94).child(body).footer(super::dialogs::footer("Choose where…", false, true, move |window, cx| {
                 window.close_dialog(cx);
                 let o = opts.borrow().clone();
                 let ext = formats[o.format].0;
@@ -211,7 +222,7 @@ impl Studio {
         let set = class.eq_ignore_ascii_case("animset");
         let opts = Rc::new(RefCell::new(Opts { mips: true, keep_alpha: true, pad: true, all: set, ..Default::default() }));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
             let o = opts.borrow().clone();
             let check = |id: &'static str, label: &'static str, on: bool, set: fn(&mut Opts, bool)| {
@@ -221,7 +232,7 @@ impl Studio {
                     window.refresh();
                 })
             };
-            let mut body = v_flex().gap_3().child(div().text_sm().text_color(theme.muted_foreground).child(format!("{name} becomes {what}. It is an unsaved edit: Undo takes it back.")));
+            let mut body = v_flex().gap_3().child(div().text_sm().text_color(theme.muted_foreground).child(format!("{name} becomes {what}. It is an edit: Undo takes it back.")));
             match k {
                 Kind::Texture => {
                     body = body
@@ -239,7 +250,7 @@ impl Studio {
                 _ => {}
             }
             let (me, opts, path, name) = (me.clone(), opts.clone(), path.clone(), name.clone());
-            dialog.title(format!("Replace {name}")).w(px(560.0)).child(body).footer(super::dialogs::footer("Choose the file…", false, true, move |window, cx| {
+            dialog.title(format!("Replace {name}")).w(px(560.0)).max_w(window.viewport_size().width * 0.94).child(body).footer(super::dialogs::footer("Choose the file…", false, true, move |window, cx| {
                 window.close_dialog(cx);
                 let o = opts.borrow().clone();
                 let (path, name) = (path.clone(), name.clone());
@@ -308,7 +319,7 @@ fn choices(label: &'static str, items: Vec<String>, at: usize, opts: Rc<RefCell<
             set(&mut opts.borrow_mut(), k);
             window.refresh();
         });
-        row = row.child(if k == at { b.primary() } else { b.ghost() });
+        row = row.child(b.ghost().selected(k == at));
     }
     v_flex().gap_1().child(div().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(label)).child(row)
 }
@@ -322,31 +333,48 @@ impl Studio {
     pub(super) fn ask_anim_pick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((names, params, name, shown)) = self.pending_anim_pick.take() else { return };
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
+            let ring = theme.ring;
+            let hover_bg = theme.list_hover;
             let mut list = v_flex().gap_1();
             for (k, n) in names.iter().enumerate() {
                 let (me, params, name, shown, n2) = (me.clone(), params.clone(), name.clone(), shown.clone(), n.clone());
+                type PickFn = Rc<dyn Fn(&mut Window, &mut gpui::App)>;
+                let pick: PickFn = Rc::new(move |window, cx| {
+                    window.close_dialog(cx);
+                    let mut params = params.clone();
+                    params["animation"] = json!(k);
+                    let (name, shown, n2) = (name.clone(), shown.clone(), n2.clone());
+                    let _ = me.update(cx, |this, cx| this.change("anim.import", params, move |_| format!("Replaced {name} with {n2} of {shown}"), |_, i| Some(i), cx));
+                });
+                let pick_key = pick.clone();
                 list = list.child(
                     div()
                         .id(("anim-pick", k))
+                        .focusable()
+                        .tab_index(0)
                         .px_2()
                         .py_1()
                         .rounded_md()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
                         .text_sm()
                         .cursor_pointer()
-                        .hover(|s| s.bg(theme.list_hover))
-                        .on_click(move |_, window, cx| {
-                            window.close_dialog(cx);
-                            let mut params = params.clone();
-                            params["animation"] = json!(k);
-                            let (name, shown, n2) = (name.clone(), shown.clone(), n2.clone());
-                            let _ = me.update(cx, |this, cx| this.change("anim.import", params, move |_| format!("Replaced {name} with {n2} of {shown}"), |_, i| Some(i), cx));
+                        .hover(move |s| s.bg(hover_bg))
+                        .on_key_down(move |e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                pick_key(window, cx);
+                            }
                         })
+                        .on_click(move |_, window, cx| pick(window, cx))
                         .child(n.clone()),
                 );
             }
-            dialog.title(format!("Which animation of {shown}?")).w(px(480.0)).child(div().id("anim-pick-list").max_h(px(400.0)).overflow_y_scroll().child(list))
+            dialog.title(format!("Which animation of {shown}?")).w(px(480.0)).max_w(window.viewport_size().width * 0.94).child(div().id("anim-pick-list").max_h(px(400.0)).overflow_y_scroll().child(list))
         });
     }
 }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use gpui::{div, img, prelude::*, px, AnyElement, Context, Image, ImageFormat, ObjectFit};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
 use serde_json::json;
 
 use super::Studio;
@@ -68,7 +68,7 @@ impl Studio {
                 }
                 match r {
                     Ok(r) => this.preview = r.bin(&r.json["png"]).map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))),
-                    Err(e) => this.set_status(format!("Mip {mip}: {e}"), cx),
+                    Err(e) => this.toast(super::Tone::Error, format!("Mip {mip}: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -104,7 +104,7 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if zoom == z { b.primary() } else { b.ghost() }
+            b.ghost().selected(zoom == z)
         };
         let me = cx.entity().downgrade();
         let mips = t.map(|t| t.mips.clone()).unwrap_or_default();
@@ -125,16 +125,17 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if bg == v { b.primary() } else { b.ghost() }
+            b.ghost().selected(bg == v)
         };
         let bar = h_flex()
+            .items_center()
             .gap_1()
             .child(zb("tex-fit", "Fit", None, cx))
             .child(zb("tex-1", "1:1", Some(1.0), cx))
             .child(zb("tex-2", "2×", Some(2.0), cx))
-            .child(div().w(px(8.0)))
+            .child(div().w(px(1.0)).h(px(14.0)).mx_1().bg(theme.border))
             .child(mip_menu)
-            .child(div().w(px(8.0)))
+            .child(div().w(px(1.0)).h(px(14.0)).mx_1().bg(theme.border))
             .child(bgb("tex-bg-dark", "Dark", 0, cx))
             .child(bgb("tex-bg-grey", "Grey", 1, cx))
             .child(bgb("tex-bg-light", "Light", 2, cx));
@@ -145,6 +146,7 @@ impl Studio {
                 .child(bar)
                 .child(div().w_full().h(px(340.0)).flex_none().overflow_hidden().rounded_md().bg(back).child(pic))
                 .child(div().text_xs().text_color(theme.muted_foreground).child(info))
+                .child(super::ui::hint("Export saves a PNG you can edit; Replace puts your edited image into your mod.", &theme))
                 .into_any_element(),
         )
     }

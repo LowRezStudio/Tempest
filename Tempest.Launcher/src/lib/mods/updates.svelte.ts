@@ -3,6 +3,7 @@ import { installQueue, isGameRunning } from "$lib/mods/installQueue.svelte";
 import { installFromRepo } from "$lib/mods/repoInstall";
 import { getQueryClient } from "$lib/queries/client";
 import { checkRepoUpdates, repoUpdatesKey, updatableMods } from "$lib/queries/repo";
+import { isFlagEnabled } from "$lib/stores/flags.svelte";
 import { instanceMap } from "$lib/stores/instance.svelte";
 import { persistedJSON } from "$lib/stores/persisted.svelte";
 import { autoInstallModUpdates } from "$lib/stores/settings.svelte";
@@ -32,25 +33,35 @@ export const queuedUpdateOf = (gamePath: string, modId: string, version: string)
 export const modUpdatePrompt = $state<{ gamePath: string | null }>({ gamePath: null });
 let waitingPrompts: string[] = [];
 
+// Once shown, the popup stays quiet for a while so refocusing doesn't nag on every switch.
+const PROMPT_COOLDOWN_MS = 5 * 60_000;
+let lastPromptShownAt = 0;
+
 export function openModUpdates(gamePath: string) {
+	lastPromptShownAt = Date.now();
 	modUpdatePrompt.gamePath = gamePath;
 }
 
 export function closeModUpdates() {
+	if (isFlagEnabled("no-mod-update-prompts")) waitingPrompts = [];
 	modUpdatePrompt.gamePath = waitingPrompts.shift() ?? null;
 }
 
 function showPrompts(gamePaths: string[]) {
+	if (isFlagEnabled("no-mod-update-prompts")) return;
 	const current = modUpdatePrompt.gamePath;
 	if (current) {
 		waitingPrompts = gamePaths.filter((path) => path !== current);
 		return;
 	}
+	if (gamePaths.length === 0) return;
+	if (Date.now() - lastPromptShownAt < PROMPT_COOLDOWN_MS) return;
 	// The popup waits behind the launcher's own update dialog, but never covers another
-	// dialog the user is in the middle of; it comes back the next time the launcher gets focus.
+	// dialog the user is in the middle of; it comes back on a later refocus once the cooldown passed.
 	if (!updaterStore.isOpen && document.querySelector('[role="dialog"]')) return;
 	waitingPrompts = gamePaths.slice(1);
 	modUpdatePrompt.gamePath = gamePaths[0] ?? null;
+	lastPromptShownAt = Date.now();
 }
 
 // Each update is tried once per session; one that failed or was declined stays in the popup.

@@ -2,18 +2,19 @@
 //! kinds of actors are drawn, and the outliner (a virtual list: maps have
 //! thousands of actors).
 
-use gpui::{div, prelude::*, px, uniform_list, AnyElement, Context};
+use gpui::{div, prelude::*, px, uniform_list, AnyElement, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::Input;
 use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable};
 use gpui_kit_assets::IconName;
 
-use super::{hsla, MapEditor, CATEGORIES};
+use super::{category_color, MapEditor, CATEGORIES};
 
 impl MapEditor {
     /// The outliner's rows: (level, export, name, class, colour).
-    pub(super) fn outliner_rows(&self, cx: &gpui::App) -> Vec<(String, usize, String, String, u32)> {
+    pub(super) fn outliner_rows(&self, cx: &gpui::App) -> Vec<(String, usize, String, String, gpui::Hsla)> {
+        let theme = cx.theme();
         let q = self.filter.read(cx).value().trim().to_ascii_lowercase();
         let mut out = Vec::new();
         for l in &self.levels {
@@ -31,7 +32,7 @@ impl MapEditor {
                 if !q.is_empty() && !a.name.to_ascii_lowercase().contains(&q) && !a.class.to_ascii_lowercase().contains(&q) {
                     continue;
                 }
-                out.push((l.path.clone(), a.export, a.name.clone(), a.class.clone(), a.color()));
+                out.push((l.path.clone(), a.export, a.name.clone(), a.class.clone(), a.ui_color(theme)));
             }
         }
         out
@@ -68,37 +69,53 @@ impl MapEditor {
         cx.notify();
     }
 
-    pub(super) fn render_side(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_side(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let Some(path) = self.path.clone() else {
+            let pick_h = crate::studio::ui::row_h(window);
             let q = self.map_filter.read(cx).value().trim().to_ascii_lowercase();
             let maps: Vec<_> = self.list.iter().flatten().filter(|m| (!self.persistent_only || m.persistent) && m.name.to_ascii_lowercase().contains(&q)).cloned().collect();
             let rows: Vec<AnyElement> = maps
                 .iter()
                 .enumerate()
                 .map(|(k, m)| {
-                    let p = m.path.clone();
+                    let (p, p_key) = (m.path.clone(), m.path.clone());
                     h_flex()
                         .id(("map-pick", k))
-                        .px_2()
+                        .min_h(pick_h)
                         .py_0p5()
+                        .px_2()
                         .gap_2()
-                        .text_xs()
+                        .text_sm()
+                        .rounded_sm()
                         .cursor_pointer()
+                        .focusable()
+                        .tab_index(0)
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(|s| s.border_1().border_color(theme.ring))
                         .hover(|s| s.bg(theme.list_hover))
                         .child(crate::driver::probe(format!("map-{}", m.name.trim_end_matches(".upk").to_ascii_lowercase())))
                         .child(Icon::new(IconName::Map).xsmall())
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(m.name.trim_end_matches(".upk").to_string()))
+                        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(m.name.trim_end_matches(".upk").to_string()))
                         .when(m.kismet, |d| d.child(Icon::new(IconName::Workflow).xsmall().text_color(theme.muted_foreground)))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, _, cx| {
+                            if matches!(e.keystroke.key.as_str(), "enter" | "space") {
+                                cx.stop_propagation();
+                                this.open(p_key.clone(), None, true, None, cx);
+                            }
+                        }))
                         .on_click(cx.listener(move |this, _, _, cx| this.open(p.clone(), None, true, None, cx)))
                         .into_any_element()
                 })
                 .collect();
+            let count = maps.len();
             return v_flex()
                 .size_full()
                 .text_xs()
-                .child(div().p_2().border_b_1().border_color(theme.border).child(Input::new(&self.map_filter).xsmall()))
-                .child(div().px_2().py_1().child(Checkbox::new("map-persistent").label("Playable maps only (those that stream sublevels)").checked(self.persistent_only).on_click(cx.listener(|this, v: &bool, _, cx| {
+                .child(crate::studio::ui::pane_header("Maps", div().text_xs().font_weight(gpui::FontWeight::NORMAL).child(count.to_string()), &theme))
+                .child(crate::studio::ui::pane_filter(Input::new(&self.map_filter).small().cleanable(true)))
+                .child(div().px_2().pb_1().child(Checkbox::new("map-persistent").label("Playable maps only").tooltip("Only the maps that stream sublevels: the ones you play").checked(self.persistent_only).on_click(cx.listener(|this, v: &bool, _, cx| {
                     this.persistent_only = *v;
                     cx.notify();
                 }))))
@@ -115,15 +132,14 @@ impl MapEditor {
                 h_flex()
                     .px_2()
                     .gap_1()
-                    .when(hidden, |d| d.opacity(0.5))
-                    .child(Button::new(("lvl-eye", k)).xsmall().ghost().icon(Icon::new(if hidden { IconName::EyeOff } else { IconName::Eye })).tooltip(if hidden { "Show this level" } else { "Hide this level" }).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(Button::new(("lvl-eye", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(if hidden { IconName::EyeOff } else { IconName::Eye })).tooltip(if hidden { "Show this level" } else { "Hide this level" }).on_click(cx.listener(move |this, _, _, cx| {
                         let shown = this.hidden_levels.contains(&p1);
                         this.set_level_shown(&p1, shown, cx);
                     })))
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(l.name.clone()))
-                    .when(dirty, |d| d.child(div().text_color(theme.warning).child("●")))
+                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).when(hidden, |d| d.text_color(theme.muted_foreground)).child(l.name.clone()))
+                    .when(dirty, |d| d.child(div().flex_none().size(px(6.0)).rounded_full().bg(theme.warning)))
                     .child(div().text_color(theme.muted_foreground).child(l.actors.len().to_string()))
-                    .child(Button::new(("lvl-kismet", k)).xsmall().ghost().icon(Icon::new(IconName::Workflow)).tooltip("Kismet of this level").on_click(cx.listener(move |this, _, _, cx| this.open_kismet(p2.clone(), None, true, cx)))),
+                    .child(Button::new(("lvl-kismet", k)).xsmall().ghost().text_color(theme.muted_foreground).icon(Icon::new(IconName::Workflow)).tooltip("Kismet of this level").on_click(cx.listener(move |this, _, _, cx| this.open_kismet(p2.clone(), None, true, cx)))),
             );
         }
         if !self.missing.is_empty() {
@@ -135,8 +151,45 @@ impl MapEditor {
                 *totals.entry(a.category.as_str()).or_insert(0usize) += 1;
             }
         }
-        let mut cats = div().grid().grid_cols(2).gap_x_2().px_2().pb_1();
-        for (ci, (id, label, color)) in CATEGORIES.iter().enumerate() {
+        let hidden_cats = CATEGORIES.iter().filter(|(id, _)| totals.contains_key(id) && self.hidden_categories.contains(*id)).count();
+        let cat_summary = if hidden_cats == 0 {
+            "Actor types (all shown)".to_string()
+        } else {
+            format!("Actor types ({hidden_cats} hidden)")
+        };
+        let show_cats = self.show_categories;
+        let cat_toggle = h_flex()
+            .id("map-cat-toggle")
+            .min_h(px((1.35 * f32::from(window.rem_size())).max(22.0).round()))
+            .mx_1()
+            .px_1()
+            .py_0p5()
+            .gap_1()
+            .items_center()
+            .rounded_sm()
+            .cursor_pointer()
+            .focusable()
+            .tab_index(0)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus_visible(|s| s.border_1().border_color(theme.ring))
+            .hover(|s| s.bg(theme.list_hover))
+            .child(Icon::new(if show_cats { IconName::ChevronDown } else { IconName::ChevronRight }).xsmall().text_color(theme.muted_foreground))
+            .child(Icon::new(IconName::SlidersHorizontal).xsmall().text_color(theme.muted_foreground))
+            .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().font_weight(gpui::FontWeight::MEDIUM).text_color(if hidden_cats > 0 { theme.foreground } else { theme.muted_foreground }).child(cat_summary))
+            .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, _, cx| {
+                if matches!(e.keystroke.key.as_str(), "enter" | "space") {
+                    cx.stop_propagation();
+                    this.show_categories = !this.show_categories;
+                    cx.notify();
+                }
+            }))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.show_categories = !this.show_categories;
+                cx.notify();
+            }));
+        let mut cats = div().grid().grid_cols(2).gap_x_2().px_2().pb_1().pt_0p5();
+        for (ci, (id, label)) in CATEGORIES.iter().enumerate() {
             let Some(n) = totals.get(id) else { continue };
             let shown = !self.hidden_categories.contains(*id);
             cats = cats.child(
@@ -144,7 +197,7 @@ impl MapEditor {
                     .gap_1p5()
                     .py_0p5()
                     .child(Checkbox::new(("cat", ci)).checked(shown).on_click(cx.listener(move |this, v: &bool, _, cx| this.set_category(id, *v, cx))))
-                    .child(div().size(px(8.0)).rounded_full().bg(hsla(*color)))
+                    .child(div().size(px(8.0)).rounded_full().bg(category_color(id, &theme)))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label.to_string()))
                     .child(div().text_color(theme.muted_foreground).child(n.to_string())),
             );
@@ -158,8 +211,9 @@ impl MapEditor {
             count,
             cx.processor({
                 let rows = rows.clone();
-                move |_this, range: std::ops::Range<usize>, _, cx| {
+                move |_this, range: std::ops::Range<usize>, window, cx| {
                     let theme = cx.theme().clone();
+                    let row_h = px((1.35 * f32::from(window.rem_size())).max(20.0).round());
                     range
                         .map(|k| {
                             let (level, export, name, class, color) = rows[k].clone();
@@ -167,22 +221,33 @@ impl MapEditor {
                             let (l2, l3) = (level.clone(), level.clone());
                             h_flex()
                                 .id(("map-row", k))
-                                .h(px(20.0))
+                                .min_h(row_h)
+                                .py_0p5()
                                 .px_2()
                                 .gap_1p5()
                                 .text_xs()
                                 .cursor_pointer()
+                                .focusable()
+                                .tab_index(0)
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(|s| s.border_1().border_color(theme.ring))
                                 .when(on, |d| d.bg(theme.primary.opacity(0.2)))
                                 .when(!on, |d| d.hover(|d| d.bg(theme.list_hover)))
-                                .child(div().size(px(8.0)).flex_none().rounded_full().bg(hsla(color)))
-                                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(name))
+                                .child(div().size(px(8.0)).flex_none().rounded_full().bg(color))
+                                .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(name))
                                 .child(div().max_w(px(120.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(theme.muted_foreground).child(class))
+                                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, _, cx| {
+                                    if matches!(e.keystroke.key.as_str(), "enter" | "space") {
+                                        cx.stop_propagation();
+                                        this.select(Some((l3.clone(), export)), true, cx);
+                                    }
+                                }))
                                 .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                                     this.select(Some((l2.clone(), export)), true, cx);
                                     if e.click_count() == 2 {
                                         this.frame_selection();
                                     }
-                                    let _ = &l3;
                                 }))
                                 .into_any_element()
                         })
@@ -196,27 +261,20 @@ impl MapEditor {
             .size_full()
             .text_xs()
             .child(
-                h_flex()
-                    .px_2()
-                    .py_1p5()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Icon::new(IconName::Map).xsmall())
-                    .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").font_weight(gpui::FontWeight::SEMIBOLD).child(name))
-                    .child(Button::new("map-change").xsmall().ghost().label("Change").tooltip("Pick another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx)))),
+                crate::studio::ui::pane_header(name, Button::new("map-change").xsmall().ghost().label("Change").tooltip("Pick another map").on_click(cx.listener(|this, _, _, cx| this.close_map(cx))), &theme),
             )
-            .child(div().px_2().pt_1().text_color(theme.muted_foreground).font_weight(gpui::FontWeight::SEMIBOLD).child("LEVELS"))
+            .child(div().px_2().child(crate::studio::ui::section("Levels", &theme)))
             .child(levels)
-            .child(div().px_2().pt_1().border_t_1().border_color(theme.border).text_color(theme.muted_foreground).font_weight(gpui::FontWeight::SEMIBOLD).child("SHOW"))
-            .child(cats)
+            .child(div().px_2().border_t_1().border_color(theme.border).child(crate::studio::ui::section("Filter actor types", &theme)))
+            .child(cat_toggle)
+            .when(show_cats, |d| d.child(cats))
             .child(
                 h_flex()
                     .p_2()
                     .gap_2()
                     .border_t_1()
                     .border_color(theme.border)
-                    .child(div().flex_1().child(Input::new(&self.filter).xsmall()))
+                    .child(div().flex_1().min_w_0().child(Input::new(&self.filter).xsmall().cleanable(true)))
                     .child(div().text_color(theme.muted_foreground).child(count.to_string())),
             )
             .child(div().px_2().pb_1().child(Checkbox::new("map-rooftops").label("Only what can't be stood on (rooftops)").checked(self.rooftops_only).on_click(cx.listener(|this, v: &bool, _, cx| {

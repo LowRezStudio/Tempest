@@ -8,17 +8,35 @@ current sources.
 ## Packages and asset previews
 
 Packages view (`packages.rs`, `inspector.rs`, `actions.rs`, `dialogs.rs`): package list and export
-tree with keys and context menus, inspector (properties edited in place, array ops, add property,
-References, Source + Compile), object actions (rename, duplicate, copy to, delete, export/replace by
+tree with keys and context menus, inspector (properties edited in place: Enter or leaving the field applies, Escape
+cancels; structs and arrays fold, nested ones and arrays over 64 elements start folded
+(`model::unfolded`); array ops, add a property or a field of a tagged struct (`object.missing {at}`);
+a note for exports that did not parse or are empty; References, Source, Dump (`object.text`)), object actions (rename, duplicate, copy to, delete, export/replace by
 kind: texture, mesh, sound/movie `media.*`, animation, raw), New package, Add to the package (from a
 file with a model object, copy from another package, material instance, group), Replace with, Find
 and replace, Batch import, Discard, Check (`package.verify`). Previews: texture, mesh (`mesh.rs`
-viewport over `mesh_view.rs`: wgpu off-screen into a canvas; LODs, textures, wireframe, Fit) with
+viewport over `mesh_view.rs`: wgpu off-screen into a canvas; LODs and per-LOD vertices, triangles
+and section materials from `mesh.info`, textures, wireframe, Fit) with
 its material slots, material (`material.rs`: sphere, parent chain, textures with Change…/From a
-file…, scalars and colours edited, New instance; slots: Change…, Make it this mesh's own, Own
-materials for every slot, add/remove slot), sound (`sound.rs`: waveform, rodio playback via
-`src/audio.rs`, editor trim/fades/gain/normalise/channels/quality → `sound.replacePcm`), Wwise
-(`wwise.rs`: AkEvent/AkBank media, play/export/replace), animation (`anim.rs`: `anim.preview` GLB
+file…, scalars and colours edited, New instance; slots: Change…, Preview… (`mesh_preview`: the
+slot drawn with a material of any package, passed as `materials` `{path, index}` to `mesh.preview`
+and `material.gameShader`, the mesh unchanged; Keep / Stop per slot, `Cmd::StopMaterialPreview`),
+Make it this mesh's own, Own materials for every slot, add/remove slot). Game shaders (`game_material.rs`): the material
+sphere and each mesh section are drawn by their material's compiled shaders (`material.gameShader`,
+translated to WGSL; a `GamePass` per material, constants filled by name each frame, one directional
+light and a sky that follow the camera, no fog, white renderer textures; materials compiled for
+skinned meshes get the lobby's key light, about four times a level's, since the character master
+materials quarter their direct diffuse: Evie's skin01 looked tanned under the level's); the toggle is
+`Cmd::GameShaders` and the "Game shader(s)" button. Materials whose uniform expressions read the clock
+redraw at 30 fps. The mesh view feeds them the GLB's tangents in the game's space (mirrored, so the
+sign flips) and the same camera through `to_gltf_matrix`; sections without a compiled map stay base
+colour, and the button's tooltip says why. `Params::runtime` pins what the game drives at run time
+(the lobby selection glow off). Shader model 5 by default (`Cmd::ShaderModel` switches to 3, kept in
+`prefs.sm3`, read through `game_material::platform()`); constants are written by byte offset. Sound (`sound.rs`: waveform, rodio playback via
+`src/audio.rs`, editor trim/fades/gain/normalise/channels/quality → `sound.replacePcm`; the same
+editor on a Wwise medium, `sound::Slot::Wwise` in `Studio::ww_sound` → `wwise.replacePcm`, undoable
+as a `WwiseStep` like a replacement from a file), Wwise (`wwise.rs`: AkEvent/AkBank media named by
+role, the ability the event belongs to, play/edit/export/replace), animation (`anim.rs`: `anim.preview` GLB
 skinned on the CPU in `MeshView::set_time`, play/scrub/speed/loop, notifies, mesh and sequence
 pickers).
 
@@ -47,8 +65,16 @@ details; empty `None` placeholder exports are left out of the tree; export rows 
 readable class names (`pretty_class`, `class_icon`). Texture preview (`texture.rs`): Fit / 1:1 / 2×,
 any stored mip, dark / grey / light background, size, format and where the mip lives. Mesh viewport:
 the wheel zooms without scrolling the pane, the background follows the theme. **Audio** view (⌘4,
-`audio_view.rs`): every `.pck` of the folder, its events by name, the media of one event or all,
-Play / Export / Replace. Package info (package context menu). A linked recovery workspace file every
+`audio_view.rs`): Files / Champions / Items. Files: every `.pck` of the folder and its subfolders
+(`ui::folder_mark`, as in the package list; the empty packages the folder keeps for `English(US)/`
+are hidden). Champions and Items (`wwise.owners`, read once): a champion's voice lines, abilities,
+weapon, quick chat and skins (the Champions view's Sounds button opens it), or an item's sounds,
+opened together (`wwise.open {banks}`) with a section per file (`sound_names::bank_label`: kind and
+skin name). Events by name, the media of one event or all, Play / Edit / Export / Replace; the editor
+sits above the sounds. **Settings ▸ Name sounds by what plays them** (`prefs.sound_names`, on by
+default, `Cmd::SoundNames`): events in words (`title`) with their ability, card or skin, sounds by
+role (`sound_names::when_text`: heard by enemies / by you and your team, `2 of 5`, `on grass`),
+exports named after them; off: the game's event names and ids. Package info (package context menu). A linked recovery workspace file every
 2 minutes with unsaved edits outside a project (`recovery/<hash>.twrk`, offered in a banner when the
 folder opens). A `.upk` argument opens its folder and the package. Assembly toolbar: New content,
 row add/duplicate/delete icons, ⋯ (Skins, Champion vendor, Export mod folder, Undo, Discard).
@@ -84,3 +110,22 @@ replaced by the reply, unsaved like any edit; undo reloads the preview). Driver:
 pause|play|restart|fit|step <s>|emitter <n>|module <n>|set <curve> <entry> <k> <v>|apply`;
 `studio_state.particles` lists emitters with counts, the chosen module's curves, drafts and the
 focused graph's points in window coordinates.
+
+## Source, tools and menus
+
+Script **Source** (`inspector.rs`): the class's decompiled text in an editor; an edit is a draft kept
+per (package, class) while the window lives (`Studio::drafts`), with a "modified" mark and Revert;
+the caret goes to the selected member (`member_line`) or to a compile error's line; Compile (⌘Enter)
+lists warnings. **Tools** (`tools.rs`, all commands): Open package file… (⌘O; a package outside the
+folder joins the list), Rewrite compressed / uncompressed (`package.rewrite`), Export the class
+sources (`script.export`), Prepare a mod folder (`mod.dir`, `delta.status`/`delta.record`), Extract
+the raw data (`object.extract`), Discard all, Toggle theme, Show the project folder; Package info
+has Imports… and Names… (filtered virtual lists, `package.names`). Export menu: also the path inside
+the package, Extract the raw data, Add next to it. Tabs have a menu (Close, Close the others, Close
+those to the right, Duplicate). Welcome: recent folders and projects can be removed or cleared, a
+folder opens in a new window, Open a package file.
+
+GLB reading (`map_render::parse_glb`, `MeshView::new`) skips primitives, skins and animation tracks
+whose accessors hold no element: `gltf`'s readers underflow on them (a panic in debug builds) and
+wgpu refuses an empty buffer slice (a panic in release builds). Meshes with a section of no
+triangles (Shootingrange's) are why.

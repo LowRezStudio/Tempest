@@ -127,6 +127,83 @@ fn matrix_view(v: Option<&Value>, pkg: &Package) -> Vec<f64> {
     crate::map::to_view(&m)
 }
 
+/// An `FKAggregateGeom` as triangles (a list, the mesh's space): convex
+/// hulls as they are, boxes as boxes, spheres and capsules as the boxes
+/// around them (what a nav mesh voxelises).
+pub fn agg_triangles(agg: Option<&Value>, pkg: &Package) -> Vec<V> {
+    let Some(a) = agg else { return Vec::new() };
+    let mut out = Vec::new();
+    for e in read_convex(agg, pkg) {
+        for t in e.face_tri_data.chunks(3).filter(|t| t.len() == 3) {
+            for &k in t {
+                if let Some(v) = e.vertex_data.get(k as usize) {
+                    out.push(*v);
+                }
+            }
+        }
+    }
+    let tm = |e: &Value| -> [[f32; 4]; 4] {
+        let mut m = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        if let Some(v) = member(e, pkg, "TM") {
+            for (r, name) in ["XPlane", "YPlane", "ZPlane", "WPlane"].iter().enumerate() {
+                if let Some(p) = member(v, pkg, name) {
+                    m[r] = plane4(p, pkg);
+                }
+            }
+        }
+        m
+    };
+    let mut cuboid = |m: [[f32; 4]; 4], h: [f32; 3]| {
+        // Row vectors: p' = p · M.
+        let at = |x: f32, y: f32, z: f32| -> V { [0, 1, 2].map(|c| x * m[0][c] + y * m[1][c] + z * m[2][c] + m[3][c]) };
+        let c: Vec<V> = (0..8).map(|i| at(if i & 1 != 0 { h[0] } else { -h[0] }, if i & 2 != 0 { h[1] } else { -h[1] }, if i & 4 != 0 { h[2] } else { -h[2] })).collect();
+        for q in [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]] {
+            out.extend([c[q[0]], c[q[1]], c[q[2]], c[q[0]], c[q[2]], c[q[3]]]);
+        }
+    };
+    for e in array(member(a, pkg, "BoxElems")) {
+        cuboid(tm(e), [num(member(e, pkg, "X")) / 2.0, num(member(e, pkg, "Y")) / 2.0, num(member(e, pkg, "Z")) / 2.0]);
+    }
+    for e in array(member(a, pkg, "SphereElems")) {
+        let r = num(member(e, pkg, "Radius"));
+        cuboid(tm(e), [r; 3]);
+    }
+    for e in array(member(a, pkg, "SphylElems")) {
+        let (r, l) = (num(member(e, pkg, "Radius")), num(member(e, pkg, "Length")));
+        cuboid(tm(e), [r, r, l / 2.0 + r]);
+    }
+    out
+}
+
+/// A level's BSP (`ULevel::Model`, world space) as triangles: every node's
+/// polygon (`FBspNode` 64 bytes: `iVertPool` at 16, `iSurf` at 20,
+/// `NumVertices` at 54; `FVert` 24 bytes, `pVertex` first), but not the
+/// non-solid brushes' surfaces.
+pub fn bsp_triangles(m: &crate::level::Model) -> Vec<V> {
+    let i32_at = |b: &[u8], o: usize| b.get(o..o + 4).map(|x| i32::from_le_bytes([x[0], x[1], x[2], x[3]]));
+    let point = |k: i32| -> Option<V> {
+        let o = usize::try_from(k).ok()? * 12;
+        let b = m.points.data.get(o..o + 12)?;
+        Some([0, 4, 8].map(|i| f32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])))
+    };
+    let mut out = Vec::new();
+    for n in m.nodes.data.chunks_exact(64) {
+        let (Some(pool), Some(surf)) = (i32_at(n, 16), i32_at(n, 20)) else { continue };
+        let count = n[54] as usize;
+        if count < 3 || pool < 0 {
+            continue;
+        }
+        if m.surfs.get(surf as usize).is_some_and(|s| s.poly_flags & brush::PF_NOT_SOLID != 0) {
+            continue;
+        }
+        let pts: Vec<V> = (0..count).filter_map(|k| m.verts.data.get((pool as usize + k) * 24..).and_then(|b| i32_at(b, 0)).and_then(point)).collect();
+        for k in 1..pts.len().saturating_sub(1) {
+            out.extend([pts[0], pts[k], pts[k + 1]]);
+        }
+    }
+    out
+}
+
 /// Every element of an `FKAggregateGeom`, for drawing: convex hulls as one
 /// mesh, boxes (`X/Y/Z` full lengths), spheres, sphyls (capsules along Z:
 /// `Length` between the cap centres) with their `TM` in view space.

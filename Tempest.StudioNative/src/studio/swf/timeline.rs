@@ -68,8 +68,9 @@ impl MovieEditor {
         cx.notify();
     }
 
-    pub(super) fn render_timeline(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_timeline(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let row_h = px((1.4 * f32::from(window.rem_size())).max(22.0).round());
         let frames = self.frames();
         let t = self.timeline.clone().unwrap_or(J::Null);
         let labels: HashMap<u64, String> = t["labels"].as_array().into_iter().flatten().filter_map(|l| Some((l["frame"].as_u64()?, l["name"].as_str()?.to_string()))).collect();
@@ -77,7 +78,7 @@ impl MovieEditor {
         let outline = self.outline_of(self.sprite());
         let entries = self.entries();
         let hidden = self.hidden();
-        let mut out = v_flex().id("mv-timeline").track_focus(&self.timeline_focus).size_full().text_xs().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, _, cx| this.timeline_key(e, cx)));
+        let mut out = v_flex().id("mv-timeline").track_focus(&self.timeline_focus).tab_index(0).size_full().text_xs().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, _, cx| this.timeline_key(e, cx)));
         if frames > 1 {
             let mut strip = h_flex().flex_1().min_w_0().overflow_hidden();
             for f in 0..frames {
@@ -87,12 +88,15 @@ impl MovieEditor {
                 strip = strip.child(
                     div()
                         .id(("mv-frame", f))
+                        .focusable()
+                        .tab_index(0)
                         .relative()
                         .h(px(18.0))
                         .min_w(px(6.0))
                         .flex_1()
                         .border_r_1()
                         .border_color(theme.background)
+                        .focus_visible(|s| s.border_1().border_color(theme.ring))
                         .bg(if on { theme.primary } else if label.is_some() { theme.secondary_hover } else { theme.secondary })
                         .hover(|d| d.bg(theme.list_hover))
                         .when(script, |d| d.child(div().absolute().top(px(2.0)).left(px(2.0)).size(px(4.0)).rounded_full().bg(theme.warning)))
@@ -100,6 +104,13 @@ impl MovieEditor {
                             let tip = format!("frame {}{}{}", f + 1, label.map(|l| format!(" · {l}")).unwrap_or_default(), if script { " · script" } else { "" });
                             move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
                         })
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.set_frame(f, cx);
+                            }
+                        }))
                         .on_click(cx.listener(move |this, _, _, cx| this.set_frame(f, cx))),
                 );
             }
@@ -110,9 +121,9 @@ impl MovieEditor {
                     .py_1()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(div().font_family("Menlo").text_color(theme.muted_foreground).child(format!("frame {}/{frames}", self.frame + 1)))
+                    .child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!("frame {}/{frames}", self.frame + 1)))
                     .child(strip)
-                    .children(labels.get(&(self.frame as u64)).map(|l| div().px_1().rounded_sm().bg(theme.secondary_hover).child(l.clone()))),
+                    .children(labels.get(&(self.frame as u64)).map(|l| div().px_1().rounded_sm().bg(theme.secondary).text_color(theme.secondary_foreground).child(l.clone()))),
             );
         }
         let off: Vec<u64> = entries.iter().filter(|e| self.off_stage(e, outline) && !hidden.contains(&e["depth"].as_u64().unwrap_or(0))).filter_map(|e| e["depth"].as_u64()).collect();
@@ -129,19 +140,19 @@ impl MovieEditor {
                 .border_color(theme.border)
                 .child(div().text_color(theme.muted_foreground).child(format!("{n} layer{}{}", if n == 1 { "" } else { "s" }, if hidden_here > 0 { format!(" · {hidden_here} hidden in the view") } else { String::new() })))
                 .child(div().flex_1())
-                .child(Button::new("mv-hide-off").xsmall().ghost().icon(Icon::new(IconName::EyeOff)).label(if off.is_empty() { "Hide off-stage".to_string() } else { format!("Hide off-stage ({})", off.len()) }).tooltip("Hide every layer that lies entirely outside the stage").disabled(off.is_empty()).on_click(cx.listener(move |this, _, _, cx| this.set_hidden(&off2, true, cx))))
-                .child(Button::new("mv-solo").xsmall().ghost().icon(Icon::new(IconName::Eye)).label("Solo selected").tooltip("Show only the selected layer (Alt+click an eye does the same for its layer)").disabled(self.depth.is_none()).on_click(cx.listener(|this, _, _, cx| {
+                .child(Button::new("mv-hide-off").xsmall().ghost().icon(Icon::new(IconName::EyeOff)).label(if off.is_empty() { "Hide off-stage".to_string() } else { format!("Hide off-stage ({})", off.len()) }).tooltip(if off.is_empty() { "No visible layers lie outside the stage" } else { "Hide every layer that lies entirely outside the stage" }).disabled(off.is_empty()).on_click(cx.listener(move |this, _, _, cx| this.set_hidden(&off2, true, cx))))
+                .child(Button::new("mv-solo").xsmall().ghost().icon(Icon::new(IconName::Eye)).label("Solo selected").tooltip(if self.depth.is_none() { "Select a layer first to solo it (or Alt+click an eye)" } else { "Show only the selected layer (Alt+click an eye does the same for its layer)" }).disabled(self.depth.is_none()).on_click(cx.listener(|this, _, _, cx| {
                     if let Some(d) = this.depth {
                         this.solo(&[d], cx);
                     }
                 })))
                 .child(Button::new("mv-hide-all").xsmall().ghost().icon(Icon::new(IconName::EyeOff)).label("Hide all").tooltip("Hide every layer (then tick the ones to look at)").on_click(cx.listener(move |this, _, _, cx| this.set_hidden(&all, true, cx))))
-                .child(Button::new("mv-show-all").xsmall().ghost().icon(Icon::new(IconName::Eye)).label("Show all").tooltip("Show every layer again").disabled(shown.is_empty()).on_click(cx.listener(move |this, _, _, cx| this.set_hidden(&shown, false, cx)))),
+                .child(Button::new("mv-show-all").xsmall().ghost().icon(Icon::new(IconName::Eye)).label("Show all").tooltip(if shown.is_empty() { "Every layer is already visible" } else { "Show every layer again" }).disabled(shown.is_empty()).on_click(cx.listener(move |this, _, _, cx| this.set_hidden(&shown, false, cx)))),
         );
         // Layers drawn over nearly the same rectangle: stacked states, hiding one changes nothing visible.
         let visible: Vec<(&J, Rect)> = entries.iter().filter(|e| !hidden.contains(&e["depth"].as_u64().unwrap_or(0))).filter_map(|e| Some((e, Rect::from_json(&e["rect"])?))).collect();
         let head = |t: &'static str, w: f32, right: bool| div().w(px(w)).flex_none().when(right, |d| d.text_right()).child(t);
-        let mut table = v_flex().id("mv-layers").flex_1().min_h_0().overflow_y_scroll().font_family("Menlo");
+        let mut table = v_flex().id("mv-layers").flex_1().min_h_0().overflow_y_scroll().font_family(crate::studio::ui::mono());
         table = table.child(
             h_flex()
                 .gap_2()
@@ -176,37 +187,59 @@ impl MovieEditor {
             let scale = if d.sx == 1.0 && d.sy == 1.0 { String::new() } else if (d.sx - d.sy).abs() < 1e-9 { format!("{}%", fmt(d.sx * 100.0, 1)) } else { format!("{}%×{}%", fmt(d.sx * 100.0, 1), fmt(d.sy * 100.0, 1)) };
             let placed = e["placedBy"].as_u64().unwrap_or(0);
             let matrix_by = e["matrixBy"].as_u64().unwrap_or(0);
-            let entry = e.clone();
-            let mut name = h_flex().w(px(150.0)).flex_none().gap_1().overflow_hidden().child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().child(e["name"].as_str().unwrap_or("").to_string()));
+            let (entry, entry_k) = (e.clone(), e.clone());
+            let mut name = h_flex().w(px(150.0)).flex_none().gap_1().overflow_hidden().child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(e["name"].as_str().unwrap_or("").to_string()));
             if self.entry_edited(e) {
                 name = name.child(Icon::new(IconName::Pencil).xsmall().text_color(theme.warning));
             }
+            if is_hidden {
+                name = name.child(crate::studio::ui::badge(None, "hidden", theme.muted_foreground, &theme));
+            }
             if !stacked.is_empty() && !is_hidden {
                 let tip = format!("Drawn at the same place as {}: hide those too to see what is under (or Alt+click the eye to show only this one)", stacked.join(", "));
-                name = name.child(div().id(("mv-stacked", k)).px_1().rounded_sm().bg(theme.info.opacity(0.3)).child(format!("stacked ×{}", stacked.len() + 1)).tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)));
+                name = name.child(crate::studio::ui::badge(None, format!("stacked ×{}", stacked.len() + 1), theme.info, &theme).id(("mv-stacked", k)).tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)));
             }
             if self.off_stage(e, outline) {
-                name = name.child(div().px_1().rounded_sm().bg(theme.warning.opacity(0.3)).child("off stage"));
+                name = name.child(crate::studio::ui::badge(None, "off stage", theme.warning, &theme));
             }
             if alpha0 {
                 name = name.child(Icon::new(IconName::EyeOff).xsmall().text_color(theme.muted_foreground));
             }
             let row = h_flex()
                 .id(("mv-layer", k))
+                .focusable()
+                .tab_index(0)
                 .gap_2()
                 .px_2()
-                .h(px(20.0))
+                .py_0p5()
+                .min_h(row_h)
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .focus_visible(|s| s.border_1().border_color(theme.ring))
                 .cursor_pointer()
                 .when(self.depth == Some(depth), |d| d.bg(theme.primary.opacity(0.2)))
                 .when(self.depth != Some(depth), |d| d.hover(|d| d.bg(theme.list_hover)))
-                .when(is_hidden, |d| d.opacity(0.45))
+                .when(is_hidden, |d| d.text_color(theme.muted_foreground))
                 .child(
                     div()
                         .id(("mv-eye", k))
+                        .focusable()
+                        .tab_index(0)
                         .w(px(20.0))
                         .flex_none()
-                        .child(Icon::new(if is_hidden { IconName::EyeOff } else { IconName::Eye }).xsmall())
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(|s| s.border_1().border_color(theme.ring))
+                        .child(Icon::new(if is_hidden { IconName::EyeOff } else { IconName::Eye }).xsmall().text_color(if is_hidden { theme.muted_foreground } else { theme.foreground }))
                         .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(if is_hidden { "Hidden in the stage render: click to show it. Alt+click: show only this layer." } else { "Click to hide it in the stage render (the movie is not changed). Alt+click: show only this layer." }).build(window, cx))
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.set_hidden(&[depth], !is_hidden, cx);
+                            }
+                        }))
                         .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                             cx.stop_propagation();
                             if e.modifiers().alt {
@@ -225,6 +258,21 @@ impl MovieEditor {
                 .child(div().w(px(44.0)).flex_none().text_right().child(if d.rot != 0.0 { format!("{}°", fmt(d.rot, 1)) } else { String::new() }))
                 .child(div().w(px(44.0)).flex_none().text_right().child(e["cxform"]["mul"][3].as_f64().map(|a| format!("{}%", fmt(a * 100.0, 1))).unwrap_or_default()))
                 .child(div().w(px(70.0)).flex_none().text_color(theme.muted_foreground).child(format!("#{placed}{}", if matrix_by != placed { format!("→{matrix_by}") } else { String::new() })))
+                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        if this.depth == Some(depth) && e.keystroke.key == "enter" {
+                            if let Some(id) = entry_k["character"].as_u64() {
+                                this.open(Node::Char(id), cx);
+                            }
+                        } else {
+                            this.depth = Some(depth);
+                            this.confirm_remove = false;
+                            cx.notify();
+                        }
+                    }
+                }))
                 .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
                     this.timeline_focus.focus(window, cx);
                     if ev.click_count() >= 2 {

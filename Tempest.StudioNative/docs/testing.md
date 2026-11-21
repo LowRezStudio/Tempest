@@ -27,14 +27,25 @@ prints `ok`; steps are input events (`key cmd-k`, `type …`, `click x y [right|
 coordinates: the content runs under the transparent title bar), `@probe:x,y` for a point that far
 from a probe's top-left corner (clicks, moves and both ends of `drag`), `drag`, `scroll x y dy
 [dx]`, `size w h`, `wait ms`) or app steps (`package <name>`, `select <index|name>`, `run <command
-id>`, `view packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
-<text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `material own-all|own
-<slot>|scalar <name> <v>|pick-texture <param>`, `sound select a b|edit|trim|fade-in s|gain
-dB|play|apply`, `anim play|seek s`, `assembly table <name>|row <i>|filter <q>|set f=v|open
-<field>|up|add|duplicate|new-content|vendor|sort <col>`, `cooker refresh|preview <n>|name <text>`,
+id>`, `view home|champions|packages|assembly|audio|map|mod`, `tab props|refs|source`, `palette <prefix>`, `query
+<text>`, `pick <row>`, `set <prop>=<value>`, `meshwire`, `meshlod <n>`, `meshpreview <slot> <package> <export>|stop`, `material own-all|own
+<slot>|scalar <name> <v>|pick-texture <param>|game on|off`, `sound select a b|edit|trim|fade-in s|gain
+dB|play|apply`, `anim play|seek s`, `assembly …` (the steps are listed in [Assembly](assembly.md)); probes `game-<n>` (welcome), `task-*` (start page), `champ-<name>`, `skin-<n>`, `dev-<n>` and `file-<n>` (Champions), `cook-build`, `cooker refresh|preview <n>|name <text>|tab files|details|publish`,
 `twrk-save <path>`, `twrk-open <path>`, `project new <folder> <name>|open <file>|close|save`,
 `assembly skins|export-mod`, `wizard open <kind>|next|back|file <path>|query <text>|pick <n>|name
-<text>|close`, `audio <pck name>`, `anim notify-move <k> <s>|notify-copy <k>|notify-remove
+<text>|close`, `audio <pck name>|champion <name>|item <name>|mode files|champions|items|event <name>|edit <k>`
+(`sound …` steps then drive the Wwise editor), `anim notify-move <k> <s>|notify-copy <k>|notify-remove
 <k>|retime <s>`, `assembly mark <i>`, `meshgrid`, `meshskel`, `dialog close`); `shot <name>` lines
 are taken by the script with `screencapture -l` on the app's window only (`scripts/winid.swift`).
 Never save into the game folder from a test run.
+
+`studio_state.assembly` is the Assembly view's `state_json` (file, path, table, row, column, total,
+marks, columns, what is edited, unsaved files, undo labels). `studio_state.material` says whether the
+material preview is drawn with game shaders (pair, animated, missing textures, or `gameError`);
+`studio_state.meshGame` counts the mesh sections drawn with them and why the others are not;
+`studio_state.meshPreview` lists the slots previewed with another material. `studio_state.audio` is the
+Audio view: list mode, what is open and its files, events and sounds as shown, the Wwise editor. The wizard has `wizard range <a> <b>`
+and `wizard dump` (step, a skin's parts, slots, next ids). A sweep is the cheapest crash hunt: open
+every map (`map open`, collision, nav mesh, Kismet) and select objects of every class of many
+packages through MCP (`studio_open_package`, `studio_select`), in a debug build (overflow checks) and
+a release build (wgpu validation differs).

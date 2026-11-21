@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use gpui::{canvas, div, prelude::*, px, AnyElement, Bounds, Context, Corners, Hsla, MouseButton, Pixels, Point, RenderImage, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{h_flex, ActiveTheme, Sizable};
-use serde_json::json;
+use gpui_component::{h_flex, ActiveTheme, Disableable, Sizable, Selectable};
+use serde_json::{json, Value as J};
 
 use super::Studio;
 use crate::mesh_view::{Camera, MeshView};
@@ -42,6 +42,24 @@ impl Scene for MeshView {
     }
     fn fit(&mut self) {
         self.camera = Camera { yaw: 0.6, pitch: 0.25, distance: self.radius * 2.6 };
+    }
+}
+
+impl Scene for crate::game_material::GameMaterial {
+    fn render(&self, width: u32, height: u32) -> Arc<RenderImage> {
+        crate::game_material::GameMaterial::render(self, width, height)
+    }
+    fn camera_mut(&mut self) -> &mut Camera {
+        &mut self.camera
+    }
+    fn radius(&self) -> f32 {
+        crate::game_material::RADIUS
+    }
+    fn clear_mut(&mut self) -> &mut [f64; 3] {
+        &mut self.clear
+    }
+    fn fit(&mut self) {
+        self.camera = Camera { yaw: 0.6, pitch: 0.25, distance: crate::game_material::RADIUS * 2.9 };
     }
 }
 
@@ -94,110 +112,231 @@ impl MeshState {
     }
 }
 
+/// Materials a mesh is drawn with instead of its slots' own, by slot,
+/// without changing the mesh.
+pub struct MaterialPreview {
+    pub package: String,
+    pub export: usize,
+    pub slots: std::collections::BTreeMap<usize, PreviewSlot>,
+}
+
+/// A material of any package: its file, export and names.
+#[derive(Clone)]
+pub struct PreviewSlot {
+    pub file: String,
+    pub export: usize,
+    pub package: String,
+    pub object: String,
+}
+
 pub fn is_mesh(class: &str) -> bool {
     matches!(class.to_ascii_lowercase().as_str(), "staticmesh" | "skeletalmesh")
+}
+
+#[derive(IntoElement)]
+struct Viewport<V: Scene + 'static> {
+    id: &'static str,
+    state: Rc<RefCell<MeshState<V>>>,
+    height: f32,
+    bar: Option<AnyElement>,
+    bg: Hsla,
+    muted: Hsla,
+}
+
+fn apply_viewport_key<V: Scene>(st: &mut MeshState<V>, e: &gpui::KeyDownEvent) -> bool {
+    let m = &e.keystroke.modifiers;
+    if m.platform || m.control || m.alt {
+        return false;
+    }
+    let step = if m.shift { 0.25 } else { 0.1 };
+    let k = e.keystroke.key.as_str();
+    let kc = e.keystroke.key_char.as_deref();
+    match k {
+        "left" => st.view.camera_mut().yaw += step,
+        "right" => st.view.camera_mut().yaw -= step,
+        "up" => {
+            let cam = st.view.camera_mut();
+            cam.pitch = (cam.pitch + step).clamp(-1.5, 1.5);
+        }
+        "down" => {
+            let cam = st.view.camera_mut();
+            cam.pitch = (cam.pitch - step).clamp(-1.5, 1.5);
+        }
+        "+" | "=" => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance * 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        "-" | "_" => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance / 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        "f" | "0" if !m.shift => st.fit(),
+        _ if kc == Some("+") || kc == Some("=") => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance * 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        _ if kc == Some("-") => {
+            let r = st.view.radius();
+            let cam = st.view.camera_mut();
+            cam.distance = (cam.distance / 0.85).clamp(r * 0.3, r * 20.0);
+        }
+        _ => return false,
+    }
+    st.dirty = true;
+    true
+}
+
+impl<V: Scene + 'static> RenderOnce for Viewport<V> {
+    fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
+        let Viewport { id, state, height, bar, bg, muted } = self;
+        let ring = cx.theme().ring;
+        let summary = state.borrow().summary.clone();
+        // The picture's background follows the theme (sRGB → linear for the clear colour).
+        {
+            let c = bg.to_rgb();
+            let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
+            let clear = [lin(c.r), lin(c.g), lin(c.b)];
+            let mut st = state.borrow_mut();
+            if *st.view.clear_mut() != clear {
+                *st.view.clear_mut() = clear;
+                st.dirty = true;
+            }
+        }
+        let (s1, s2, s3, s4, s5, s6, s7) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state);
+        let view = canvas(
+            move |bounds: Bounds<Pixels>, window: &mut Window, _| {
+                let scale = window.scale_factor();
+                let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
+                let mut st = s1.borrow_mut();
+                if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
+                    let image = st.view.render(size.0, size.1);
+                    if let Some((old, _)) = st.image.replace((image, size)) {
+                        st.stale.push(old);
+                    }
+                    st.dirty = false;
+                }
+                for old in std::mem::take(&mut st.stale) {
+                    let _ = window.drop_image(old);
+                }
+                st.image.as_ref().map(|(i, _)| i.clone())
+            },
+            |bounds, image, window, _| {
+                if let Some(image) = image {
+                    let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
+                }
+            },
+        )
+        .size_full();
+        div()
+            .id(id)
+            .focusable()
+            .tab_index(0)
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .focus_visible(move |s| s.border_color(ring))
+            .w_full()
+            .h(px(height))
+            .flex_none()
+            .relative()
+            .rounded_md()
+            .overflow_hidden()
+            .bg(bg)
+            .on_key_down(move |e: &gpui::KeyDownEvent, window, cx| {
+                if apply_viewport_key(&mut s7.borrow_mut(), e) {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    window.refresh();
+                }
+            })
+            .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some(e.position))
+            .on_mouse_up(MouseButton::Left, move |_, _, _| s3.borrow_mut().drag = None)
+            .on_mouse_move(move |e: &gpui::MouseMoveEvent, window, _| {
+                let mut st = s4.borrow_mut();
+                let Some(from) = st.drag else { return };
+                if !e.dragging() {
+                    st.drag = None;
+                    return;
+                }
+                let d = e.position - from;
+                st.drag = Some(e.position);
+                let cam = st.view.camera_mut();
+                cam.yaw -= f32::from(d.x) * 0.01;
+                cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
+                st.dirty = true;
+                window.refresh();
+            })
+            .on_scroll(move |e: &gpui::ScrollEvent, window, cx| {
+                // The wheel zooms the view, never the pane around it.
+                cx.stop_propagation();
+                let mut st = s5.borrow_mut();
+                let dy = f32::from(e.delta.pixel_delta(px(16.0)).y);
+                let r = st.view.radius();
+                let cam = st.view.camera_mut();
+                cam.distance = (cam.distance * (1.0 - dy * 0.002)).clamp(r * 0.3, r * 20.0);
+                st.dirty = true;
+                window.refresh();
+            })
+            .on_click(move |e: &gpui::ClickEvent, window, _| {
+                if e.click_count() == 2 {
+                    s6.borrow_mut().fit();
+                    window.refresh();
+                }
+            })
+            .child(view)
+            .children(bar.map(|b| h_flex().absolute().top(px(6.0)).left(px(6.0)).gap_1().child(b)))
+            .child(div().absolute().bottom(px(6.0)).left(px(8.0)).text_xs().text_color(muted).child(summary))
+    }
 }
 
 /// The interactive view of `state`, `height` tall, with `bar` over its top
 /// left corner and `summary` at the bottom.
 pub fn viewport<V: Scene + 'static>(id: &'static str, state: Rc<RefCell<MeshState<V>>>, height: f32, bar: Option<AnyElement>, bg: Hsla, muted: Hsla) -> AnyElement {
-    let summary = state.borrow().summary.clone();
-    // The picture's background follows the theme (sRGB → linear for the clear colour).
-    {
-        let c = bg.to_rgb();
-        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
-        let clear = [lin(c.r), lin(c.g), lin(c.b)];
-        let mut st = state.borrow_mut();
-        if *st.view.clear_mut() != clear {
-            *st.view.clear_mut() = clear;
-            st.dirty = true;
-        }
-    }
-    let (s1, s2, s3, s4, s5, s6) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone());
-    let view = canvas(
-        move |bounds: Bounds<Pixels>, window: &mut Window, _| {
-            let scale = window.scale_factor();
-            let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
-            let mut st = s1.borrow_mut();
-            if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
-                let image = st.view.render(size.0, size.1);
-                if let Some((old, _)) = st.image.replace((image, size)) {
-                    st.stale.push(old);
-                }
-                st.dirty = false;
-            }
-            for old in std::mem::take(&mut st.stale) {
-                let _ = window.drop_image(old);
-            }
-            st.image.as_ref().map(|(i, _)| i.clone())
-        },
-        |bounds, image, window, _| {
-            if let Some(image) = image {
-                let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
-            }
-        },
-    )
-    .size_full();
-    div()
-        .id(id)
-        .w_full()
-        .h(px(height))
-        .flex_none()
-        .relative()
-        .rounded_md()
-        .overflow_hidden()
-        .bg(bg)
-        .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some(e.position))
-        .on_mouse_up(MouseButton::Left, move |_, _, _| s3.borrow_mut().drag = None)
-        .on_mouse_move(move |e: &gpui::MouseMoveEvent, window, _| {
-            let mut st = s4.borrow_mut();
-            let Some(from) = st.drag else { return };
-            if !e.dragging() {
-                st.drag = None;
-                return;
-            }
-            let d = e.position - from;
-            st.drag = Some(e.position);
-            let cam = st.view.camera_mut();
-            cam.yaw -= f32::from(d.x) * 0.01;
-            cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
-            st.dirty = true;
-            window.refresh();
-        })
-        .on_scroll(move |e: &gpui::ScrollEvent, window, cx| {
-            // The wheel zooms the view, never the pane around it.
-            cx.stop_propagation();
-            let mut st = s5.borrow_mut();
-            let dy = f32::from(e.delta.pixel_delta(px(16.0)).y);
-            let r = st.view.radius();
-            let cam = st.view.camera_mut();
-            cam.distance = (cam.distance * (1.0 - dy * 0.002)).clamp(r * 0.3, r * 20.0);
-            st.dirty = true;
-            window.refresh();
-        })
-        .on_click(move |e: &gpui::ClickEvent, window, _| {
-            if e.click_count() == 2 {
-                s6.borrow_mut().fit();
-                window.refresh();
-            }
-        })
-        .child(view)
-        .children(bar.map(|b| h_flex().absolute().top(px(6.0)).left(px(6.0)).gap_1().child(b)))
-        .child(div().absolute().bottom(px(6.0)).left(px(8.0)).text_xs().text_color(muted).child(summary))
-        .into_any_element()
+    Viewport { id, state, height, bar, bg, muted }.into_any_element()
 }
 
 impl Studio {
     /// Fetch and upload the mesh of export `i` (the GPU work off the main thread).
     pub(super) fn load_mesh(&mut self, path: String, i: usize, lod: usize, cx: &mut Context<Self>) {
-        let call = self.backend.call("mesh.preview", json!({ "path": path, "index": i, "lod": lod }));
+        if self.mesh_preview.as_ref().is_some_and(|p| p.export != i || p.package != path) {
+            self.mesh_preview = None;
+        }
+        let materials = self.preview_materials();
+        // What the mesh holds per LOD (asked once per mesh).
+        if self.mesh_info.as_ref().is_none_or(|(k, _)| *k != i) {
+            self.mesh_info = None;
+            let info = self.backend.call("mesh.info", json!({ "path": path, "index": i }));
+            cx.spawn(async move |this, cx| {
+                let Ok(r) = info.await else { return };
+                let _ = this.update(cx, |this, cx| {
+                    if this.selected_export == Some(i) {
+                        this.mesh_info = Some((i, r.json));
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        let call = self.backend.call("mesh.preview", json!({ "path": path, "index": i, "lod": lod, "materials": materials }));
         // A LOD switch keeps the camera and the view settings.
         let keep = self.mesh.as_ref().filter(|m| m.borrow().export == i).map(|m| {
             let m = m.borrow();
             (m.view.camera, m.view.textured, m.view.wireframe)
         });
         cx.spawn(async move |this, cx| {
-            let Ok(r) = call.await else { return };
+            let r = match call.await {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.selected_export == Some(i) {
+                            this.toast(super::Tone::Error, format!("Mesh preview: {e}"), cx);
+                        }
+                    });
+                    return;
+                }
+            };
             let Some(glb) = r.bin(&r.json["glb"]).map(|b| b.to_vec()) else { return };
             let t = std::time::Instant::now();
             let busy = crate::backend::Busy::new();
@@ -214,13 +353,154 @@ impl Studio {
                             view.textured = textured;
                             view.wireframe = wireframe;
                         }
-                        let summary = format!("{} triangles · {} ms · drag to orbit, wheel to zoom, double-click to fit", view.triangles, t.elapsed().as_millis());
-                        this.mesh = Some(Rc::new(RefCell::new(MeshState::new(i, lod, view, summary))));
+                        let n = |k: &str| r.json[k].as_u64().unwrap_or(0);
+                        let summary = format!("{} verts · {} tris · {} materials · {} textures · {} ms · drag/arrows orbit, wheel/+- zoom, F/double-click fit", n("vertices"), view.triangles, n("materials"), n("images"), t.elapsed().as_millis());
+                        view.use_game = this.game_shaders;
+                        let state = Rc::new(RefCell::new(MeshState::new(i, lod, view, summary)));
+                        this.mesh = Some(state.clone());
+                        this.mesh_game = None;
+                        this.load_mesh_game(path.clone(), i, lod, materials.clone(), state, cx);
                     }
-                    Err(e) => this.set_status(format!("Mesh preview: {e}"), cx),
+                    Err(e) => this.toast(super::Tone::Error, format!("Mesh preview: {e}"), cx),
                 }
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    /// Ask for the game shaders of each section's material (sections sharing
+    /// a material share its pass) and draw the sections with them.
+    fn load_mesh_game(&mut self, path: String, i: usize, lod: usize, materials: J, state: Rc<RefCell<MeshState>>, cx: &mut Context<Self>) {
+        let sections = state.borrow().view.sections();
+        cx.spawn(async move |this, cx| {
+            let current = |this: &Studio| this.mesh.as_ref().is_some_and(|m| Rc::ptr_eq(m, &state));
+            // Material path → pass index in the view.
+            let mut passes: Vec<(String, usize)> = Vec::new();
+            let mut errors: Vec<String> = Vec::new();
+            let mut animated = false;
+            for s in sections.iter().copied() {
+                let Ok(Some(call)) = this.update(cx, |this, _| current(this).then(|| this.backend.call("material.gameShader", json!({ "path": path, "index": i, "lod": lod, "section": s, "materials": materials, "textureSize": 512, "platform": crate::game_material::platform() })))) else { return };
+                let r = match call.await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        errors.push(format!("section {s}: {e}"));
+                        continue;
+                    }
+                };
+                let material = r.json["materialPath"].as_str().unwrap_or_default().to_string();
+                if let Some(&(_, k)) = passes.iter().find(|(m, _)| *m == material) {
+                    state.borrow_mut().view.add_game_sections(k, &[s]);
+                    continue;
+                }
+                let busy = crate::backend::Busy::new();
+                let built = cx.background_executor().spawn(async move { crate::game_material::GamePass::new(&r.json, &|v| r.bin(v).map(<[u8]>::to_vec)) }).await;
+                drop(busy);
+                match built {
+                    Ok(pass) => {
+                        animated |= pass.animated;
+                        let mut st = state.borrow_mut();
+                        let k = st.view.set_game_pass(&[s], pass);
+                        st.dirty = true;
+                        passes.push((material, k));
+                    }
+                    Err(e) => errors.push(format!("section {s}: {e}")),
+                }
+                let _ = this.update(cx, |_, cx| cx.notify());
+            }
+            let _ = this.update(cx, |this, cx| {
+                if !current(this) {
+                    return;
+                }
+                let (drawn, all) = state.borrow().view.game_sections();
+                this.mesh_game = Some(json!({ "sections": all, "drawn": drawn, "errors": errors }));
+                if animated {
+                    this.animate_mesh_game(state.clone(), cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// `materials` of `mesh.preview` and `material.gameShader`: the previewed
+    /// material by slot (null: the slot's own).
+    fn preview_materials(&self) -> J {
+        let Some(p) = &self.mesh_preview else { return J::Null };
+        let n = p.slots.keys().max().map_or(0, |m| m + 1);
+        J::from((0..n).map(|s| p.slots.get(&s).map_or(J::Null, |m| json!({ "path": m.file, "index": m.export }))).collect::<Vec<_>>())
+    }
+
+    /// The mesh shown, again (same LOD and camera).
+    pub(super) fn reload_mesh(&mut self, cx: &mut Context<Self>) {
+        if let (Some(path), Some(m)) = (self.open.as_ref().map(|t| t.path.clone()), self.mesh.clone()) {
+            let (i, lod) = {
+                let st = m.borrow();
+                (st.export, st.lod)
+            };
+            self.load_mesh(path, i, lod, cx);
+        }
+    }
+
+    /// Draw a slot of the selected mesh with another material, without changing the mesh.
+    pub(super) fn preview_slot_material(&mut self, slot: usize, m: PreviewSlot, cx: &mut Context<Self>) {
+        let (Some(path), Some(i)) = (self.open.as_ref().map(|t| t.path.clone()), self.selected_export) else { return };
+        let name = m.object.rsplit('.').next().unwrap_or_default().to_string();
+        let p = self.mesh_preview.get_or_insert_with(|| MaterialPreview { package: path.clone(), export: i, slots: Default::default() });
+        if p.package != path || p.export != i {
+            *p = MaterialPreview { package: path, export: i, slots: Default::default() };
+        }
+        p.slots.insert(slot, m);
+        self.set_status(format!("Slot {slot} previewed with {name}; the mesh is unchanged"), cx);
+        self.reload_mesh(cx);
+    }
+
+    /// Draw a slot (or every slot) with its own material again.
+    pub(super) fn stop_material_preview(&mut self, slot: Option<usize>, cx: &mut Context<Self>) {
+        let Some(p) = &mut self.mesh_preview else { return };
+        match slot {
+            Some(s) => {
+                p.slots.remove(&s);
+            }
+            None => p.slots.clear(),
+        }
+        if p.slots.is_empty() {
+            self.mesh_preview = None;
+        }
+        self.reload_mesh(cx);
+        cx.notify();
+    }
+
+    /// Make the slot draw with the material it is previewed with (a change to the mesh).
+    pub(super) fn keep_material_preview(&mut self, slot: usize, cx: &mut Context<Self>) {
+        let Some(m) = self.mesh_preview.as_mut().and_then(|p| p.slots.remove(&slot)) else { return };
+        if self.mesh_preview.as_ref().is_some_and(|p| p.slots.is_empty()) {
+            self.mesh_preview = None;
+        }
+        self.set_slot_material(slot, m.file, m.export, cx);
+    }
+
+    /// Redraw a mesh whose materials read the clock, while it is shown with them.
+    fn animate_mesh_game(&mut self, state: Rc<RefCell<MeshState>>, cx: &mut Context<Self>) {
+        let start = std::time::Instant::now();
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+            let shown = this.update(cx, |this, cx| {
+                let current = this.mesh.as_ref().is_some_and(|m| Rc::ptr_eq(m, &state));
+                if current && this.game_shaders {
+                    let mut st = state.borrow_mut();
+                    let t = start.elapsed().as_secs_f32();
+                    for p in st.view.game_passes() {
+                        p.params.time = t;
+                    }
+                    st.dirty = true;
+                    cx.notify();
+                }
+                current
+            });
+            if !matches!(shown, Ok(true)) {
+                break;
+            }
         })
         .detach();
     }
@@ -232,16 +512,21 @@ impl Studio {
             let st = state.borrow();
             (st.lod, st.view.textured, st.view.wireframe, st.view.can_wireframe(), st.export)
         };
-        // LODs: the mesh's `LODInfo` entries.
-        let lods = self.inspected.as_ref().and_then(|ins| ins.rows.iter().find(|r| r.depth == 0 && r.name.eq_ignore_ascii_case("lodinfo"))).and_then(|r| r.value.split(' ').next()?.parse::<usize>().ok()).unwrap_or(1).max(1);
+        // LODs: what `mesh.info` lists (until it answers, the mesh's `LODInfo` entries).
+        let info = self.mesh_info.as_ref().filter(|(k, _)| *k == export).map(|(_, j)| j.clone());
+        let lods = match info.as_ref().and_then(|j| j["lods"].as_array()) {
+            Some(l) => l.len(),
+            None => self.inspected.as_ref().and_then(|ins| ins.rows.iter().find(|r| r.depth == 0 && r.name.eq_ignore_ascii_case("lodinfo"))).and_then(|r| r.value.split(' ').next()?.parse::<usize>().ok()).unwrap_or(1),
+        }
+        .max(1);
         let path = self.open.as_ref().map(|t| t.path.clone()).unwrap_or_default();
         let toggle = |id: &'static str, label: &'static str, on: bool| {
             let b = Button::new(id).xsmall().label(label);
-            if on { b.primary() } else { b.ghost() }
+            b.ghost().selected(on)
         };
         let mut bar = h_flex().gap_1();
         if lods > 1 {
-            for l in 0..lods.min(6) {
+            for l in 0..lods.min(8) {
                 let path = path.clone();
                 bar = bar.child(toggle_lod(l, l == lod).on_click(cx.listener(move |this, _, _, cx| this.load_mesh(path.clone(), export, l, cx))));
             }
@@ -259,22 +544,47 @@ impl Studio {
                 window.refresh();
             }));
         }
+        // The game's shaders, once the sections' materials have them.
+        let game = self.mesh_game.clone();
+        let (drawn, all) = state.borrow().view.game_sections();
+        let tip = match &game {
+            None => "Building the game's shaders…".to_string(),
+            Some(g) if drawn == 0 => format!("No game shader: {}", g["errors"].as_array().and_then(|e| e.first()).and_then(|e| e.as_str()).unwrap_or("the sections have no material")),
+            Some(g) => {
+                let errors: Vec<&str> = g["errors"].as_array().into_iter().flatten().filter_map(|e| e.as_str()).collect();
+                format!("Draw {drawn} of {all} sections with their materials' compiled shaders, like the game{}", if errors.is_empty() { String::new() } else { format!(" (not: {})", errors.join("; ")) })
+            }
+        };
+        let on = self.game_shaders && drawn > 0;
+        let b = Button::new("mesh-game").xsmall().label("Game shaders").tooltip(tip).disabled(drawn == 0).on_click(cx.listener(|this, _, _, cx| this.toggle_game_shaders(cx)));
+        bar = bar.child(div().relative().child(b.ghost().selected(on)).child(crate::driver::probe("mesh-game")));
         bar = bar.children(view_toggles(&state));
         bar = bar.child(Button::new("fit").xsmall().ghost().label("Fit").on_click(move |_, window, _| {
             t3.borrow_mut().fit();
             window.refresh();
         }));
-        Some(viewport("mesh-view", state, 420.0, Some(bar.into_any_element()), theme.muted, theme.muted_foreground))
+        let view = viewport("mesh-view", state, 420.0, Some(bar.into_any_element()), theme.muted, theme.muted_foreground);
+        let Some(info) = info else { return Some(view) };
+        // Every LOD: its size and the material of each section.
+        let mut lines = gpui_component::v_flex().id("mesh-lods").max_h(px(96.0)).overflow_y_scroll().px_1().text_xs().font_family(theme.mono_font_family.clone()).text_color(theme.muted_foreground);
+        let bones = info["lods"][lod]["bones"].as_u64().unwrap_or(0);
+        lines = lines.child(format!("{}{}", if info["skeletal"].as_bool() == Some(true) { "skeletal" } else { "static" }, if bones > 0 { format!(" · {bones} bones") } else { String::new() }));
+        for l in info["lods"].as_array().into_iter().flatten() {
+            let index = l["index"].as_u64().unwrap_or(0);
+            lines = lines.child(match l["error"].as_str() {
+                Some(e) => div().text_color(theme.danger).child(format!("LOD {index}: {}", crate::studio::ui::explain_error(e))),
+                None => {
+                    let sections: Vec<String> = l["sections"].as_array().into_iter().flatten().map(|s| format!("{} ({})", s["material"]["path"].as_str().filter(|p| !p.is_empty()).unwrap_or("no material"), s["triangles"])).collect();
+                    div().whitespace_normal().child(format!("LOD {index}: {} vertices, {} triangles: {}", l["vertices"], l["triangles"], sections.join(", ")))
+                }
+            });
+        }
+        Some(gpui_component::v_flex().gap_1().child(view).child(lines).into_any_element())
     }
 }
 
 fn toggle_lod(l: usize, on: bool) -> Button {
-    let b = Button::new(("lod", l)).xsmall().label(format!("LOD {l}"));
-    if on {
-        b.primary()
-    } else {
-        b.ghost()
-    }
+    Button::new(("lod", l)).xsmall().label(format!("LOD {l}")).ghost().selected(on)
 }
 
 /// Grid and Skeleton switches of a viewport.
@@ -290,7 +600,7 @@ pub fn view_toggles(state: &Rc<RefCell<MeshState>>) -> Vec<AnyElement> {
             st.dirty = true;
             window.refresh();
         });
-        (if on { b.primary() } else { b.ghost() }).into_any_element()
+        b.ghost().selected(on).into_any_element()
     };
     let mut out = vec![toggle("grid", "Grid", grid, state.clone(), |v| v.show_grid = !v.show_grid)];
     if has {

@@ -1,7 +1,7 @@
-//! Assembly helpers for making new game content: **New content** (a device,
-//! card, item, champion or skin cloned from a template with fresh ids and
-//! new texts in every language, `mcts.create`, ids from the user's id range
-//! when one is set) and **Champion vendor** (the vendor's 60 buttons, and
+//! Assembly helpers for making new game content: **New content** (the Create
+//! wizard at its content kinds: a device, card, item, champion or skin cloned
+//! from a template with fresh ids and new texts in every language) and
+//! **Champion vendor** (the vendor's 60 buttons, and
 //! champions whose Character Class item no vendor entry lists) and **Skins**
 //! (each champion's skin collections with their parts: open one in the grid,
 //! copy it as a new skin, or wrap a skin no collection holds in a new one).
@@ -9,23 +9,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, App, Context, Entity, SharedString, Window};
+use gpui::{div, prelude::*, px, App, Context, Entity, KeyDownEvent, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, WindowExt};
 use serde_json::{json, Value as J};
 
-use super::assembly::Assembly;
-use super::dialogs::footer;
-use super::Tone;
-
-const KINDS: &[(&str, &str, &str)] = &[
-    ("device", "Ability", "a device (ability) of a champion: the devices and items rows, on the bot and slot you give"),
-    ("card", "Card / talent", "a card or talent: a device too, on the bot and slot you give"),
-    ("item", "Item", "an item (and its skin row)"),
-    ("champion", "Champion", "a bot with a device per slot, Character Class and Weapon items, a default skin and a Champion Vendor entry"),
-    ("skin", "Skin", "a copy of a skin collection (loot table 1076 entry): every part with its skin row"),
-];
+use super::Assembly;
+use crate::studio::dialogs::footer;
+use crate::studio::Tone;
 
 fn input(window: &mut Window, cx: &mut App, value: String, placeholder: &str) -> Entity<InputState> {
     let placeholder = placeholder.to_string();
@@ -37,102 +29,24 @@ fn input(window: &mut Window, cx: &mut App, value: String, placeholder: &str) ->
 }
 
 impl Assembly {
-    /// The New content dialog, with the selected row as the template when it fits.
-    pub(super) fn new_content(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (kind, template) = self.template_guess();
-        self.new_content_with(kind, template, window, cx);
+    /// New content, step by step: the Create wizard at its content kinds.
+    pub(in crate::studio) fn new_content(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.open_wizard(None, cx);
     }
 
-    /// The New content dialog with `kind` chosen and `template` filled in.
-    pub(super) fn new_content_with(&mut self, kind: &str, template: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
-        let kind = Rc::new(RefCell::new(kind.to_string()));
-        let template = input(window, cx, template.map(|t| t.to_string()).unwrap_or_default(), "the id of the row to copy");
-        let name = input(window, cx, String::new(), "its name in game");
-        let desc = input(window, cx, String::new(), "its description (optional)");
-        let bot = input(window, cx, String::new(), "BOT_ID of the champion it goes on (devices, cards)");
-        let slot = input(window, cx, String::new(), "slot (devices, cards; optional)");
-        let range = input(window, cx, String::new(), "your id range, e.g. 9000000-9099999 (optional)");
-        let me = cx.entity().downgrade();
-        let first = std::cell::Cell::new(true);
-        window.open_dialog(cx, move |dialog, window, cx| {
-            if first.replace(false) {
-                name.update(cx, |s, cx| s.focus(window, cx));
-            }
-            let theme = cx.theme().clone();
-            let current = kind.borrow().clone();
-            let mut kinds = h_flex().gap_1();
-            for (id, label, _) in KINDS {
-                let k = kind.clone();
-                let b = Button::new(SharedString::from(format!("nc-{id}"))).small().label(*label).on_click(move |_, _, cx| {
-                    *k.borrow_mut() = id.to_string();
-                    cx.refresh_windows();
-                });
-                kinds = kinds.child(if current == *id { b.primary() } else { b.ghost() });
-            }
-            let what = KINDS.iter().find(|k| k.0 == current).map(|k| k.2).unwrap_or_default();
-            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().child(Input::new(i).small()));
-            let device = current == "device" || current == "card";
-            let (me, t2, n2, d2, b2, s2, r2, k2) = (me.clone(), template.clone(), name.clone(), desc.clone(), bot.clone(), slot.clone(), range.clone(), kind.clone());
-            dialog
-                .title("New content")
-                .w(px(640.0))
-                .child(
-                    v_flex()
-                        .gap_2()
-                        .child(kinds)
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("Makes {what}, copied from the template with fresh ids; its texts are new messages in every language.")))
-                        .child(row("Template id", &template))
-                        .child(row("Name", &name))
-                        .child(row("Description", &desc))
-                        .when(device, |d| d.child(row("Champion", &bot)).child(row("Slot", &slot)))
-                        .child(row("Id range", &range)),
-                )
-                .footer(footer("Create", false, true, move |window, cx| {
-                    let num = |e: &Entity<InputState>, cx: &App| e.read(cx).value().trim().parse::<i64>().ok();
-                    let Some(t) = num(&t2, cx) else { return };
-                    let n = n2.read(cx).value().trim().to_string();
-                    if n.is_empty() {
-                        return;
-                    }
-                    let range = r2.read(cx).value().to_string();
-                    let range = range.split_once('-').and_then(|(a, b)| Some((a.trim().parse::<i64>().ok()?, b.trim().parse::<i64>().ok()?)));
-                    let params = json!({ "kind": *k2.borrow(), "template": t, "name": n, "description": d2.read(cx).value().to_string(), "bot": num(&b2, cx), "slot": num(&s2, cx) });
-                    window.close_dialog(cx);
-                    let _ = me.update(cx, |this, cx| this.create(params, range, cx));
-                }))
+    /// The Create wizard at the content kinds, or with `preset` at a kind's details with its template chosen.
+    pub(in crate::studio) fn open_wizard(&self, preset: Option<(crate::studio::wizard::Kind, u64, String)>, cx: &mut Context<Self>) {
+        let studio = self.studio.clone();
+        cx.defer(move |cx| {
+            let Some(window) = cx.active_window() else { return };
+            let _ = window.update(cx, |_, window, cx| {
+                let _ = studio.update(cx, |s, cx| s.open_wizard_with(None, Some(true), preset.clone(), window, cx));
+            });
         });
     }
 
-    fn create(&mut self, params: J, range: Option<(i64, i64)>, cx: &mut Context<Self>) {
-        let backend = self.backend.clone();
-        cx.spawn(async move |this, cx| {
-            if let Some((a, b)) = range {
-                if let Err(e) = backend.call("mcts.idRange", json!({ "start": a, "end": b })).await {
-                    let _ = this.update(cx, |this, cx| this.toast(Tone::Error, format!("Id range: {e}"), cx));
-                    return;
-                }
-            }
-            let r = backend.call("mcts.create", params).await;
-            let _ = this.update(cx, |this, cx| match r {
-                Ok(r) => {
-                    let j = &r.json;
-                    let ids = [("device", &j["deviceId"]), ("item", &j["itemId"]), ("bot", &j["botId"])].iter().filter_map(|(k, v)| v.as_i64().map(|v| format!("{k} {v}"))).collect::<Vec<_>>().join(", ");
-                    this.toast(Tone::Success, format!("Made a new {} ({ids}); unsaved", j["kind"].as_str().unwrap_or_default()), cx);
-                    this.reopen(cx);
-                    // Show the main row made.
-                    let path = [&j["bot"], &j["device"], &j["item"], &j["subPath"]].into_iter().find(|p| p.is_array()).cloned();
-                    if let Some((t, i)) = path.and_then(|p| p.as_array().and_then(|a| a.first()).and_then(|f| Some((f[0].as_str()?.to_string(), f[1].as_u64()? as usize)))) {
-                        this.visit("assembly".into(), Some(t), Some(i), cx);
-                    }
-                }
-                Err(e) => this.toast(Tone::Error, format!("Could not create it: {e}"), cx),
-            });
-        })
-        .detach();
-    }
-
     /// The Champion vendor: listed entries against the 60 buttons, and the champions missing.
-    pub(super) fn champion_vendor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::studio) fn champion_vendor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let call = self.backend.call("mcts.vendor", json!({}));
         let me = cx.entity().downgrade();
         let handle = window.window_handle();
@@ -147,7 +61,7 @@ impl Assembly {
                     }
                 };
                 let me = me.clone();
-                window.open_dialog(cx, move |dialog, _, cx| {
+                window.open_dialog(cx, move |dialog, window, cx| {
                     let theme = cx.theme().clone();
                     let mut list = v_flex().gap_1();
                     let missing = v["missing"].as_array().cloned().unwrap_or_default();
@@ -161,7 +75,7 @@ impl Assembly {
                             h_flex()
                                 .gap_2()
                                 .text_sm()
-                                .child(div().flex_1().child(format!("{} ({})", m["name"].as_str().unwrap_or_default(), m["reference"].as_str().unwrap_or_default())))
+                                .child(div().flex_1().min_w_0().child(format!("{} ({})", m["name"].as_str().unwrap_or_default(), m["reference"].as_str().unwrap_or_default())))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child(format!("bot {bot}, item {}", m["item"])))
                                 .child(Button::new(("vend-add", k)).xsmall().label("Add").on_click(move |_, window, cx| {
                                     window.close_dialog(cx);
@@ -172,6 +86,7 @@ impl Assembly {
                     dialog
                         .title("Champion vendor")
                         .w(px(620.0))
+                        .max_w(window.viewport_size().width * 0.94)
                         .child(
                             v_flex()
                                 .gap_2()
@@ -191,7 +106,7 @@ impl Assembly {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
-                    this.toast(Tone::Success, format!("Bot {bot} is in the Champion vendor (item {}); unsaved", r.json["item"]), cx);
+                    this.toast(Tone::Success, format!("Bot {bot} is in the Champion vendor (item {})", r.json["item"]), cx);
                     this.reopen(cx);
                     if let Some((t, i)) = r.json["vendor"].as_array().and_then(|a| a.first()).and_then(|f| Some((f[0].as_str()?.to_string(), f[1].as_u64()? as usize))) {
                         this.visit("assembly".into(), Some(t), Some(i), cx);
@@ -204,7 +119,7 @@ impl Assembly {
     }
 
     /// The Skins dialog: champions on the left, their collections and loose skins on the right.
-    pub(super) fn skins(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::studio) fn skins(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let call = self.backend.call("mcts.collections", json!({}));
         let me = cx.entity().downgrade();
         let handle = window.window_handle();
@@ -223,24 +138,39 @@ impl Assembly {
                 let chosen = Rc::new(RefCell::new(bots.first().map(|b| b.0)));
                 let filter = input(window, cx, String::new(), "Filter champions");
                 let me = me.clone();
-                window.open_dialog(cx, move |dialog, _, cx| {
+                window.open_dialog(cx, move |dialog, window, cx| {
+                    let max_w = window.viewport_size().width * 0.94;
                     let theme = cx.theme().clone();
                     let f = filter.read(cx).value().to_ascii_lowercase();
                     let current = *chosen.borrow();
                     let count = |b: u64| v["collections"].as_array().into_iter().flatten().filter(|c| c["bot"].as_u64() == Some(b)).count();
                     let mut side = v_flex().gap_0p5();
                     for (k, (b, name)) in bots.iter().enumerate().filter(|(_, (_, n))| f.is_empty() || n.to_ascii_lowercase().contains(&f)) {
-                        let (b, ch) = (*b, chosen.clone());
+                        let (b, ch, ch_key) = (*b, chosen.clone(), chosen.clone());
                         side = side.child(
                             h_flex()
                                 .id(("skin-bot", k))
-                                .px_2()
+                                .focusable()
+                                .tab_index(0)
+                                .min_h(px(crate::studio::ui::ROW))
                                 .py_0p5()
+                                .px_2()
                                 .rounded_sm()
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(|s| s.border_color(theme.ring))
                                 .text_sm()
                                 .cursor_pointer()
                                 .when(current == Some(b), |d| d.bg(theme.list_active))
                                 .hover(|s| s.bg(theme.list_hover))
+                                .on_key_down(move |e: &KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        *ch_key.borrow_mut() = Some(b);
+                                        cx.refresh_windows();
+                                    }
+                                })
                                 .on_click(move |_, _, cx| {
                                     *ch.borrow_mut() = Some(b);
                                     cx.refresh_windows();
@@ -272,6 +202,7 @@ impl Assembly {
                             );
                         }
                         let (me1, me2) = (me.clone(), me.clone());
+                        let copy_name = c["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| format!("item {item}"));
                         let open = first_path(&c["itemPath"]).or_else(|| first_path(&c["path"]));
                         main = main.child(
                             v_flex()
@@ -283,7 +214,7 @@ impl Assembly {
                                 .child(
                                     h_flex()
                                         .gap_2()
-                                        .child(div().flex_1().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(c["name"].as_str().filter(|n| !n.is_empty()).map(|n| n.to_string()).unwrap_or_else(|| format!("item {item}"))))
+                                        .child(div().flex_1().min_w_0().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(c["name"].as_str().filter(|n| !n.is_empty()).map(|n| n.to_string()).unwrap_or_else(|| format!("item {item}"))))
                                         .when(!c["active"].as_bool().unwrap_or(false), |d| d.child(div().text_xs().text_color(theme.warning).child("inactive")))
                                         .child(div().text_xs().text_color(theme.muted_foreground).child(format!("item {item}")))
                                         .child(Button::new(("skin-open", k)).xsmall().ghost().label("Open").tooltip("Show the collection's item row in the grid").on_click(move |_, window, cx| {
@@ -292,9 +223,9 @@ impl Assembly {
                                                 let _ = me1.update(cx, |this, cx| this.visit("assembly".into(), Some(t), Some(i), cx));
                                             }
                                         }))
-                                        .child(Button::new(("skin-copy", k)).xsmall().primary().label("Make a copy…").tooltip("A new skin: this collection with every part copied, fresh ids and your names").on_click(move |_, window, cx| {
+                                        .child(Button::new(("skin-copy", k)).xsmall().label("Make a copy…").tooltip("A new skin: this collection with every part copied, fresh ids and your names").on_click(move |_, window, cx| {
                                             window.close_dialog(cx);
-                                            let _ = me2.update(cx, |this, cx| this.new_content_with("skin", Some(item), window, cx));
+                                            let _ = me2.update(cx, |this, cx| this.open_wizard(Some((crate::studio::wizard::Kind::Skin, item as u64, copy_name.clone())), cx));
                                         })),
                                 )
                                 .child(part_list),
@@ -302,7 +233,7 @@ impl Assembly {
                     }
                     let loose: Vec<J> = v["loose"].as_array().into_iter().flatten().filter(|c| c["bot"].as_u64() == current).cloned().collect();
                     if !loose.is_empty() {
-                        main = main.child(div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("SKINS NO COLLECTION HOLDS (the client never lists them)"));
+                        main = main.child(div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Unlisted skins (not in any collection)"));
                         for (k, l) in loose.iter().enumerate() {
                             let item = l["item"].as_i64().unwrap_or(0);
                             let name = l["name"].as_str().unwrap_or_default().to_string();
@@ -312,7 +243,7 @@ impl Assembly {
                                 h_flex()
                                     .gap_2()
                                     .text_sm()
-                                    .child(div().flex_1().child(if name.is_empty() { format!("item {item}") } else { name.clone() }))
+                                    .child(div().flex_1().min_w_0().child(if name.is_empty() { format!("item {item}") } else { name.clone() }))
                                     .child(div().text_xs().text_color(theme.muted_foreground).child(format!("item {item}")))
                                     .child(Button::new(("loose-open", k)).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
                                         window.close_dialog(cx);
@@ -331,6 +262,7 @@ impl Assembly {
                     dialog
                         .title("Skins")
                         .w(px(860.0))
+                        .max_w(max_w)
                         .child(
                             v_flex()
                                 .gap_2()
@@ -342,7 +274,7 @@ impl Assembly {
                                     h_flex()
                                         .items_start()
                                         .gap_3()
-                                        .child(v_flex().w(px(220.0)).gap_1().child(Input::new(&filter).small()).child(div().id("skin-bots").h(px(440.0)).overflow_y_scroll().child(side)))
+                                        .child(v_flex().w(px(220.0)).gap_1().child(Input::new(&filter).small().cleanable(true)).child(div().id("skin-bots").h(px(440.0)).overflow_y_scroll().child(side)))
                                         .child(div().id("skin-main").flex_1().h(px(472.0)).overflow_y_scroll().child(main)),
                                 ),
                         )
@@ -358,7 +290,7 @@ impl Assembly {
             let r = call.await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
-                    this.toast(Tone::Success, format!("Made a collection for item {item} (item {}); unsaved", r.json["item"]), cx);
+                    this.toast(Tone::Success, format!("Made a collection for item {item} (item {})", r.json["item"]), cx);
                     this.reopen(cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not make the collection: {e}"), cx),
@@ -369,7 +301,7 @@ impl Assembly {
 
     /// Export mod: a launcher mod folder with the assembly changes as row deltas, the
     /// private server's rows for a champion and script stubs for new devices (`mcts.scaffold`).
-    pub(super) fn export_mod(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::studio) fn export_mod(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (kind, guess) = self.template_guess();
         let id = input(window, cx, "my-content".into(), "mod id: lowercase, digits, dashes");
         let name = input(window, cx, "My content".into(), "the mod's name");
@@ -379,14 +311,15 @@ impl Assembly {
         let devices = input(window, cx, guess.filter(|_| kind == "device").map(|b| b.to_string()).unwrap_or_default(), "DEVICE_IDs, comma separated (optional): script stubs");
         let all = Rc::new(std::cell::Cell::new(false));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
-            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().child(Input::new(i).small()));
+            let row = |label: &'static str, i: &Entity<InputState>| h_flex().gap_2().child(div().w(px(110.0)).text_xs().text_color(theme.muted_foreground).child(label)).child(div().flex_1().min_w_0().child(Input::new(i).small()));
             let (set, flag) = (all.clone(), all.clone());
             let (me, i2, n2, v2, a2, b2, d2) = (me.clone(), id.clone(), name.clone(), version.clone(), author.clone(), bot.clone(), devices.clone());
             dialog
                 .title("Export mod folder")
                 .w(px(620.0))
+                .max_w(window.viewport_size().width * 0.94)
                 .child(
                     v_flex()
                         .gap_2()
@@ -434,7 +367,8 @@ impl Assembly {
             let r = backend.call("mcts.scaffold", params).await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
-                    this.toast(Tone::Success, format!("Wrote {} files in {}", r.json["files"].as_array().map(|f| f.len()).unwrap_or(0), dir.display()), cx);
+                    let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
+                    this.toast(Tone::Success, format!("Wrote {} in {}", if n == 1 { "1 file".to_string() } else { format!("{n} files") }, dir.display()), cx);
                     cx.reveal_path(&dir);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not write the mod folder: {e}"), cx),

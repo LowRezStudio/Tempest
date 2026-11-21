@@ -19,10 +19,10 @@ use super::{file_name, Studio, Tone};
 pub fn confirm(window: &mut Window, cx: &mut App, title: impl Into<SharedString>, body: impl Into<SharedString>, ok: &'static str, danger: bool, on_ok: impl Fn(&mut Window, &mut App) + 'static) {
     let (title, body) = (title.into(), body.into());
     let on_ok = Rc::new(on_ok);
-    window.open_dialog(cx, move |dialog, _, cx| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let theme = cx.theme().clone();
         let on_ok = on_ok.clone();
-        dialog.title(title.clone()).w(px(520.0)).child(div().text_sm().text_color(theme.muted_foreground).child(body.clone())).footer(footer(ok, danger, true, move |window, cx| {
+        dialog.title(title.clone()).w(px(520.0)).max_w(window.viewport_size().width * 0.94).child(div().text_sm().text_color(theme.muted_foreground).child(body.clone())).footer(footer(ok, danger, true, move |window, cx| {
             window.close_dialog(cx);
             on_ok(window, cx);
         }))
@@ -31,6 +31,12 @@ pub fn confirm(window: &mut Window, cx: &mut App, title: impl Into<SharedString>
 
 /// Cancel and the action button (probed `dlg-ok` / `dlg-cancel` for the driver).
 pub fn footer(ok: &'static str, danger: bool, enabled: bool, on_ok: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
+    footer_with_reason(ok, danger, enabled, "Fill in the required fields above first", on_ok)
+}
+
+/// Cancel and the action button with a custom disabled explanation.
+pub fn footer_with_reason(ok: &'static str, danger: bool, enabled: bool, reason: impl Into<SharedString>, on_ok: impl Fn(&mut Window, &mut App) + 'static) -> impl IntoElement {
+    let reason: SharedString = reason.into();
     h_flex()
         .w_full()
         .justify_end()
@@ -40,7 +46,11 @@ pub fn footer(ok: &'static str, danger: bool, enabled: bool, on_ok: impl Fn(&mut
             div()
                 .relative()
                 .child({
-                    let b = Button::new("dlg-ok").label(ok).disabled(!enabled).on_click(move |_, window, cx| on_ok(window, cx));
+                    let b = Button::new("dlg-ok")
+                        .label(ok)
+                        .disabled(!enabled)
+                        .when(!enabled, |b| b.tooltip(reason))
+                        .on_click(move |_, window, cx| on_ok(window, cx));
                     if danger { b.danger() } else { b.primary() }
                 })
                 .child(crate::driver::probe("dlg-ok")),
@@ -123,7 +133,7 @@ impl Studio {
                     for w in warnings.iter().take(3) {
                         this.toast(Tone::Warning, w.clone(), cx);
                     }
-                    let what = format!("Copied as {} into {} (unsaved)", r.json["path"].as_str().unwrap_or_default(), file_name(&dst));
+                    let what = format!("Copied as {} into {}", r.json["path"].as_str().unwrap_or_default(), file_name(&dst));
                     if reload {
                         this.added(&dst, r.json["index"].as_u64().map(|i| i as usize), what, cx);
                     } else {
@@ -177,31 +187,35 @@ impl Studio {
 
     pub(super) fn discard(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let me = cx.entity().downgrade();
-        confirm(window, cx, format!("Discard the changes to {}?", file_name(&path)), "Every unsaved edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
+        confirm(window, cx, format!("Discard the changes to {}?", file_name(&path)), "Every edit of this package is dropped and it is read again from the game folder. This cannot be undone.", "Discard", true, move |_, cx| {
             let path = path.clone();
-            let _ = me.update(cx, |this, cx| {
-                let call = this.backend.call("package.discard", json!({ "path": path }));
-                cx.spawn(async move |this, cx| {
-                    let r = call.await;
-                    let _ = this.update(cx, |this, cx| match r {
-                        Ok(_) => {
-                            this.dirty.remove(&path);
-                            this.forget_map_edit(&path, cx);
-                            this.toast(Tone::Success, format!("Discarded the changes to {}", file_name(&path)), cx);
-                            if let Some(c) = this.cooker.clone() {
-                                c.update(cx, |c, cx| c.refresh(cx));
-                            }
-                            if this.selected_package.as_deref() == Some(path.as_str()) {
-                                this.selected_package = None;
-                                this.open_package(path.clone(), cx);
-                            }
-                        }
-                        Err(e) => this.toast(Tone::Error, format!("Could not discard: {e}"), cx),
-                    });
-                })
-                .detach();
-            });
+            let _ = me.update(cx, |this, cx| this.discard_now(path, cx));
         });
+    }
+
+    /// Drop a package's unsaved edits and read it again (already confirmed).
+    pub(super) fn discard_now(&mut self, path: String, cx: &mut Context<Self>) {
+        let call = self.backend.call("package.discard", json!({ "path": path }));
+        cx.spawn(async move |this, cx| {
+            let r = call.await;
+            let _ = this.update(cx, |this, cx| match r {
+                Ok(_) => {
+                    this.dirty.remove(&path);
+                    this.discard_unapplied_movies(Some(&path), cx);
+                    this.map_discarded(&path, cx);
+                    this.toast(Tone::Success, format!("Discarded the changes to {}", file_name(&path)), cx);
+                    if let Some(c) = this.cooker.clone() {
+                        c.update(cx, |c, cx| c.refresh(cx));
+                    }
+                    if this.selected_package.as_deref() == Some(path.as_str()) {
+                        this.selected_package = None;
+                        this.open_package(path.clone(), cx);
+                    }
+                }
+                Err(e) => this.toast(Tone::Error, format!("Could not discard: {e}"), cx),
+            });
+        })
+        .detach();
     }
 
     pub(super) fn verify(&mut self, path: String, _window: &mut Window, cx: &mut Context<Self>) {
@@ -213,10 +227,11 @@ impl Studio {
                 Ok(r) => {
                     let v = &r.json;
                     let ok = v["ok"].as_bool().unwrap_or(false);
+                    let exports = v["exports"].as_u64().unwrap_or(0);
                     let text = format!(
-                        "{}: {} objects, {} fully understood, {} kept as raw bytes, {} that do not round-trip{}",
+                        "{}: {exports} object{}, {} fully understood, {} kept as raw bytes, {} that do not round-trip{}",
                         v["name"].as_str().unwrap_or_default(),
-                        v["exports"],
+                        if exports == 1 { "" } else { "s" },
                         v["full"],
                         v["raw"],
                         v["mismatches"],
@@ -260,7 +275,7 @@ impl Studio {
                                 Ok(r) => {
                                     if apply {
                                         let n = r.json["applied"].as_u64().unwrap_or(0);
-                                        this.added(&path, None, format!("Replaced {n} values (unsaved)"), cx);
+                                        this.added(&path, None, format!("Replaced {n} value{}", if n == 1 { "" } else { "s" }), cx);
                                     }
                                     *found.borrow_mut() = Some(r.json);
                                     cx.notify();
@@ -295,16 +310,29 @@ impl Studio {
             dialog
                 .title("Find and replace")
                 .w(px(720.0))
+                .max_w(window.viewport_size().width * 0.94)
                 .child(
                     v_flex()
                         .gap_2()
                         .child(field("Find", &query, cx))
                         .child(field("Replace with", &with, cx))
                         .child(Checkbox::new("names").label("Also rename objects whose name contains it").checked(names_on).on_click(move |v, _, _| *names2.borrow_mut() = *v))
-                        .child(h_flex().gap_2().child(Button::new("preview").small().label("Preview").disabled(q.trim().is_empty()).on_click(move |_, _, cx| r1(false, cx))).child(div().text_xs().text_color(theme.muted_foreground).child(if found.borrow().is_some() { format!("{count} matches (strings, names, enums and references)") } else { "Preview lists what would change".into() })))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("preview")
+                                        .small()
+                                        .label("Preview")
+                                        .disabled(q.trim().is_empty())
+                                        .when(q.trim().is_empty(), |b| b.tooltip("Enter text to find above first"))
+                                        .on_click(move |_, _, cx| r1(false, cx)),
+                                )
+                                .child(div().text_xs().text_color(theme.muted_foreground).child(if found.borrow().is_some() { format!("{count} match{} (strings, names, enums and references)", if count == 1 { "" } else { "es" }) } else { "Preview lists what would change".into() })),
+                        )
                         .child(div().id("matches").max_h(px(320.0)).overflow_y_scroll().child(list)),
                 )
-                .footer(footer("Replace all", false, count > 0, move |window, cx| {
+                .footer(footer_with_reason("Replace all", false, count > 0, "Click Preview first to find matching values", move |window, cx| {
                     r2(true, cx);
                     window.close_dialog(cx);
                 }))
@@ -341,7 +369,8 @@ impl Studio {
         packages.dedup();
         let chosen = Rc::new(RefCell::new(packages.clone()));
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let max_w = window.viewport_size().width * 0.94;
             let theme = cx.theme().clone();
             let mut list = v_flex().gap_0p5();
             for e in entries.iter().take(300) {
@@ -351,7 +380,7 @@ impl Studio {
                         .gap_2()
                         .text_xs()
                         .child(div().w(px(240.0)).overflow_hidden().text_ellipsis().whitespace_nowrap().child(e["name"].as_str().unwrap_or_default().to_string()))
-                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(if ok { theme.muted_foreground } else { theme.danger }).child(e["message"].as_str().unwrap_or_default().to_string())),
+                        .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().text_color(if ok { theme.muted_foreground } else { theme.danger }).child(super::ui::explain_error(e["message"].as_str().unwrap_or_default()))),
                 );
             }
             let mut pkgs = v_flex().gap_0p5();
@@ -368,17 +397,19 @@ impl Studio {
                 }));
             }
             let (me, dir, chosen) = (me.clone(), dir.clone(), chosen.clone());
+            let n_plan = plan["entries"].as_array().map(|a| a.len()).unwrap_or(0);
             dialog
                 .title("Batch import")
                 .w(px(760.0))
+                .max_w(max_w)
                 .child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} files: {} can be imported, {} cannot. They become unsaved edits of the packages chosen below.", plan["entries"].as_array().map(|a| a.len()).unwrap_or(0), plan["ok"], plan["failed"])))
+                        .child(div().text_xs().text_color(theme.muted_foreground).child(format!("{n_plan} file{}: {} can be imported, {} cannot. They become edits of the packages chosen below.", if n_plan == 1 { "" } else { "s" }, plan["ok"], plan["failed"])))
                         .when(packages.len() > 1, |d| d.child(pkgs))
                         .child(div().id("batch").max_h(px(360.0)).overflow_y_scroll().child(list)),
                 )
-                .footer(footer("Import", false, plan["ok"].as_u64().unwrap_or(0) > 0, move |window, cx| {
+                .footer(footer_with_reason("Import", false, plan["ok"].as_u64().unwrap_or(0) > 0, "None of the files in that folder matched a known package and object", move |window, cx| {
                     window.close_dialog(cx);
                     let (dir, pk) = (dir.clone(), chosen.borrow().clone());
                     let _ = me.update(cx, |this, cx| {
@@ -395,7 +426,8 @@ impl Studio {
                                     if let Some(o) = open.filter(|o| pk.contains(o)) {
                                         this.refresh_package(o, None, cx);
                                     }
-                                    this.toast(Tone::Success, format!("Imported {} files ({} failed); save the packages to keep them", r.json["ok"], r.json["failed"]), cx);
+                                    let ok = r.json["ok"].as_u64().unwrap_or(0);
+                                    this.toast(Tone::Success, format!("Imported {ok} file{} into your mod ({} failed)", if ok == 1 { "" } else { "s" }, r.json["failed"]), cx);
                                 }
                                 Err(e) => this.toast(Tone::Error, format!("Batch import: {e}"), cx),
                             });

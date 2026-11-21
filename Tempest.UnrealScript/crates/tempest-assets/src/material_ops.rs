@@ -127,31 +127,25 @@ fn load_shared(path: &Path) -> Option<SharedPackage> {
     Some((pkg, layout, paths))
 }
 
-/// The package files of a folder by lower-case stem (the first of each stem in
-/// directory order), listed again only when the folder changes.
+/// The package files of a folder and its subfolders by lower-case stem (the
+/// shallowest of each stem), listed again only when a folder changes.
 fn package_files(dir: &Path) -> std::sync::Arc<HashMap<String, PathBuf>> {
-    type Listing = (Option<std::time::SystemTime>, std::sync::Arc<HashMap<String, PathBuf>>);
+    type Listing = (Vec<Option<std::time::SystemTime>>, std::sync::Arc<HashMap<String, PathBuf>>);
     static LISTINGS: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Listing>>> = std::sync::OnceLock::new();
     let listings = LISTINGS.get_or_init(Default::default);
-    let mtime = std::fs::metadata(dir).ok().and_then(|m| m.modified().ok());
+    let stamp = crate::folder::stamp(dir);
     if let Some((t, files)) = listings.lock().unwrap_or_else(|e| e.into_inner()).get(dir) {
-        if mtime.is_some() && *t == mtime {
+        if stamp.iter().all(Option::is_some) && *t == stamp {
             return files.clone();
         }
     }
     let mut map = HashMap::new();
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            if ext == "upk" || ext == "u" {
-                let stem = p.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-                map.entry(stem).or_insert(p);
-            }
-        }
+    for p in crate::folder::files(dir, &["upk", "u"]) {
+        let stem = p.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        map.entry(stem).or_insert(p);
     }
     let files = std::sync::Arc::new(map);
-    listings.lock().unwrap_or_else(|e| e.into_inner()).insert(dir.to_path_buf(), (mtime, files.clone()));
+    listings.lock().unwrap_or_else(|e| e.into_inner()).insert(dir.to_path_buf(), (stamp, files.clone()));
     files
 }
 
@@ -200,7 +194,7 @@ pub struct PackageCache<'a> {
 pub type Lookup<'a> = Box<dyn Fn(&str) -> Option<String> + 'a>;
 
 /// A path lookup that scans the export tables of every package of `dir`
-/// the first time it is asked (a few seconds for a full cooked folder).
+/// and its subfolders the first time it is asked (a few seconds for a full cooked folder).
 pub fn dir_lookup(dir: &Path) -> impl Fn(&str) -> Option<String> {
     let dir = dir.to_path_buf();
     let index: std::cell::RefCell<Option<HashMap<String, String>>> = std::cell::RefCell::new(None);
@@ -208,9 +202,7 @@ pub fn dir_lookup(dir: &Path) -> impl Fn(&str) -> Option<String> {
         let mut idx = index.borrow_mut();
         let idx = idx.get_or_insert_with(|| {
             let mut map = HashMap::new();
-            let Ok(rd) = std::fs::read_dir(&dir) else { return map };
-            let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| matches!(p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).as_deref(), Some("upk" | "u"))).collect();
-            files.sort();
+            let files = crate::folder::files(&dir, &["upk", "u"]);
             // A thousand headers to read (each behind a compressed chunk): over the cores.
             let tables: Vec<(String, Vec<String>)> = tempest_unrealscript::par::map(&files, |p| {
                 let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();

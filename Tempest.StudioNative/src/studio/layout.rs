@@ -2,7 +2,9 @@
 //! the assembly files, the `.pck` list, the map's levels), ⌘J the second one
 //! (the object list, the row pane, the events, the map's inspector). In a
 //! narrow window the side pane stays folded and ⌘B shows it over the view.
-//! Dragged widths are kept in the settings per group (`Prefs::panes`).
+//! Dragged widths are kept in the settings per group (`Prefs::panes`); the
+//! side pane has one width in every view (`side` there), so switching views
+//! never moves its edge.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -11,8 +13,11 @@ use gpui::{div, prelude::*, px, AnyElement, App, MouseButton, Window};
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::ActiveTheme;
 
+/// The settings key of the side width shared by every view.
+const SIDE_KEY: &str = "side";
+
 /// Narrower than this (logical pixels) the window is compact.
-pub const COMPACT_BELOW: f32 = 1100.0;
+pub const COMPACT_BELOW: f32 = 1120.0;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Panes {
@@ -21,6 +26,8 @@ pub struct Panes {
     pub compact: bool,
     /// Compact: the side pane is shown over the view.
     pub overlay: bool,
+    /// The side pane's width, the same in every view (0: each group's own).
+    pub side_w: f32,
 }
 
 impl Panes {
@@ -67,13 +74,17 @@ pub fn group(id: &'static str, panes: Panes, parts: Vec<Part>, remember: impl Fn
     let mut overlay = None;
     let mut shown_sized = Vec::new();
     let mut widths = Vec::new();
-    let mut g = h_resizable(id);
+    // A group's widths are read when it is first drawn: a new side width makes it a new group.
+    let mut g = h_resizable((id, panes.side_w as usize));
     for Part(role, size, el) in parts {
+        let size = if matches!(role, Role::Side) && panes.side_w > 0.0 { Some(panes.side_w) } else { size };
         let shown = match role {
             Role::Side => panes.side(),
             Role::Second => panes.second(),
             Role::Main => true,
         };
+        // Side panes sit a step darker than the work area.
+        let el = if matches!(role, Role::Side) { div().size_full().bg(theme.sidebar).child(el).into_any_element() } else { el };
         let el = if matches!(role, Role::Side) && panes.compact {
             if panes.overlay {
                 overlay = Some((el, size.unwrap_or(280.0)));
@@ -124,12 +135,16 @@ impl super::Studio {
         self.prefs.panes.get(id).filter(|s| s.len() == defaults.len()).cloned().unwrap_or_else(|| defaults.to_vec())
     }
 
-    /// What a group calls after a drag: the widths go into the settings.
+    /// What a group calls after a drag: the widths go into the settings; the
+    /// first one, the side pane's, is every view's side width.
     pub(crate) fn remember_panes(studio: gpui::WeakEntity<super::Studio>, id: &'static str) -> impl Fn(Vec<f32>, &mut App) + 'static {
         move |sizes, cx| {
             let studio = studio.clone();
             cx.defer(move |cx| {
                 let _ = studio.update(cx, |s, _| {
+                    if let Some(w) = sizes.first() {
+                        s.remember_side(*w);
+                    }
                     if s.prefs.panes.get(id) != Some(&sizes) {
                         s.prefs.panes.insert(id.to_string(), sizes);
                         s.prefs.save();
@@ -137,6 +152,20 @@ impl super::Studio {
                 });
             });
         }
+    }
+
+    /// The side width every view takes (kept; applied at the next view switch, not mid-drag).
+    pub(crate) fn remember_side(&mut self, w: f32) {
+        if self.prefs.panes.get(SIDE_KEY).and_then(|v| v.first()) != Some(&w) {
+            self.prefs.panes.insert(SIDE_KEY.to_string(), vec![w]);
+            self.prefs.save();
+        }
+    }
+
+    /// Takes up the kept side width (at start and when the view changes).
+    pub(crate) fn sync_side(&mut self) {
+        let w = self.prefs.panes.get(SIDE_KEY).and_then(|v| v.first().copied()).unwrap_or(super::ui::SIDE_PANE);
+        update(&self.panes, |p| p.side_w = w);
     }
 
     /// ⌘B and ⌘J, in every view.

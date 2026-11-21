@@ -97,7 +97,8 @@
 		);
 	});
 
-	// People leave updates waiting, so every return to the launcher looks again and asks again.
+	// People leave updates waiting, so every return to the launcher looks again; the mod
+	// popup itself only asks again after its cooldown.
 	let away = false;
 	function returned() {
 		if (!away) return;

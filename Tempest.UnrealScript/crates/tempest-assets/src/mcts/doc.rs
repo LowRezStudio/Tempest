@@ -28,6 +28,11 @@ pub struct Doc {
     pub marshal: Marshal,
     pub dirty: bool,
     undo: Vec<(String, Undo)>,
+    /// What `undo` took back, newest last; any new edit drops it.
+    redo: Vec<(String, Undo)>,
+    /// The undo depth at which the document is what the file holds (read or
+    /// saved there); `None` once an edit is made below it.
+    clean_at: Option<usize>,
 }
 
 /// Summary of one row set: its columns in first-seen order with how many
@@ -42,7 +47,13 @@ impl Doc {
     pub fn open(path: &Path, tokens: &Tokens) -> Result<Doc> {
         let bytes = std::fs::read(path)?;
         let marshal = parse_obscured(&bytes, tokens)?;
-        Ok(Doc { path: path.to_path_buf(), marshal, dirty: false, undo: Vec::new() })
+        Ok(Doc { path: path.to_path_buf(), marshal, dirty: false, undo: Vec::new(), redo: Vec::new(), clean_at: Some(0) })
+    }
+
+    /// The rows were changed without an undo step (a workspace file's edits put back): unsaved, whatever is undone later.
+    pub fn mark_changed(&mut self) {
+        self.dirty = true;
+        self.clean_at = None;
     }
 
     pub fn undo_labels(&self) -> Vec<String> {
@@ -59,6 +70,7 @@ impl Doc {
         std::fs::write(&target, bytes)?;
         if out.is_none() {
             self.dirty = false;
+            self.clean_at = Some(self.undo.len());
         }
         Ok(target)
     }
@@ -144,7 +156,7 @@ impl Doc {
         if *row == old {
             return Ok(());
         }
-        self.undo.push((format!("set {}", tokens.name(field)), Undo::Set { path: path.to_vec(), old }));
+        self.record(format!("set {}", tokens.name(field)), Undo::Set { path: path.to_vec(), old });
         self.dirty = true;
         Ok(())
     }
@@ -163,7 +175,7 @@ impl Doc {
             let bits = v.as_u64().unwrap_or(0);
             self.row_at_mut(path)?.set(field, Value::Num(bits));
             if *self.row_at(path)? != old {
-                self.undo.push((format!("set {}", tokens.name(field)), Undo::Set { path: path.to_vec(), old }));
+                self.record(format!("set {}", tokens.name(field)), Undo::Set { path: path.to_vec(), old });
                 self.dirty = true;
             }
             return Ok(());
@@ -175,7 +187,7 @@ impl Doc {
     pub fn replace_row(&mut self, tokens: &Tokens, path: &[(u16, usize)], value: &J) -> Result<()> {
         let new_row = super::row_from_json(tokens, value)?;
         let old = std::mem::replace(self.row_at_mut(path)?, new_row);
-        self.undo.push(("edit row".into(), Undo::Set { path: path.to_vec(), old }));
+        self.record("edit row".into(), Undo::Set { path: path.to_vec(), old });
         self.dirty = true;
         Ok(())
     }
@@ -192,7 +204,7 @@ impl Doc {
         rows.insert(at, row);
         let mut path = parent.to_vec();
         path.push((token, at));
-        self.undo.push((format!("insert {} row", tokens.name(token)), Undo::Insert { path }));
+        self.record(format!("insert {} row", tokens.name(token)), Undo::Insert { path });
         self.dirty = true;
         Ok(at)
     }
@@ -204,7 +216,7 @@ impl Doc {
         let at = rows.len() - 1;
         let mut path = parent.to_vec();
         path.push((token, at));
-        self.undo.push((format!("add {} row", tokens.name(token)), Undo::Insert { path }));
+        self.record(format!("add {} row", tokens.name(token)), Undo::Insert { path });
         self.dirty = true;
         Ok(at)
     }
@@ -218,7 +230,7 @@ impl Doc {
             return Err(Error::Format(format!("row {index} is out of range")));
         }
         let old = rows.remove(*index);
-        self.undo.push((format!("delete {} row", tokens.name(*token)), Undo::Delete { path: path.to_vec(), old }));
+        self.record(format!("delete {} row", tokens.name(*token)), Undo::Delete { path: path.to_vec(), old });
         self.dirty = true;
         Ok(())
     }
@@ -228,32 +240,68 @@ impl Doc {
         let old = self.marshal.root.clone();
         let v = value_from_json(tokens, field, value)?;
         self.marshal.root.set(field, v);
-        self.undo.push((format!("set {}", tokens.name(field)), Undo::Header { old }));
+        self.record(format!("set {}", tokens.name(field)), Undo::Header { old });
         self.dirty = true;
         Ok(())
+    }
+
+    /// File a new edit for undo: what was undone can no longer be redone.
+    fn record(&mut self, label: String, entry: Undo) {
+        if self.clean_at.is_some_and(|c| self.undo.len() < c) {
+            self.clean_at = None;
+        }
+        self.redo.clear();
+        self.undo.push((label, entry));
+    }
+
+    /// Put back what `entry` recorded; the entry that puts the current state back.
+    fn apply(&mut self, entry: Undo) -> Result<Undo> {
+        Ok(match entry {
+            Undo::Set { path, old } => {
+                let now = std::mem::replace(self.row_at_mut(&path)?, old);
+                Undo::Set { path, old: now }
+            }
+            Undo::Insert { path } => {
+                let ((token, index), parent) = path.split_last().unwrap();
+                let rows = self.rows_at_mut(parent, *token)?;
+                if *index >= rows.len() {
+                    return Err(Error::Format(format!("row {index} is out of range")));
+                }
+                let old = rows.remove(*index);
+                Undo::Delete { path, old }
+            }
+            Undo::Delete { mut path, old } => {
+                let ((token, index), parent) = path.split_last().unwrap();
+                let rows = self.rows_at_mut(parent, *token)?;
+                let at = (*index).min(rows.len());
+                rows.insert(at, old);
+                path.last_mut().unwrap().1 = at;
+                Undo::Insert { path }
+            }
+            Undo::Header { old } => Undo::Header { old: std::mem::replace(&mut self.marshal.root, old) },
+        })
     }
 
     /// Undo the last edit; the label of what was undone.
     pub fn undo(&mut self) -> Result<Option<String>> {
         let Some((label, entry)) = self.undo.pop() else { return Ok(None) };
-        match entry {
-            Undo::Set { path, old } => *self.row_at_mut(&path)? = old,
-            Undo::Insert { path } => {
-                let ((token, index), parent) = path.split_last().unwrap();
-                let rows = self.rows_at_mut(parent, *token)?;
-                if *index < rows.len() {
-                    rows.remove(*index);
-                }
-            }
-            Undo::Delete { path, old } => {
-                let ((token, index), parent) = path.split_last().unwrap();
-                let rows = self.rows_at_mut(parent, *token)?;
-                rows.insert((*index).min(rows.len()), old);
-            }
-            Undo::Header { old } => self.marshal.root = old,
-        }
-        self.dirty = true;
+        let back = self.apply(entry)?;
+        self.redo.push((label.clone(), back));
+        self.dirty = self.clean_at != Some(self.undo.len());
         Ok(Some(label))
+    }
+
+    /// Redo the last undone edit; its label.
+    pub fn redo(&mut self) -> Result<Option<String>> {
+        let Some((label, entry)) = self.redo.pop() else { return Ok(None) };
+        let back = self.apply(entry)?;
+        self.undo.push((label.clone(), back));
+        self.dirty = self.clean_at != Some(self.undo.len());
+        Ok(Some(label))
+    }
+
+    pub fn redo_labels(&self) -> Vec<String> {
+        self.redo.iter().rev().map(|(l, _)| l.clone()).collect()
     }
 
     // ----- queries ----------------------------------------------------------

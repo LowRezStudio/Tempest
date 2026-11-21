@@ -8,7 +8,34 @@ use glam::{Mat4, Vec3};
 use gpui::{AppContext as _, Context};
 use serde_json::{json, Value as J};
 
+use std::collections::{HashSet, VecDeque};
+
 use super::{Actor, MapEditor};
+use crate::map_render::Shading;
+
+/// A game shading request.
+pub enum GameStep {
+    /// Which material a section of a loaded mesh draws with.
+    Resolve { key: String, section: usize, params: J },
+    /// A material's shaders (asked through one of its sections).
+    Load { material: String, params: J },
+}
+
+/// Game shading requests: queued, asked for, materials met, failures.
+#[derive(Default)]
+pub struct GameLoad {
+    pub queue: VecDeque<GameStep>,
+    /// Requests in flight (the backend answers one at a time; the GPU pipelines build in parallel).
+    pub running: usize,
+    /// When the view was last redrawn for arriving materials.
+    pub shown: Option<std::time::Instant>,
+    pub asked: HashSet<(String, usize)>,
+    pub materials: HashSet<String>,
+    pub failed: usize,
+    pub last_error: Option<String>,
+    /// The clock loop runs ([`MapEditor::animate_game`]).
+    pub animating: bool,
+}
 use crate::map_render::{self, arrow_lines, cylinder_lines, rgba, solid, Cv, Heavy, Node, Part, Shape};
 
 /// The `mesh.preview` key of a mesh part: one load per mesh and material set.
@@ -37,6 +64,50 @@ fn floats(v: &J) -> Vec<f32> {
     v.as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default()
 }
 
+/// 3D wgpu scene marker/brush colours by actor category and team.
+fn actor_scene_color(a: &Actor) -> u32 {
+    const TEAM: [u32; 4] = [0x89b4fa, 0xf38ba8, 0xa6e3a1, 0xf9e2af];
+    if let ("playerstart", Some(t)) = (a.category.as_str(), a.team()) {
+        if t < TEAM.len() {
+            return TEAM[t];
+        }
+    }
+    match a.category.as_str() {
+        "mesh" => 0xa6adc8,
+        "playerstart" => 0x89b4fa,
+        "spawn" => 0x94e2d5,
+        "botfactory" => 0xfab387,
+        "gameplay" | "light" => 0xf9e2af,
+        "trigger" => 0xf5c2e7,
+        "blocking" => 0xf38ba8,
+        "volume" => 0xcba6f7,
+        "sound" => 0xa6e3a1,
+        "emitter" => 0xeba0ac,
+        "navigation" => 0x74c7ec,
+        "info" => 0x7f849c,
+        _ => 0xbac2de,
+    }
+}
+
+/// 3D wgpu collision wireframe/hull colour by collision response.
+pub(super) fn collision_item_color(it: &J) -> u32 {
+    let blocks = it["flags"]["blocks"].as_str().unwrap_or("none");
+    if it["kind"] == "volume" && blocks == "none" {
+        return match it["category"].as_str().unwrap_or("") {
+            "trigger" => 0xa6e3a1,
+            "blocking" => 0xfab387,
+            "navigation" => 0x94e2d5,
+            _ => 0xcba6f7,
+        };
+    }
+    match blocks {
+        "all" => 0xf38ba8,
+        "pawns" => 0xfab387,
+        "shots" => 0x89dceb,
+        _ => 0x7f849c,
+    }
+}
+
 /// A brush part's triangles as a see-through fill and its edges.
 pub fn brush_parts(part: &J, color: u32) -> (Part, Part) {
     let p = floats(&part["positions"]);
@@ -49,7 +120,7 @@ pub fn brush_parts(part: &J, color: u32) -> (Part, Part) {
 impl MapEditor {
     /// What an actor draws, asking for the meshes the scene does not have.
     fn node_of_actor(&mut self, a: &Actor) -> Node {
-        let color = a.color();
+        let color = actor_scene_color(a);
         let mut parts = Vec::new();
         let mut draws = false;
         for p in &a.parts {
@@ -109,6 +180,9 @@ impl MapEditor {
 
     /// Queue a mesh load (or mark it failed when it is in no package).
     pub(super) fn want_mesh(&mut self, key: &str, req: Option<J>) {
+        if let Some(r) = &req {
+            self.mesh_params.entry(key.to_string()).or_insert_with(|| r.clone());
+        }
         let known = self.view.with(|s| s.has_mesh(key)).unwrap_or(true);
         if known {
             return;
@@ -128,7 +202,12 @@ impl MapEditor {
     pub(super) fn pump_meshes(&mut self, cx: &mut Context<Self>) {
         while self.mesh_running < 2 {
             let Some((key, params)) = self.mesh_queue.pop_front() else { break };
+            // Already here: a load asked for by the last map answered after this one queued it again.
+            if !self.view.with(|s| s.is_loading(&key)).unwrap_or(false) {
+                continue;
+            }
             self.mesh_running += 1;
+            let epoch = self.mesh_epoch;
             let call = self.call("mesh.preview", params);
             cx.spawn(async move |this, cx| {
                 let parsed = match call.await {
@@ -140,10 +219,19 @@ impl MapEditor {
                 };
                 let _ = this.update(cx, |this, cx| {
                     this.mesh_running -= 1;
+                    // Asked for by a map since replaced, and not wanted by this one: dropped.
+                    if this.mesh_epoch != epoch && !this.view.with(|s| s.is_loading(&key)).unwrap_or(false) {
+                        cx.notify();
+                        return;
+                    }
                     this.view.with(|s| match &parsed {
                         Ok(m) => s.add_mesh(key.clone(), m),
                         Err(_) => s.mark_failed(key.clone()),
                     });
+                    if this.shading == Shading::Game && parsed.is_ok() {
+                        this.want_game_for(&key);
+                        this.pump_game(cx);
+                    }
                     this.collision_mesh_loaded(&key);
                     this.view.dirty();
                     cx.notify();
@@ -187,6 +275,9 @@ impl MapEditor {
             .map(|(k, &(li, ai))| {
                 let l = &self.levels[li];
                 let a = &l.actors[ai];
+                if self.hidden_actors.contains(&(l.path.clone(), a.export)) {
+                    return false;
+                }
                 let shown = !self.hidden_levels.contains(&l.path) && (!self.hidden_categories.contains(&a.category) || (self.heavy && !a.can_base_on));
                 shown || sel == Some(k)
             })
@@ -203,6 +294,162 @@ impl MapEditor {
     }
 
     /// Shading and the heavy-wall colours.
+    /// Change the shading; game shading asks for the materials' shaders of every mesh loaded.
+    pub(super) fn set_shading(&mut self, s: Shading, cx: &mut Context<Self>) {
+        self.shading = s;
+        self.apply_look();
+        if s == Shading::Game {
+            let keys: Vec<String> = self.mesh_params.keys().cloned().collect();
+            for k in keys {
+                self.want_game_for(&k);
+            }
+            self.pump_game(cx);
+            self.animate_game(cx);
+        }
+        cx.notify();
+    }
+
+    /// Redraw the level 30 times a second while game shading draws a material
+    /// that reads the clock (the viewport keeps one frame in flight: slow frames coalesce).
+    pub(super) fn animate_game(&mut self, cx: &mut Context<Self>) {
+        if self.game.animating {
+            return;
+        }
+        self.game.animating = true;
+        let start = std::time::Instant::now();
+        cx.spawn(async move |this, cx| loop {
+            let next = this.update(cx, |this, cx| {
+                let t = start.elapsed().as_secs_f32();
+                let animated = this.shading == Shading::Game && this.view.with(|s| s.set_game_time(t)).unwrap_or(false);
+                if !animated {
+                    this.game.animating = false;
+                    return None;
+                }
+                this.view.dirty();
+                cx.notify();
+                Some(std::time::Duration::from_millis(33))
+            });
+            match next {
+                Ok(Some(wait)) => cx.background_executor().timer(wait).await,
+                _ => break,
+            }
+        })
+        .detach();
+    }
+
+    /// The shader model changed: drop the game passes and ask again (when shading with them).
+    pub(crate) fn reload_game(&mut self, cx: &mut Context<Self>) {
+        self.game.queue.clear();
+        self.game.asked.clear();
+        self.game.materials.clear();
+        self.game.failed = 0;
+        self.mesh_epoch += 1;
+        self.view.with(|s| s.clear_game());
+        if self.shading == Shading::Game {
+            self.set_shading(Shading::Game, cx);
+        }
+    }
+
+    /// Ask for the material of each section of the mesh loaded as `key` (once).
+    pub(super) fn want_game_for(&mut self, key: &str) {
+        let Some(params) = self.mesh_params.get(key).cloned() else { return };
+        let sections = self.view.with(|s| s.mesh_sections(key)).unwrap_or_default();
+        for section in sections {
+            if self.game.asked.insert((key.to_string(), section)) {
+                self.game.queue.push_back(GameStep::Resolve { key: key.to_string(), section, params: params.clone() });
+            }
+        }
+    }
+
+    /// Run the game shader requests, one at a time: which material each
+    /// section draws with (cheap), then each material's shaders once
+    /// (`material.gameShader`, textures at 256: a level has hundreds).
+    pub(super) fn pump_game(&mut self, cx: &mut Context<Self>) {
+        while self.game.running < 3 {
+            let Some(step) = self.game.queue.pop_front() else { break };
+            self.game.running += 1;
+            self.run_game_step(step, cx);
+        }
+        // Materials show as they come, the view redrawn at most four times a second (and when all are in).
+        let due = self.game.shown.is_none_or(|t| t.elapsed() >= std::time::Duration::from_millis(250));
+        if due || self.game.running == 0 {
+            self.game.shown = Some(std::time::Instant::now());
+            self.view.dirty();
+            cx.notify();
+        }
+    }
+
+    fn run_game_step(&mut self, step: GameStep, cx: &mut Context<Self>) {
+        let epoch = self.mesh_epoch;
+        match step {
+            GameStep::Resolve { key, section, params } => {
+                let mut p = params.clone();
+                p["section"] = json!(section);
+                p["resolveOnly"] = json!(true);
+                let call = self.call("material.gameShader", p);
+                cx.spawn(async move |this, cx| {
+                    let r = call.await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.game.running -= 1;
+                        if this.mesh_epoch == epoch {
+                            match r.ok().and_then(|r| r.json["materialPath"].as_str().map(str::to_string)) {
+                                Some(m) => {
+                                    this.view.with(|s| s.set_game_section(key.clone(), section, m.clone()));
+                                    if this.game.materials.insert(m.clone()) {
+                                        let mut p = params.clone();
+                                        p["section"] = json!(section);
+                                        p["textureSize"] = json!(256);
+                                        p["platform"] = json!(crate::game_material::platform());
+                                        // Materials first: each draws many sections.
+                                        this.game.queue.push_front(GameStep::Load { material: m, params: p });
+                                    }
+                                }
+                                None => this.game.failed += 1,
+                            }
+                        }
+                        this.pump_game(cx);
+                    });
+                })
+                .detach();
+            }
+            GameStep::Load { material, params } => {
+                let call = self.call("material.gameShader", params);
+                cx.spawn(async move |this, cx| {
+                    let built = match call.await {
+                        Ok(r) => {
+                            let busy = crate::backend::Busy::new();
+                            let options = crate::game_material::PassOptions { reversed_depth: true, cull: false };
+                            let b = cx.background_executor().spawn(async move { crate::game_material::GamePass::with_options(&r.json, &|v| r.bin(v).map(<[u8]>::to_vec), options) }).await;
+                            drop(busy);
+                            b
+                        }
+                        Err(e) => Err(e.to_string()),
+                    };
+                    let _ = this.update(cx, |this, cx| {
+                        this.game.running -= 1;
+                        if this.mesh_epoch == epoch {
+                            match built {
+                                Ok(pass) => {
+                                    let animated = pass.animated;
+                                    this.view.with(|s| s.add_game_material(material, pass));
+                                    if animated {
+                                        this.animate_game(cx);
+                                    }
+                                }
+                                Err(e) => {
+                                    this.game.failed += 1;
+                                    this.game.last_error = Some(format!("{material}: {e}"));
+                                }
+                            }
+                        }
+                        this.pump_game(cx);
+                    });
+                })
+                .detach();
+            }
+        }
+    }
+
     pub(super) fn apply_look(&mut self) {
         let (shading, heavy) = (self.shading, self.heavy.then_some(if self.xray { Heavy::Xray } else { Heavy::Slope }));
         self.view.with(|s| {

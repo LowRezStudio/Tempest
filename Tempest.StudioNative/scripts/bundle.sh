@@ -164,7 +164,12 @@ EOF
 	mkdir -p "$dmg_root"
 	cp -R "$app" "$dmg_root/"
 	ln -s /Applications "$dmg_root/Applications"
-	hdiutil create -quiet -volname "Tempest Studio Native" -srcfolder "$dmg_root" -ov -format UDZO "$out/$name.dmg"
+	# hdiutil fails now and then on CI runners ("Resource busy"): try again before giving up.
+	for try in 1 2 3; do
+		hdiutil create -volname "Tempest Studio Native" -srcfolder "$dmg_root" -ov -format UDZO "$out/$name.dmg" && break
+		[[ $try == 3 ]] && exit 1
+		sleep 10
+	done
 	[[ $identity != "-" ]] && codesign --force --sign "$identity" --timestamp "$out/$name.dmg"
 else
 	dir=$stage/tempest-studio-native

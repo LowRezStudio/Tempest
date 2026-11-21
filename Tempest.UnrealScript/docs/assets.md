@@ -18,6 +18,7 @@ upk imagediff <pkg>                           where a rebuilt image / recompress
 upk texture|swf|sound|mesh ...                asset commands (see topic references in ../AGENTS.md)
 upk prop get|set, obj rename|delete|copy, deps, mod-dir   editing (see editing.md)
 upk live baseline|changes                     state of the movie packages for the hot reload mod (see hot-reload.md)
+upk shaders <pkg> [material] [--check [--constants]] [--wgsl <vf> <vs type> <ps type>]   shader caches (below)
 ```
 
 How an export is read (`object.rs`): class resolved by name in the `ClassDb` (content packages store
@@ -111,6 +112,70 @@ All ported from the 10897 source and checked against the 8.2 binary (`level.rs`,
   stores, the precomputed light volume, visibility buckets and the volume distance field, all as in
   the source.
 
+### Shader caches and game shaders (`shadercache.rs`, `d3d9.rs`, `material_shader.rs`)
+
+Cooked materials keep only their parameter expressions, not the graph: a preview that looks like the
+game must run the game's compiled shaders. Every seek-free package has `ShaderCache` exports (one per
+platform: 0 is PC Direct3D 9 SM3, 4 is SM5) listing its shaders by id and its material shader maps;
+Hi-Rez moved the bytecode out to `ShaderCodeStorage-PC-D3D-SM3[-PATCH].bin` (version 2: an index of
+(guid, chunk, offset, size), LZO chunks; the patch file wins; each blob has 4 bytes before the
+version token). A cache's shader records keep a relative skip offset after the 20-byte hash; a
+material shader map's skip offset is checked against what was read.
+
+- Shader maps are found by **key** (`FMaterialShaderMap::FindId`): base material id plus the static
+  switch / mask / normal settings, compared by name. Instances with the same static parameters share
+  one map, which keeps the `MaterialId` of whichever was compiled first, so the id is not a lookup
+  key. A base material's own map has its resource id. Search the object's package, then each
+  package of its parent chain (`Startup.upk` holds shared masters).
+- `FUniformExpressionSet` (pixel vectors, scalars, 2D textures; cube textures; vertex, hull, domain)
+  is in the map, not in `FMaterialResource`. Constants are bound by `CTAB` name:
+  `UniformPixelVector_N` (vector expression N), `UniformPixelScalars_N` (scalars 4N..4N+3),
+  `PixelTexture2D_N` (texture expression N: a parameter the instance chain may override, else
+  `UniformExpressionTextures[index]` of the resource).
+- `d3d9.rs` parses `vs_3_0`/`ps_3_0` (CTAB, `dcl`, `def*`) and translates a pair to one WGSL
+  module. Every pair of the 8.1 caches tried (6,785 over three packages) passes naga validation.
+  Matrices: register `k` holds row `k` of the engine's row-vector matrix (glam column `k`).
+  `FLocalVertexFactory` feeds `TANGENT0`/`NORMAL0` as raw `UBYTE4` (0..255; the shader unpacks),
+  `NORMAL0.w` is the basis sign; binormal = `cross(N, T) * w`.
+- Neutral renderer constants: `SharedFogParameter1` (layered fog start distance) far away, or the
+  translucent base pass's fog transmittance is 0 (black); `LightPositionAndInvRadius` = (direction
+  to the light, 0) for a directional light; `DiffuseOverrideParameter` /
+  `SpecularOverrideParameter` = (0, 0, 0, 1); `WorldIncidentLighting[0].xyz` is the SH constant
+  term of R, G, B (scaled by sqrt(π)/2 in the shader). Driven at run time, not by the material:
+  `SelectionGlow_Fade` (`TgSkeletalMeshActor_Lobby` fades the lobby's cyan `LobbyGlow` in for 0.6
+  s when a champion is picked; 0 at rest, while the material default 1 is full glow).
+- SM5 (platform 4, `ShaderCodeStorage-PC-D3D-SM5[-PATCH].bin`, `material.gameShader {platform:
+  "sm5"}`, `dxbc.rs`): DXBC with `ISGN`, `OSGN`, `SHEX` only, no `RDEF`, so constants are named
+  through the SM3 twin: each record keeps, after `FShader::Serialize`, the type's parameters
+  (`FShaderParameter` BaseIndex, NumBytes, BufferIndex; `FShaderResourceParameter` BaseIndex,
+  NumResources, SamplerIndex: 3 `u16`s each, 8.2 server DWARF) in the type's order, the same for
+  both platforms (tails of equal length). An SM3 triple (register × 16, count × 16, 0) or (s, 1,
+  s) names the SM5 triple at the same place, which must fit the SM5 declarations (records also
+  hold small array indices). Not in any record, the renderer's own: vertex `cb1` mirrors SM3's
+  fixed registers (view projection 0–3, `CameraPositionVS` 4); pixel `cb2` holds
+  `DiffuseOverrideParameter` 3, `SpecularOverrideParameter` 4, `GTimeVariablesPS` 9 (found by
+  intersecting what thousands of shaders read there with what their SM3 twins declare);
+  `LocalToWorldRotDeterminantFlip`, often optimised out of SM3, sits one register before
+  `WorldToLocal`. Each stage's buffers are flattened into one array (`dxbc::Layout`), constants
+  carry byte `offset` and `bytes` (SM5 packs scalars into components). Registers are `vec4<u32>`,
+  bit-cast per instruction; textures and samplers are separate slots (the module pairs each
+  texture with a renderer sampler); shadow comparisons return 1. D3D11 binds the packed tangent
+  basis as UNORM (0..1, the shader does `× 2 − 1`), D3D9 as `UBYTE4` (0..255). 22,512 of 22,513
+  SM5 pairs of four packages pass naga; a material without an SM5 map falls back to SM3
+  (`fallback`). Every pair (both platforms) reads the placement constants (`d3d9::PER_DRAW`) from
+  `draws`, group 0 binding 2, a read-only storage array of `drawFloats` rows per placement indexed
+  by `instance_index` (copied into `vsd` first), so a renderer draws every placement of a part in one
+  instanced call.
+- `material.gameShader {path, index, textureSize?, section?, lod?, materials?, resolveOnly?}` returns
+  the base pass pair of `FLocalVertexFactory` (directional light + sky light policy, else SH light,
+  which level materials compiled for light maps have, else no light map); `materials` are a placed
+  component's slot overrides (as `mesh.preview` takes them), `resolveOnly` answers only
+  `materialPath` as WGSL with its
+  constants, uniform expressions (JSON, `UniformExpr::to_json`), samplers with PNGs and sRGB flags
+  (a `TextureCube` as `faces`: six PNGs, FacePosX…FaceNegZ; each sampler's `expression` names the
+  material's texture parameter), blend mode and parameters. For a mesh, `section` names the material. Skeletal meshes are drawn
+  with the local vertex factory's shaders over CPU-skinned vertices (every material tried has them).
+
 ### Particle systems (`particle.rs`)
 
 Cooked `ParticleSystem` → `ParticleSpriteEmitter.LODLevels[]` → `ParticleLODLevel { RequiredModule,
@@ -138,8 +203,16 @@ sits in 584 `WWB_*.pck` + `Init.pck` file packages (`AKPK` v1) holding soundbank
 container layout: 66-byte `fmt`, no `vorb` chunk, 2-byte packet headers, external codebooks, mod
 packets; 196 carry a seek table). Ids are FNV-1 of lower-case names (`wwb_pc_khan` → bank id and
 `WWB_PC_Khan.pck`; event names from the AkEvent exports). `upk wwise
-ls|event|export|import|convert|rewrite` is the CLI; the Studio methods are
-`wwise.{packages,open,preview,export,import,replacePcm,forObject}` and `sound.replacePcm`.
+ls|event|names|export|import|convert|rewrite` is the CLI; the Studio methods are
+`wwise.{packages,open,preview,export,import,replacePcm,forObject,owners}` and `sound.replacePcm`.
+Localized banks (every `WWB_VOX_*`/`WWB_VGS_*`, the announcers: 677 files) and 4 `WW_*` packages
+live in the language folder `CookedPCConsole/English(US)/`, some banks with an empty package of the
+same name in `CookedPCConsole`. The server reads the workspace folder with its subfolders
+(`folder.rs`: `.upk`/`.u` for the package list, lookups by name and the object path index, `.pck`,
+`.tfc`; hidden folders such as `.tempest/` left out; listings carry `folder`, the subfolder).
+`wwise.packages` leaves those empty packages out; `wwise.forObject` prefers a subfolder's package
+that holds the bank, as Wwise opens a bank as localized first. Edits keep the file's path, so a mod's
+entry targets `ChaosGame/CookedPCConsole/English(US)/<file>`.
 
 Converting: `vorbis::wem_to_ogg` is ww2ogg's algorithm (codebooks rebuilt from the library,
 floors/residues/mappings/modes expanded, audio packets given back their type bit and window flags;
@@ -156,3 +229,29 @@ yet. Every pck re-serialises byte-identically (`upk wwise rewrite`); a bank's `D
 rebuilt 16-byte aligned on replace and each sound/music-track source of the media gets the new
 in-memory size. Container children are found by scanning for the parent id in candidate objects of
 the kinds that node may contain (`NodeBaseParams` is not parsed).
+
+Why a sound plays (`bnk::event_sounds`, `upk wwise event`): a container's children list is found by
+content (a count and ascending ids of objects naming the container as parent) instead of parsing
+`NodeBaseParams`; after it, a layer container's crossfades (`rtpcID` + per-child curve: audible
+range) and a switch container's state → children groups (group id 10 bytes before the list). Each
+source gets its conditions: random/sequence variant `k of n`, crossfade, switch state. Paladins'
+voice lines cross on `IsFriendlyWithLocalPawn` (317 of 407 layer containers): ≥ 0.75 is what the
+player and allies hear, below is the enemies' line, so an ultimate's two media are its ally and enemy
+lines. `wwise/names.rs` holds the parameter, switch and state names matched to their FNV hashes from
+the game's strings (exe, every package's name table, the assembly) and pairs of their words (the
+`words.py` approach of bnnm's wwiser-utils, whose lists have no Paladins file and no licence: names
+only, none copied); `upk wwise names <dir>` lists the ids in use, named or not (unnamed: a few
+switch groups, among them the Friendly/Enemy/Local one). Media have no recoverable names (Wwise
+numbers them; only the unshipped `SoundbanksInfo.xml` maps them). `names::event_title` reads an event
+name in words (owner tokens and codes dropped, run-together words split with the labels' words).
+
+Who plays what (`mcts/sounds.rs`, `wwise.owners`): FX rows carry `AK_EVENT_RES_ID` (the event's
+resource path, `WW_PC_Nyx.Nyx_SP_…_Play`, in bank `WWB_PC_Nyx`); rows reach FX through any `*FX_ID`
+(not a skin's `FROM_FX_ID`), meshes (`*ASM_ID`, whose `DATA_SET_ASM_MESH_FXS` rows name the device
+slot), effect groups, projectiles and deployables. Champions (Champion Vendor 475) are walked from
+the bot row, its devices and its skins (`DATA_SET_SKIN_FX_XREF`: a skin bank's suffix gets the
+skin's name, also for its voice banks); items with no champion (sprays) on their own. A champion's
+files: every `.pck` named after its ability banks (Pip's are `Alchemist`) or its most used weapon
+bank, plus only its events of other files. `wwise.open {banks: [{path, only}], labels, owner}` opens
+such a set; `labels` adds each event's `fx`, `part` (ability, card, skin), `owner`, the owner's own
+first, a `_1p_` event its twin's.

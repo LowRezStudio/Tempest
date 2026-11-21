@@ -324,6 +324,59 @@ pub fn write_back(nd: &mut NavData) -> Result<Vec<u8>> {
     Ok(nd.tf.write())
 }
 
+/// Replace the whole mesh and its cluster graph (a generated mesh): the
+/// jump links (user edge pairs and their annotations) go, since their faces
+/// do; the AABB tree is rebuilt. Returns the serialised tagfile.
+pub fn replace(nd: &mut NavData, mesh: super::navmesh::NavMesh, graph: super::navmesh::Graph) -> Result<Vec<u8>> {
+    let mut mesh = mesh;
+    mesh.has_clearance_seeding = false;
+    nd.mesh = mesh;
+    if let Some(l) = &mut nd.library {
+        l.user_edge_pairs.clear();
+    }
+    if nd.library_item != 0 {
+        let library_item = nd.library_item;
+        let has = Rec::new(&nd.tf, nd.tf.value(library_item, 0)?).map(|r| r.item("annotations") != 0).unwrap_or(false);
+        if has {
+            put_array(&mut nd.tf, library_item, "annotations", Vec::new())?;
+        }
+    }
+    if nd.graph_item != 0 {
+        let tf = &nd.tf;
+        let graph_ty = tf.items[nd.graph_item as usize].ty;
+        let node_ty = elem_type(tf, graph_ty, "nodes")?;
+        let edge_ty = elem_type(tf, graph_ty, "edges")?;
+        let nodes: Vec<Value> = graph.nodes.iter().map(|(s, n)| element(tf, node_ty, None, &[("startEdgeIndex", *s as f64), ("numEdges", *n as f64)], &[])).collect::<Result<_>>()?;
+        let edges: Vec<Value> = graph
+            .edges
+            .iter()
+            .map(|e| {
+                let v = element(tf, edge_ty, None, &[("flags", e.flags as f64), ("target", e.target as f64)], &[])?;
+                let mut r = Rec::new(tf, v).ok_or_else(|| err("bad graph edge"))?;
+                r.set("cost", Value::Half(e.cost));
+                Ok(r.into_value())
+            })
+            .collect::<Result<_>>()?;
+        let positions: Vec<Value> = graph.positions.iter().map(|v| Value::Fixed(v.iter().map(|f| Value::F32(*f)).collect())).collect();
+        let graph_item = nd.graph_item;
+        put_array(&mut nd.tf, graph_item, "positions", positions)?;
+        put_array(&mut nd.tf, graph_item, "nodes", nodes)?;
+        put_array(&mut nd.tf, graph_item, "edges", edges)?;
+        nd.graph = Some(graph);
+    }
+    // The erosion radius is a member of the mesh record.
+    let erosion = nd.mesh.erosion_radius;
+    let mesh_item = nd.mesh_item;
+    {
+        let tf = &nd.tf;
+        let mut r = Rec::new(tf, tf.value(mesh_item, 0)?).ok_or_else(|| err("bad mesh"))?;
+        r.set("erosionRadius", Value::F32(erosion));
+        let v = r.into_value();
+        set_record(&mut nd.tf, mesh_item, &v)?;
+    }
+    write_back(nd)
+}
+
 /// Rebuild the mediator's static AABB tree from the faces.
 pub fn rebuild_tree(nd: &mut NavData) -> Result<()> {
     if nd.impl_item == 0 {

@@ -46,7 +46,14 @@ impl TextureSource {
         if let Some(t) = self.tfcs.lock().unwrap().get(&key) {
             return Ok(t.clone());
         }
-        let path = self.dir.join(format!("{name}.tfc"));
+        let mut path = self.dir.join(format!("{name}.tfc"));
+        if !path.exists() {
+            // A cache kept in a subfolder.
+            let file = format!("{name}.tfc");
+            if let Some(p) = crate::folder::files(&self.dir, &["tfc"]).into_iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&file))) {
+                path = p;
+            }
+        }
         let t = Arc::new(Tfc::open(&path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?);
         self.tfcs.lock().unwrap().insert(key, t.clone());
         Ok(t)

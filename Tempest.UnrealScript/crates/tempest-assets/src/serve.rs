@@ -33,11 +33,14 @@ use crate::texcache::{MipLocation, TextureSource};
 use crate::texture_ops::{self, ImportOptions, ImportSource};
 use crate::verify::verify_package;
 use crate::visit::references;
-use crate::wwise::{akpk, bnk, fnv, vorbis};
+use crate::wwise::{self, akpk, bnk, fnv, vorbis};
 use crate::audio;
 use crate::mcts;
 
 type Res<T> = Result<T, Box<dyn Error>>;
+
+/// A folder's shader code storages (SM3, SM5), shared with the calls that read them.
+type Storages = std::sync::Arc<Vec<crate::shadercache::CodeStorage>>;
 
 /// Binary payloads of the response being built. With framed responses
 /// (`protocol {frames: true}`) each payload is sent raw after the result
@@ -124,6 +127,8 @@ pub struct Server {
     order: Option<Vec<OrderedPackage>>,
     /// Preview PNGs of material textures (`mesh.preview`), by path and size.
     png_cache: HashMap<String, Vec<u8>>,
+    /// The workspace's shader code storages (`material.gameShader`), opened on first use.
+    shader_storages: Option<(PathBuf, Storages, Storages)>,
     /// `mod.preview` results of items read from disk, by what they depend on
     /// (source and game file sizes and times, mode, base record).
     preview_cache: HashMap<String, J>,
@@ -147,6 +152,10 @@ pub struct Server {
     /// Wwise object names from the AkEvent / AkBank exports of the workspace,
     /// by FNV id (built from the search index on first use).
     ak_names: Option<HashMap<u32, String>>,
+    /// `wwise.owners`: champions and items with the `.pck` files and events
+    /// of their sounds, and every event's label by lower-case name (built
+    /// from the assembly on first use).
+    sound_owners: Option<SoundIndex>,
     /// The assembly and language marshals of the workspace (`mcts.open`).
     mcts: Option<mcts::workspace::Workspace>,
     /// Binary payloads of the response being built.
@@ -285,12 +294,12 @@ fn opt_b(p: &J, name: &str) -> Option<bool> {
 
 impl Server {
     pub fn new() -> Server {
-        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(),
+        Server { dir: None, db: None, db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(), shader_storages: None,
             preview_cache: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
@@ -535,7 +544,7 @@ impl Server {
                 v["dirty"] = J::from(ed.is_dirty());
                 Ok(v)
             }
-            "package.close" | "package.discard" | "package.dirty" | "package.undo" | "package.undoList" | "package.save" if is_pck(s(p, "path")?) => self.pck_call(method, p),
+            "package.close" | "package.discard" | "package.dirty" | "package.undo" | "package.redo" | "package.undoList" | "package.save" if is_pck(s(p, "path")?) => self.pck_call(method, p),
             "package.close" => {
                 let k = key(s(p, "path")?);
                 self.scripts.remove(&k);
@@ -553,11 +562,16 @@ impl Server {
             "package.undo" => {
                 let ed = self.editor(s(p, "path")?)?;
                 let label = ed.undo();
-                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "dirty": ed.is_dirty() }))
+                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
+            }
+            "package.redo" => {
+                let ed = self.editor(s(p, "path")?)?;
+                let label = ed.redo();
+                Ok(json!({ "label": label, "remaining": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
             }
             "package.undoList" => {
                 let ed = self.editor(s(p, "path")?)?;
-                Ok(json!({ "labels": ed.undo_labels(), "dirty": ed.is_dirty() }))
+                Ok(json!({ "labels": ed.undo_labels(), "redo": ed.redo_labels(), "dirty": ed.is_dirty() }))
             }
             "package.discard" => {
                 // Drop the in-memory package: the next open reads the file again.
@@ -636,6 +650,7 @@ impl Server {
             "map.removeActor" => self.map_remove_actor(p),
             "map.navmesh" | "map.navmeshEdit" => self.map_navmesh(method, p),
             "map.collision" => self.map_collision(p),
+            "map.navmeshGenerate" => self.map_navmesh_generate(p),
             "map.brush" => self.map_brush(p),
             "map.setBrush" => self.map_set_brush(p),
             "map.export" => self.map_export(p),
@@ -667,6 +682,7 @@ impl Server {
             "wwise.export" => self.wwise_export(p),
             "wwise.import" => self.wwise_import(p),
             "wwise.forObject" => self.wwise_for_object(p),
+            "wwise.owners" => Ok(self.sound_index()?.owners.clone()),
             "wwise.replacePcm" => self.wwise_replace_pcm(p),
             "sound.replacePcm" => self.sound_replace_pcm(p),
             "particle.system" => self.particle_system(p),
@@ -686,6 +702,8 @@ impl Server {
             "mcts.usages" => Ok(self.mcts()?.usages(p)?),
             "mcts.delete" => Ok(self.mcts_mut()?.delete(p)?),
             "mcts.undo" => Ok(self.mcts_mut()?.undo(p)?),
+            "mcts.redo" => Ok(self.mcts_mut()?.redo(p)?),
+            "mcts.icons" => Ok(self.mcts_mut()?.icons(p)?),
             "mcts.save" => {
                 // Saving in place: remember the file as it was first, so a
                 // mod delta can be made from it later.
@@ -771,6 +789,7 @@ impl Server {
             "script.export" => self.script_export(p),
             "package.findReplace" => self.find_replace(p),
             "material.preview" => self.material_preview(p),
+            "material.gameShader" => self.material_game_shader(p),
             "material.setParameter" => self.material_set_parameter(p),
             "material.setTexture" => self.material_set_texture(p),
             "material.newInstance" => self.material_new_instance(p),
@@ -862,6 +881,7 @@ impl Server {
         self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
+        self.sound_owners = None;
         self.order = None;
         self.db = Some(db);
         self.src = Some(std::sync::Arc::new(TextureSource::open(&dir)?));
@@ -904,6 +924,7 @@ impl Server {
                     "script": p.flags & pkgf::CONTAINS_SCRIPT != 0,
                     "map": p.flags & pkgf::CONTAINS_MAP != 0,
                     "open": self.editors.contains_key(&key(&p.path.to_string_lossy())),
+                    "folder": self.dir.as_deref().and_then(|d| crate::folder::subfolder(d, &p.path)),
                 })
             })
             .collect();
@@ -1317,7 +1338,7 @@ impl Server {
                 };
                 match res {
                     Ok(()) => {
-                        doc.dirty = true;
+                        doc.mark_changed();
                         docs.push(id);
                     }
                     Err(e) => problems.push(format!("{label}: {e}")),
@@ -2324,6 +2345,238 @@ impl Server {
         Ok(json!({ "path": path, "levels": levels, "meshes": meshes, "missing": missing }))
     }
 
+    /// What pawns collide with in a map and its streamed levels, as world
+    /// triangles (Unreal units): blocking volumes' hulls, and each blocking
+    /// static mesh component's collision (its body setup, or its LOD 0
+    /// triangles when it uses complex collision; nothing without a body setup).
+    fn walk_geometry(&mut self, path: &str) -> Res<(Vec<[f32; 3]>, usize, Vec<String>)> {
+        use crate::map::{actor_matrix, component_matrix, mul, Mat};
+        let (files, missing) = self.map_files(path, true)?;
+        let db = self.db()?;
+        let place = |out: &mut Vec<[f32; 3]>, tris: &[[f32; 3]], m: &Mat| {
+            for v in tris {
+                let (x, y, z) = (v[0] as f64, v[1] as f64, v[2] as f64);
+                out.push([0, 1, 2].map(|c| (x * m[0][c] + y * m[1][c] + z * m[2][c] + m[3][c]) as f32));
+            }
+        };
+        let blocks = |f: &J| matches!(f["blocks"].as_str(), Some("all") | Some("pawns"));
+        let mut out = Vec::new();
+        let mut parts = 0;
+        // Placed meshes by key, resolved once.
+        let mut placed: Vec<(J, Mat)> = Vec::new();
+        for f in &files {
+            let ed = self.editor(f)?;
+            let Some(level) = crate::map::level_export(&ed.pkg) else { continue };
+            let (actors, model): (Vec<usize>, Option<usize>) = ed.with_object(level, |_, o| match &o.native {
+                Native::Level(l) => (l.actors.iter().filter_map(|a| a.export_index()).collect(), l.model.export_index()),
+                _ => (Vec::new(), None),
+            })?;
+            // The world BSP (older maps are built from it).
+            if let Some(m) = model {
+                let tris = ed.with_object(m, |_, o| match &o.native {
+                    Native::Model(m) => crate::collision::bsp_triangles(m),
+                    _ => Vec::new(),
+                })?;
+                if !tris.is_empty() {
+                    out.extend(tris);
+                    parts += 1;
+                }
+            }
+            for a in actors {
+                let class = ed.pkg.class_name_of(PackageIndex::export(a));
+                let am = ed.with_object(a, |pkg, o| actor_matrix(o, pkg))?;
+                let comps = ed.children(a);
+                if db.class_is_a(&class, "Volume") {
+                    let Some(c) = comps.iter().copied().find(|&c| db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(c)), "BrushComponent")) else { continue };
+                    if !blocks(&crate::collision::flags_json(ed, a, Some(c))) {
+                        continue;
+                    }
+                    let tris = ed.with_object(c, |pkg, o| crate::collision::agg_triangles(o.property("BrushAggGeom", pkg).map(|p| &p.value), pkg))?;
+                    place(&mut out, &tris, &am);
+                    parts += 1;
+                    continue;
+                }
+                for c in comps {
+                    let cclass = ed.pkg.class_name_of(PackageIndex::export(c));
+                    // Instanced meshes (foliage) keep their instances elsewhere.
+                    if !db.class_is_a(&cclass, "StaticMeshComponent") || db.class_is_a(&cclass, "InstancedStaticMeshComponent") {
+                        continue;
+                    }
+                    if !blocks(&crate::collision::flags_json(ed, a, Some(c))) {
+                        continue;
+                    }
+                    let (cm, mesh) = ed.with_object(c, |pkg, o| {
+                        let m = match o.property("StaticMesh", pkg).map(|p| &p.value) {
+                            Some(Value::Object(i)) if !i.is_null() => Some(match i.export_index() {
+                                Some(e) => json!({ "path": f, "index": e }),
+                                None => json!({ "object": pkg.object_path(*i) }),
+                            }),
+                            _ => None,
+                        };
+                        (component_matrix(o, pkg), m)
+                    })?;
+                    if let Some(m) = mesh {
+                        placed.push((m, mul(&cm, &am)));
+                    }
+                }
+            }
+        }
+        let mut meshes: HashMap<String, Option<Vec<[f32; 3]>>> = HashMap::new();
+        for (m, matrix) in placed {
+            let k = m.to_string();
+            if !meshes.contains_key(&k) {
+                let tris = (|| -> Res<Option<Vec<[f32; 3]>>> {
+                    let (file, i) = self.collision_mesh(&m)?;
+                    let ed = self.editor(&file)?;
+                    let c = crate::collision::mesh_collision(ed, i);
+                    Ok(match c["pawns"].as_str() {
+                        Some("simple") => {
+                            let body = ed.with_object(i, |pkg, o| match o.property("BodySetup", pkg).map(|p| &p.value) {
+                                Some(Value::Object(b)) => b.export_index(),
+                                _ => None,
+                            })?;
+                            match body {
+                                Some(b) => Some(ed.with_object(b, |pkg, o| crate::collision::agg_triangles(o.property("AggGeom", pkg).map(|p| &p.value), pkg))?),
+                                None => None,
+                            }
+                        }
+                        Some("complex") => {
+                            let o = ed.object(i)?.clone();
+                            let g = mesh_ops::geometry(&ed.pkg, &o, 0)?;
+                            Some(g.indices.iter().filter_map(|&k| g.positions.get(k as usize).copied()).collect())
+                        }
+                        _ => None,
+                    })
+                })()
+                .unwrap_or(None);
+                meshes.insert(k.clone(), tris);
+            }
+            if let Some(Some(tris)) = meshes.get(&k) {
+                place(&mut out, tris, &matrix);
+                parts += 1;
+            }
+        }
+        Ok((out, parts, missing))
+    }
+
+    /// `map.navmeshGenerate {path, index?, settings?}`: a new nav mesh for the
+    /// level's `HavokNavMeshActor` (`index`, else the first) from what pawns
+    /// collide with (`havok::generate`), as one undoable, unsaved edit.
+    /// `settings` (Unreal units): `cellSize`, `cellHeight`, `agentRadius`,
+    /// `agentHeight`, `maxClimb`, `maxSlope` (degrees), `maxFaceVertices`.
+    fn map_navmesh_generate(&mut self, p: &J) -> Res<J> {
+        use crate::havok::{edit, generate, navmesh::NavData, set_actor_tagfile, studio};
+        let path = s(p, "path")?.to_string();
+        let t = std::time::Instant::now();
+        let mut settings = generate::Settings::default();
+        let o = &p["settings"];
+        let unreal = |k: &str, d: &mut f32| {
+            if let Some(v) = o[k].as_f64() {
+                *d = v as f32 / crate::havok::navmesh::HAVOK_TO_UNREAL;
+            }
+        };
+        unreal("cellSize", &mut settings.cell_size);
+        unreal("cellHeight", &mut settings.cell_height);
+        unreal("agentRadius", &mut settings.agent_radius);
+        unreal("agentHeight", &mut settings.agent_height);
+        unreal("maxClimb", &mut settings.max_climb);
+        if let Some(v) = o["maxSlope"].as_f64() {
+            settings.max_slope = v as f32;
+        }
+        if let Some(v) = o["maxFaceVertices"].as_u64() {
+            settings.max_face_vertices = v.clamp(3, 16) as u16;
+        }
+        let (tris, parts, missing) = self.walk_geometry(&path)?;
+        let gathered = t.elapsed().as_millis() as u64;
+        let havok: Vec<[f32; 3]> = tris.iter().map(|v| v.map(|c| c / crate::havok::navmesh::HAVOK_TO_UNREAL)).collect();
+        // The bounds: the current mesh's, a little larger (else the walkable geometry's).
+        let bounds = {
+            let ed = self.editor(&path)?;
+            let i = opt_u(p, "index").or_else(|| studio::actors(ed).first().copied());
+            match i.map(|i| studio::read(ed, i)) {
+                Some(Ok(Some(nd))) if nd.mesh.aabb[0][0] < nd.mesh.aabb[1][0] => {
+                    let [lo, hi] = nd.mesh.aabb;
+                    let m = settings.agent_radius * 8.0;
+                    Some([[lo[0] - m, lo[1] - m, lo[2] - settings.agent_height], [hi[0] + m, hi[1] + m, hi[2] + settings.agent_height * 2.0]])
+                }
+                _ => None,
+            }
+        };
+        let mut polys = generate::polygons(&havok, bounds, &settings)?;
+        let recast = t.elapsed().as_millis() as u64 - gathered;
+        let skipped = polys.skipped;
+        // Seeds: the level's navigation points (player starts, path nodes) and, unless
+        // `keepUnreached`, the faces of the current mesh: floors none of them reach go.
+        let mut seeds: Vec<[f32; 3]> = Vec::new();
+        if !opt_b(p, "keepUnreached").unwrap_or(false) {
+            let (files, _) = self.map_files(&path, true)?;
+            let db = self.db()?;
+            for f in &files {
+                let ed = self.editor(f)?;
+                let Some(level) = crate::map::level_export(&ed.pkg) else { continue };
+                let actors: Vec<usize> = ed.with_object(level, |_, o| match &o.native {
+                    Native::Level(l) => l.actors.iter().filter_map(|a| a.export_index()).collect(),
+                    _ => Vec::new(),
+                })?;
+                for a in actors {
+                    if db.class_is_a(&ed.pkg.class_name_of(PackageIndex::export(a)), "NavigationPoint") {
+                        let m = ed.with_object(a, |pkg, o| crate::map::actor_matrix(o, pkg))?;
+                        seeds.push([0, 1, 2].map(|c| m[3][c] as f32 / crate::havok::navmesh::HAVOK_TO_UNREAL));
+                    }
+                }
+            }
+            let ed = self.editor(&path)?;
+            if let Some(i) = opt_u(p, "index").or_else(|| studio::actors(ed).first().copied()) {
+                if let Ok(Some(nd)) = studio::read(ed, i) {
+                    for f in 0..nd.mesh.faces.len() {
+                        let vs = nd.face_vertices(f);
+                        let mut c = [0.0f32; 3];
+                        for &v in &vs {
+                            for (ck, vk) in c.iter_mut().zip(nd.mesh.vertices[v as usize]) {
+                                *ck += vk / vs.len() as f32;
+                            }
+                        }
+                        seeds.push(c);
+                    }
+                }
+            }
+        }
+        let pruned = generate::prune(&mut polys, &seeds, settings.agent_height, settings.max_climb * 2.0);
+        let seed_count = seeds.len();
+        let mut mesh = generate::nav_mesh(&polys, settings.agent_radius);
+        let graph = generate::cluster(&mut mesh, settings.cluster_area);
+        if let Some(problem) = crate::havok::navmesh::validate(&mesh).first() {
+            return Err(format!("the generated nav mesh is invalid: {problem}").into());
+        }
+        let mut bins = std::mem::take(&mut self.bins);
+        let r = (|| -> Res<J> {
+            let ed = self.editor(&path)?;
+            let i = match opt_u(p, "index") {
+                Some(i) => i,
+                None => *studio::actors(ed).first().ok_or("the level has no HavokNavMeshActor")?,
+            };
+            let mut nd = studio::read(ed, i)?.ok_or("this actor holds no nav mesh to replace")?;
+            let old = nd.mesh.clone();
+            let clusters = graph.nodes.len();
+            let bytes = edit::replace(&mut nd, mesh, graph)?;
+            // Stored in the form a read and rewrite gives (the emptied arrays' items laid out as the writer lays them).
+            let nd = NavData::read(&bytes)?;
+            let bytes = nd.tf.write();
+            let nd = NavData::read(&bytes)?;
+            let coverage = json!({ "oldCovered": generate::coverage(&old, &nd.mesh), "newCovered": generate::coverage(&nd.mesh, &old) });
+            let mut obj = ed.object(i)?.clone();
+            set_actor_tagfile(&mut obj, &bytes)?;
+            ed.begin_undo(format!("generate the nav mesh ({} faces)", nd.mesh.faces.len()));
+            ed.replace_object(i, obj)?;
+            let mut v = studio::actor_json(ed, i, &nd, &mut bins);
+            v["dirty"] = J::from(true);
+            v["generated"] = json!({ "triangles": tris.len() / 3, "parts": parts, "faces": nd.mesh.faces.len(), "clusters": clusters, "skippedOutlines": skipped, "seeds": seed_count, "pruned": pruned, "missingLevels": missing, "gatherMs": gathered, "recastMs": recast, "ms": t.elapsed().as_millis() as u64, "coverage": coverage, "oldFaces": old.faces.len() });
+            Ok(v)
+        })();
+        self.bins = bins;
+        r
+    }
+
     /// `map.navmesh {path, index?}` / `map.navmeshEdit {path, index, op, …}`:
     /// the level's Havok nav meshes as buffers, and edits of one
     /// (`crate::havok::studio`).
@@ -2488,7 +2741,7 @@ impl Server {
                         }
                         g.normals = vec![[0.0, 0.0, 1.0]; g.positions.len()];
                         g.uvs = vec![[0.0, 0.0]; g.positions.len()];
-                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0 });
+                        g.sections.push(Section { first_index: 0, num_triangles: (g.indices.len() / 3) as u32, material: PackageIndex::default(), material_name: format!("volume_{cat}"), slot: 0, material_package: None });
                         meshes.push((format!("{name}_brush"), g));
                         Some(meshes.len() - 1)
                     } else {
@@ -3011,6 +3264,8 @@ impl Server {
         let textures = opt_b(p, "textures").unwrap_or(true);
         let skin = opt_b(p, "skin").unwrap_or(true);
         let o = self.mesh_object(path, i)?;
+        let over: Vec<J> = p.get("materials").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        flush_overrides(&mut self.editors, &over);
         let db = self.db()?;
         let dir = self.dir()?.to_path_buf();
         let owners = if textures {
@@ -3029,18 +3284,22 @@ impl Server {
         if !skin {
             g.bones.clear();
         }
-        // A placed component's overrides (`Materials[slot]`, object paths in
-        // the mesh's package): the map view draws each mesh as placed.
-        if let Some(over) = p.get("materials").and_then(|v| v.as_array()) {
-            let find = |path: &str| -> Option<PackageIndex> {
-                let pkg = &ed.pkg;
-                (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path))
-            };
-            for sec in g.sections.iter_mut() {
-                if let Some(m) = over.get(sec.slot).and_then(|v| v.as_str()).and_then(find) {
+        // Material overrides by slot: a placed component's (the map view draws
+        // each mesh as placed) or a preview's, from any package.
+        let mut foreign: Vec<(String, PathBuf)> = Vec::new();
+        for sec in g.sections.iter_mut() {
+            match over.get(sec.slot).and_then(|v| material_override(&ed.pkg, path, v)) {
+                Some(MaterialOverride::Local(m)) => {
                     sec.material = m;
                     sec.material_name = ed.pkg.object_path(m);
                 }
+                // Only materials with textures need the other package.
+                Some(MaterialOverride::Foreign(name, file, m)) if textures => {
+                    sec.material = m;
+                    sec.material_package = Some(name.clone());
+                    foreign.push((name, file));
+                }
+                _ => {}
             }
         }
         let mut warnings = Vec::new();
@@ -3051,6 +3310,14 @@ impl Server {
             cache.set_lookup(|p| index_lookup(index, pkgs, p));
             if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
                 cache.insert(&ed.name, ed.pkg.clone());
+            }
+            for (name, file) in &foreign {
+                cache_package(&mut cache, &self.editors, name, file);
+            }
+            for sec in g.sections.iter_mut() {
+                if let Some(lp) = sec.material_package.as_deref().and_then(|n| cache.get(n)) {
+                    sec.material_name = lp.pkg.object_path(sec.material);
+                }
             }
             let mut png_cache = std::mem::take(&mut self.png_cache);
             warnings = mesh_ops::attach_materials(&mut g, &mut cache, src, &ed.name, PackageIndex::export(i), max_size, &mut png_cache);
@@ -4206,19 +4473,21 @@ impl Server {
 
     // ----- Wwise -------------------------------------------------------------
 
-    /// `wwise.packages`: the `.pck` files of the workspace folder.
+    /// `wwise.packages`: the `.pck` files of the workspace folder and its
+    /// subfolders (`folder`), without the empty packages the folder keeps
+    /// for a language folder's.
     fn wwise_packages(&mut self) -> Res<J> {
         let dir = self.dir()?.to_path_buf();
+        let files = pck_files(&dir);
+        let localized: HashSet<String> = files.iter().filter(|f| f.folder.is_some()).map(|f| f.name.to_ascii_lowercase()).collect();
         let mut out = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for e in rd.flatten() {
-                let path = e.path();
-                if path.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("pck")).unwrap_or(false) {
-                    out.push(json!({ "name": path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), "path": path.to_string_lossy(), "size": e.metadata().map(|m| m.len()).unwrap_or(0) }));
-                }
+        for f in files {
+            if f.folder.is_none() && localized.contains(&f.name.to_ascii_lowercase()) && is_empty_pck(&f.path, f.size) {
+                continue;
             }
+            out.push(json!({ "name": f.name, "path": f.path.to_string_lossy(), "size": f.size, "folder": f.folder }));
         }
-        out.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_ascii_lowercase()));
+        out.sort_by(|a, b| (a["name"].as_str().unwrap_or("").to_ascii_lowercase(), a["folder"].as_str()).cmp(&(b["name"].as_str().unwrap_or("").to_ascii_lowercase(), b["folder"].as_str())));
         Ok(json!({ "packages": out }))
     }
 
@@ -4272,41 +4541,186 @@ impl Server {
         }
     }
 
-    /// `wwise.open`: banks, media, events and streams of a `.pck`.
+    /// `wwise.owners`' index, built once per workspace: the assembly's
+    /// champions and items ([`mcts::workspace::Workspace::sound_owners`]) with
+    /// the `.pck` files their events are in (an event `WW_PC_Nyx.X` is in
+    /// bank `WWB_PC_Nyx`). A champion gets every file named after it (its
+    /// voice lines, quick chat, abilities, weapon, skins: the names its
+    /// ability and weapon banks use, Pip's are `Alchemist`), and only its
+    /// events of shared files.
+    fn sound_index(&mut self) -> Res<&SoundIndex> {
+        if self.sound_owners.is_none() {
+            let dir = self.dir()?.to_path_buf();
+            if self.mcts.is_none() {
+                self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
+            }
+            let raw = self.mcts.as_mut().unwrap().sound_owners()?;
+            self.sound_owners = Some(owners_with_banks(&raw, &dir));
+        }
+        Ok(self.sound_owners.as_ref().unwrap())
+    }
+
+    /// `wwise.open {path}` or `{banks: [{path, only?}], labels?, owner?, title?}`: banks,
+    /// media, events and streams of one `.pck` or several (a champion's), each
+    /// bank and medium naming its file (`pck`). `only` keeps those events (by
+    /// name) of a shared file. Every event lists its sounds with why they
+    /// play (`when`: variant, crossfade such as heard by allies or enemies,
+    /// switch state); every medium its first event and why. `labels` adds
+    /// what the assembly says of an event (`fx`, `part`, `owner`, `skin`),
+    /// `owner` (`{kind: "champion"|"item", id}`) as that owner's. Each event
+    /// has a `title` in words.
     fn wwise_open(&mut self, p: &J) -> Res<J> {
-        let path = s(p, "path")?.to_string();
+        let wanted: Vec<(String, Option<HashSet<u32>>)> =
+            match p.get("banks").and_then(|b| b.as_array()) {
+                Some(list) => list
+                    .iter()
+                    .filter_map(|b| {
+                        let path = b["path"].as_str()?.to_string();
+                        let only = b["only"].as_array().map(|a| {
+                            a.iter()
+                                .filter_map(|n| n.as_str().map(fnv::name_id))
+                                .collect()
+                        });
+                        Some((path, only))
+                    })
+                    .collect(),
+                None => vec![(s(p, "path")?.to_string(), None)],
+            };
+        let owner_key = p
+            .get("owner")
+            .and_then(|o| Some((o["kind"].as_str()?.to_string(), o["id"].as_u64()?)));
+        let labels = if opt_b(p, "labels").unwrap_or(false) {
+            match self.sound_index() {
+                Ok(ix) => {
+                    // An owner's own labels first: a shared sound is named after its part.
+                    let mut l = ix.labels.clone();
+                    if let Some((kind, id)) = &owner_key {
+                        let list = if kind == "item" {
+                            &ix.owners["items"]
+                        } else {
+                            &ix.owners["champions"]
+                        };
+                        if let Some(o) = list
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|o| o["id"].as_u64() == Some(*id))
+                        {
+                            for (k, v) in o["events"].as_object().into_iter().flatten() {
+                                l.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                    Some((l, ix.words.clone()))
+                }
+                Err(e) => {
+                    eprintln!("wwise.open: no sound labels: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (labels, words) = match labels {
+            Some((l, w)) => (Some(l), w),
+            None => (None, wwise::names::Words::builtin()),
+        };
         let names = self.ak_names().clone();
-        let pkg = self.wwise_package(&path)?;
         let mut banks = Vec::new();
-        for e in &pkg.banks {
-            let b = match bnk::Bank::parse(&e.data) {
-                Ok(b) => b,
-                Err(err) => {
-                    banks.push(json!({ "id": e.id, "error": err.to_string(), "media": [], "events": [] }));
-                    continue;
+        let mut streams = Vec::new();
+        let mut languages = Vec::new();
+        for (path, only) in &wanted {
+            let pkg = self.wwise_package(path)?;
+            let file = Path::new(path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            // The tokens an event of this file starts with (`nyx`, `skin02`).
+            let owner: Vec<String> = bank_name_parts(&file).map(|(_, o, rest)| std::iter::once(o).chain(rest.split('_').map(str::to_string)).filter(|t| !t.is_empty()).collect()).unwrap_or_default();
+            for (_, l) in &pkg.languages {
+                if !languages.contains(l) {
+                    languages.push(l.clone());
+                }
+            }
+            // The first event of the file playing each medium, and why.
+            let mut first: HashMap<u32, (String, J)> = HashMap::new();
+            for e in &pkg.banks {
+                let b = match bnk::Bank::parse(&e.data) {
+                    Ok(b) => b,
+                    Err(err) => {
+                        banks.push(json!({ "id": e.id, "pck": path, "file": file, "error": err.to_string(), "media": [], "events": [] }));
+                        continue;
+                    }
+                };
+                let objects = b.objects();
+                let tree = bnk::Hierarchy::new(&objects);
+                let mut events: Vec<J> = objects
+                    .iter()
+                    .filter(|o| o.kind == bnk::EVENT && only.as_ref().is_none_or(|ids| ids.contains(&o.id)))
+                    .map(|o| {
+                        let played = tree.event_sounds(o.id);
+                        let name = names.get(&o.id);
+                        let mut ev = json!({
+                            "id": o.id,
+                            "name": name,
+                            "title": name.map(|n| wwise::names::event_title(n, &owner, &words)),
+                            "media": played.iter().map(|s| s.source.id).collect::<Vec<_>>(),
+                            "sounds": played.iter().map(|s| json!({ "id": s.source.id, "when": s.when.iter().map(condition_json).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+                        });
+                        // A first-person event shares the label of the event everyone hears.
+                        let label = name.and_then(|n| {
+                            let l = labels.as_ref()?;
+                            let n = n.to_ascii_lowercase();
+                            l.get(&n).or_else(|| l.get(&n.replacen("_1p_", "_", 1)))
+                        });
+                        if let Some(l) = label {
+                            if let (Some(m), Some(x)) = (ev.as_object_mut(), l.as_object()) {
+                                m.extend(x.clone());
+                            }
+                        }
+                        ev
+                    })
+                    .collect();
+                events.sort_by(|a, b| a["name"].as_str().unwrap_or("~").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("~").to_ascii_lowercase()));
+                for ev in &events {
+                    let name = ev["name"].as_str().map(str::to_string).unwrap_or_else(|| format!("event {}", ev["id"]));
+                    for snd in ev["sounds"].as_array().into_iter().flatten() {
+                        if let Some(id) = snd["id"].as_u64() {
+                            first.entry(id as u32).or_insert_with(|| (name.clone(), snd["when"].clone()));
+                        }
+                    }
+                }
+                let media: Vec<J> = b.media().into_iter().map(|(id, d)| Self::media_json(id, d, Some(e.id), false)).collect();
+                banks.push(json!({ "id": e.id, "pck": path, "file": file, "name": names.get(&(e.id as u32)), "version": b.version, "objects": objects.len(), "media": media, "events": events, "only": only.is_some() }));
+            }
+            for st in &pkg.streams {
+                streams.push(Self::media_json(st.id as u32, &st.data, None, true));
+            }
+            // Media of this file: its path, and the event that plays them; a
+            // shared file shows only the media of the events kept.
+            let tag = |m: &mut J| {
+                let id = m["id"].as_u64().unwrap_or(0) as u32;
+                m["pck"] = J::from(path.as_str());
+                if let Some((ev, when)) = first.get(&id) {
+                    m["event"] = J::from(ev.as_str());
+                    m["when"] = when.clone();
                 }
             };
-            let objects = b.objects();
-            let media: Vec<J> = b.media().into_iter().map(|(id, d)| Self::media_json(id, d, Some(e.id), false)).collect();
-            let mut events: Vec<J> = objects
-                .iter()
-                .filter(|o| o.kind == bnk::EVENT)
-                .map(|o| {
-                    let (sources, _) = bnk::event_media(&objects, o.id);
-                    json!({ "id": o.id, "name": names.get(&o.id), "media": sources.iter().map(|s| s.id).collect::<Vec<_>>() })
-                })
-                .collect();
-            events.sort_by(|a, b| a["name"].as_str().unwrap_or("~").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("~").to_ascii_lowercase()));
-            banks.push(json!({ "id": e.id, "name": names.get(&(e.id as u32)), "version": b.version, "objects": objects.len(), "media": media, "events": events }));
+            for b in banks.iter_mut().filter(|b| b["pck"] == path.as_str()) {
+                if let Some(list) = b["media"].as_array_mut() {
+                    list.iter_mut().for_each(tag);
+                    if only.is_some() {
+                        list.retain(|m| m.get("event").is_some());
+                    }
+                }
+            }
+            for m in streams.iter_mut().filter(|m| m.get("pck").is_none()) {
+                tag(m);
+            }
+            if only.is_some() {
+                streams.retain(|m| m["pck"] != path.as_str() || m.get("event").is_some());
+            }
         }
-        let streams: Vec<J> = pkg.streams.iter().map(|st| Self::media_json(st.id as u32, &st.data, None, true)).collect();
-        Ok(json!({
-            "path": path,
-            "name": Path::new(&path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
-            "languages": pkg.languages.iter().map(|(_, n)| n.clone()).collect::<Vec<_>>(),
-            "banks": banks,
-            "streams": streams,
-        }))
+        let first_path = wanted.first().map(|(p, _)| p.clone()).unwrap_or_default();
+        let name = opt_s(p, "title").unwrap_or_else(|| Path::new(&first_path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default());
+        Ok(json!({ "path": first_path, "paths": wanted.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(), "name": name, "languages": languages, "banks": banks, "streams": streams }))
     }
 
     /// `wwise.preview`: a media file as Ogg Vorbis.
@@ -4372,7 +4786,7 @@ impl Server {
                 Ok(J::from(self.pck_edits.remove(&k).is_some()))
             }
             "package.dirty" => Ok(J::from(dirty)),
-            "package.undo" => Ok(json!({ "label": null, "remaining": [], "dirty": dirty })),
+            "package.undo" | "package.redo" => Ok(json!({ "label": null, "remaining": [], "redo": [], "dirty": dirty })),
             "package.undoList" => Ok(json!({ "labels": [], "dirty": dirty })),
             _ => {
                 let out = opt_s(p, "out").unwrap_or_else(|| path.clone());
@@ -4429,8 +4843,10 @@ impl Server {
     }
 
     /// `wwise.forObject`: the package and media behind an AkEvent or AkBank
-    /// export (bank name → `<name>.pck` in the workspace folder, event name →
-    /// FNV id).
+    /// export (bank name → `<name>.pck` of the workspace folder, event name →
+    /// FNV id). A language folder's package comes first, as Wwise opens a
+    /// bank as localized before trying the shared one; voice banks live in
+    /// `English(US)/` with an empty package of the same name in the folder.
     fn wwise_for_object(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?.to_string();
         let i = self.export_of(&path, p)?;
@@ -4451,9 +4867,19 @@ impl Server {
             (class, name, bank_name)
         };
         let is_event = class.eq_ignore_ascii_case("AkEvent");
-        let pck = std::fs::read_dir(&dir).ok().and_then(|rd| rd.flatten().map(|e| e.path()).find(|f| f.file_stem().map(|x| x.to_string_lossy().eq_ignore_ascii_case(&bank_name)).unwrap_or(false) && f.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("pck")).unwrap_or(false)));
         let event_id = if is_event { Some(fnv::name_id(&name)) } else { None };
         let bank_id = fnv::name_id(&bank_name);
+        let mut candidates: Vec<PckFile> = pck_files(&dir).into_iter().filter(|f| f.name.eq_ignore_ascii_case(&bank_name)).collect();
+        candidates.sort_by_key(|f| (f.folder.is_none(), !f.folder.as_deref().is_some_and(|l| l.eq_ignore_ascii_case("English(US)")), f.folder.clone()));
+        let mut pck = candidates.first().map(|f| f.path.clone());
+        if candidates.len() > 1 {
+            for f in &candidates {
+                if self.wwise_package(&f.path.to_string_lossy()).is_ok_and(|pkg| pkg.banks.iter().any(|e| e.id == bank_id as u64)) {
+                    pck = Some(f.path.clone());
+                    break;
+                }
+            }
+        }
         let Some(pck) = pck else {
             return Ok(json!({ "pck": null, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "media": [], "trail": [] }));
         };
@@ -4471,13 +4897,16 @@ impl Server {
                         continue;
                     }
                     found = true;
-                    let (sources, t) = bnk::event_media(&objects, ev);
+                    let (_, t) = bnk::event_media(&objects, ev);
                     trail = t.into_iter().map(|(k, id)| json!({ "kind": bnk::kind_name(k), "id": id })).collect();
-                    for src in sources {
-                        match Self::wwise_media(pkg, src.id) {
-                            Some((bytes, bank)) => media.push(Self::media_json(src.id, &bytes, bank, src.stream_type == 2)),
-                            None => media.push(json!({ "id": src.id, "bytes": 0, "codec": "missing", "channels": 0, "sampleRate": 0, "duration": 0.0, "streamed": src.stream_type == 2, "bank": null, "error": "not in this package" })),
-                        }
+                    for played in bnk::event_sounds(&objects, ev) {
+                        let src = played.source;
+                        let mut m = match Self::wwise_media(pkg, src.id) {
+                            Some((bytes, bank)) => Self::media_json(src.id, &bytes, bank, src.stream_type == 2),
+                            None => json!({ "id": src.id, "bytes": 0, "codec": "missing", "channels": 0, "sampleRate": 0, "duration": 0.0, "streamed": src.stream_type == 2, "bank": null, "error": "not in this package" }),
+                        };
+                        m["when"] = played.when.iter().map(condition_json).collect();
+                        media.push(m);
                     }
                 }
                 None => {
@@ -4493,7 +4922,8 @@ impl Server {
                 media.push(Self::media_json(st.id as u32, &st.data, None, true));
             }
         }
-        Ok(json!({ "pck": pck_path, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "found": found, "media": media, "trail": trail }))
+        let label = self.sound_index().ok().and_then(|ix| ix.labels.get(&name.to_ascii_lowercase()).cloned());
+        Ok(json!({ "pck": pck_path, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "found": found, "media": media, "trail": trail, "label": label }))
     }
 
     // ----- mods -------------------------------------------------------------
@@ -5420,6 +5850,188 @@ impl Server {
         }))
     }
 
+    /// The material's compiled game shaders as one WGSL module, with the
+    /// constants, uniform expressions and textures it reads (see
+    /// `material_shader`). For a mesh, `section` (of LOD `lod`) names the
+    /// material: the one that section draws with.
+    fn material_game_shader(&mut self, p: &J) -> Res<J> {
+        use crate::material_shader::{game_shader, storages, storages_sm5, texture_is_srgb, SamplerSource};
+        let path = s(p, "path")?;
+        let i = self.export_of(path, p)?;
+        let over: Vec<J> = p.get("materials").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        flush_overrides(&mut self.editors, &over);
+        let (material, foreign) = {
+            let ed = self.editor(path)?;
+            let class = ed.pkg.class_name_of(PackageIndex::export(i));
+            if ed.db.class_is_a(&class, "MaterialInterface") {
+                (PackageIndex::export(i), None)
+            } else {
+                let section = opt_u(p, "section").ok_or("give the mesh section whose material to draw")?;
+                let o = ed.object(i)?.clone();
+                let g = mesh_ops::geometry(&ed.pkg, &o, opt_u(p, "lod").unwrap_or(0))?;
+                let sec = g.sections.get(section).ok_or_else(|| format!("the mesh has {} sections", g.sections.len()))?;
+                // The slot's override (`materials`, as `mesh.preview` takes them).
+                match over.get(sec.slot).and_then(|v| material_override(&ed.pkg, path, v)) {
+                    Some(MaterialOverride::Local(m)) => (m, None),
+                    Some(MaterialOverride::Foreign(name, file, m)) => (m, Some((name, file))),
+                    None if sec.material.is_null() => return Err("the section has no material".into()),
+                    None => (sec.material, None),
+                }
+            }
+        };
+        let max_size = opt_u(p, "textureSize").unwrap_or(512) as u32;
+        let db = self.db()?;
+        let dir = self.dir()?.to_path_buf();
+        let sm5 = opt_s(p, "platform").is_some_and(|v| v.eq_ignore_ascii_case("sm5"));
+        let (code, code5) = match &self.shader_storages {
+            Some((d, st, st5)) if *d == dir => (st.clone(), st5.clone()),
+            _ => {
+                let (st, st5) = (std::sync::Arc::new(storages(&dir)), std::sync::Arc::new(storages_sm5(&dir)));
+                self.shader_storages = Some((dir.clone(), st.clone(), st5.clone()));
+                (st, st5)
+            }
+        };
+        if sm5 && code5.is_empty() {
+            return Err("the game folder has no shader model 5 code storage (ShaderCodeStorage-PC-D3D-SM5.bin)".into());
+        }
+        if code.is_empty() {
+            return Err("the game folder has no shader code storage (ShaderCodeStorage-PC-D3D-SM3.bin)".into());
+        }
+        self.index_all();
+        let owners = self.path_owners();
+        self.editors.get_mut(&key(path)).ok_or("package not open")?.flush();
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let ed = self.editors.get(&key(path)).ok_or("package not open")?;
+        let (index, pkgs) = (&*owners, &self.packages);
+        let mut cache = PackageCache::new(db, &dir);
+        cache.set_lookup(|p| index_lookup(index, pkgs, p));
+        if ed.is_dirty() || !cache.insert_file(&ed.name, Path::new(path)) {
+            cache.insert(&ed.name, ed.pkg.clone());
+        }
+        let owner = match &foreign {
+            Some((name, file)) => {
+                cache_package(&mut cache, &self.editors, name, file);
+                name.clone()
+            }
+            None => ed.name.clone(),
+        };
+        let info = crate::material_ops::material_info(&mut cache, &owner, material);
+        let material_path = info.chain.first().map(|(p, o, _)| format!("{p}.{o}"));
+        // `resolveOnly`: which material it is (a map asks once per section, loads each material once).
+        if opt_b(p, "resolveOnly").unwrap_or(false) {
+            return Ok(json!({ "materialPath": material_path }));
+        }
+        let gs = game_shader(&mut cache, &code, sm5.then_some(code5.as_slice()), &owner, &info)?;
+        let mut png_cache = std::mem::take(&mut self.png_cache);
+        let mut sink = std::mem::take(&mut self.bins);
+        let mut sampler_json = |cache: &mut PackageCache, list: &[crate::material_shader::Sampler]| -> Vec<J> {
+            list.iter()
+                .enumerate()
+                .map(|(binding, smp)| {
+                    let kind = format!("{:?}", smp.kind).to_ascii_lowercase();
+                    let mut v = json!({ "register": smp.register, "name": smp.name, "kind": kind, "binding": binding, "expression": smp.expression });
+                    match &smp.source {
+                        // A cube map: its six faces, each a PNG.
+                        SamplerSource::Texture(tp, te) if smp.kind == crate::d3d9::SamplerKind::Cube => {
+                            match crate::material_shader::cube_faces(cache, tp, *te) {
+                                Some(faces) => {
+                                    let mut pngs = Vec::new();
+                                    for (fp, fe) in &faces {
+                                        let fpath = cache.get(fp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *fe)).unwrap_or_default();
+                                        let k = format!("{fpath}@{max_size}");
+                                        let png = match png_cache.get(&k) {
+                                            Some(b) => Ok(b.clone()),
+                                            None => crate::material_ops::texture_png(cache, src, fp, *fe, Some(max_size)),
+                                        };
+                                        match png {
+                                            Ok(b) => {
+                                                png_cache.insert(k, b.clone());
+                                                pngs.push(sink.add(b));
+                                            }
+                                            Err(e) => {
+                                                v["error"] = J::from(e.to_string());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if pngs.len() == 6 {
+                                        v["faces"] = J::from(pngs);
+                                    }
+                                    v["source"] = J::from("texture");
+                                    v["path"] = J::from(cache.get(tp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *te)).unwrap_or_default());
+                                    v["srgb"] = J::from(faces.first().map(|(fp, fe)| texture_is_srgb(cache, fp, *fe)).unwrap_or(true));
+                                }
+                                None => v["source"] = J::from("cube"),
+                            }
+                        }
+                        SamplerSource::Texture(tp, te) => {
+                            let tpath = cache.get(tp).map(|lp| texture_ops::engine_path(&lp.pkg, &lp.name, *te)).unwrap_or_default();
+                            let k = format!("{tpath}@{max_size}");
+                            let png = match png_cache.get(&k) {
+                                Some(b) => Ok(b.clone()),
+                                None => crate::material_ops::texture_png(cache, src, tp, *te, Some(max_size)),
+                            };
+                            match png {
+                                Ok(b) => {
+                                    png_cache.insert(k, b.clone());
+                                    v["png"] = sink.add(b);
+                                }
+                                Err(e) => v["error"] = J::from(e.to_string()),
+                            }
+                            v["source"] = J::from("texture");
+                            v["path"] = J::from(tpath);
+                            v["srgb"] = J::from(texture_is_srgb(cache, tp, *te));
+                        }
+                        SamplerSource::Missing(what) => {
+                            v["source"] = J::from("missing");
+                            v["error"] = J::from(format!("{what} could not be found"));
+                        }
+                        SamplerSource::Cube => v["source"] = J::from("cube"),
+                        SamplerSource::Renderer => v["source"] = J::from("renderer"),
+                    }
+                    v
+                })
+                .collect()
+        };
+        let samplers = sampler_json(&mut cache, &gs.samplers);
+        let vertex_samplers = sampler_json(&mut cache, &gs.vertex_samplers);
+        if png_cache.len() > 256 {
+            png_cache.clear();
+        }
+        self.png_cache = png_cache;
+        self.bins = sink;
+        let constants = |list: &[crate::material_shader::FloatConstant]| list.iter().map(|c| json!({ "name": c.name, "register": c.register, "count": c.count, "offset": c.offset, "bytes": c.bytes })).collect::<Vec<_>>();
+        let exprs = |list: &[crate::shadercache::UniformExpr]| list.iter().map(|e| e.to_json()).collect::<Vec<_>>();
+        Ok(json!({
+            "material": gs.friendly_name,
+            "platform": gs.platform,
+            "fallback": gs.fallback,
+            "materialPath": material_path,
+            "vertexFactory": gs.vertex_factory,
+            "vertexShader": gs.vertex_type,
+            "pixelShader": gs.pixel_type,
+            "otherFactories": gs.other_factories,
+            "wgsl": gs.module.wgsl,
+            "vertexInputs": gs.module.vertex_inputs.iter().map(|s| s.name()).collect::<Vec<_>>(),
+            "vertexFloats": gs.module.vertex_floats,
+            "drawFloats": gs.module.draw_floats,
+            "drawConstants": gs.module.draw_constants.iter().map(|(n, slot, count)| json!({ "name": n, "slot": slot, "count": count })).collect::<Vec<_>>(),
+            "pixelFloats": gs.module.pixel_floats,
+            "vertexConstants": constants(&gs.vertex_constants),
+            "pixelConstants": constants(&gs.pixel_constants),
+            "pixelVectors": exprs(&gs.pixel_vectors),
+            "pixelScalars": exprs(&gs.pixel_scalars),
+            "vertexVectors": exprs(&gs.vertex_vectors),
+            "vertexScalars": exprs(&gs.vertex_scalars),
+            "samplers": samplers,
+            "vertexSamplers": vertex_samplers,
+            "blendMode": info.blend_mode,
+            "twoSided": info.two_sided.unwrap_or(false),
+            "scalars": info.scalars.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+            "vectors": info.vectors.iter().map(|(n, v)| json!({ "name": n, "value": v })).collect::<Vec<_>>(),
+        }))
+    }
+
     fn material_set_parameter(&mut self, p: &J) -> Res<J> {
         let path = s(p, "path")?;
         let i = self.export_of(path, p)?;
@@ -5601,18 +6213,12 @@ impl Server {
     }
 }
 
+/// The packages of the folder and its subfolders.
 fn list_packages(dir: &Path) -> Vec<WorkspacePackage> {
-    let mut files: Vec<(PathBuf, u64)> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.flatten() {
-            let path = e.path();
-            let ext = path.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            if ext != "upk" && ext != "u" {
-                continue;
-            }
-            files.push((path, e.metadata().map(|m| m.len()).unwrap_or(0)));
-        }
-    }
+    let files: Vec<(PathBuf, u64)> = crate::folder::files(dir, &["upk", "u"]).into_iter().map(|p| {
+        let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        (p, size)
+    }).collect();
     // A thousand summaries to read: spread the file opens over the cores.
     let mut out: Vec<WorkspacePackage> = tempest_unrealscript::par::map(&files, |(path, size)| {
         let flags = Package::read_summary(path).map(|s| s.package_flags).unwrap_or(0);
@@ -6104,6 +6710,295 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
 use crate::value::Value;
 
 /// What `anim.*` needs about a sequence.
+/// A mesh preview's material for a slot (`materials[slot]`).
+enum MaterialOverride {
+    Local(PackageIndex),
+    /// `(package name, file, export)`.
+    Foreign(String, PathBuf, PackageIndex),
+}
+
+/// An override is an object path in the mesh's package (a placed
+/// component's `Materials[slot]`) or `{path, index}`, an export of any
+/// package file (the mesh view's "Preview with").
+fn material_override(pkg: &Package, mesh_path: &str, v: &J) -> Option<MaterialOverride> {
+    if let Some(path) = v.as_str() {
+        return (0..pkg.exports.len()).map(PackageIndex::export).chain((0..pkg.imports.len()).map(PackageIndex::import)).find(|&i| pkg.object_path(i).eq_ignore_ascii_case(path)).map(MaterialOverride::Local);
+    }
+    let file = v["path"].as_str()?;
+    let index = PackageIndex::export(v["index"].as_u64()? as usize);
+    if key(file) == key(mesh_path) {
+        return Some(MaterialOverride::Local(index));
+    }
+    let name = Path::new(file).file_stem()?.to_string_lossy().to_string();
+    Some(MaterialOverride::Foreign(name, PathBuf::from(file), index))
+}
+
+/// Open packages that overrides point into, written back before a preview reads them.
+fn flush_overrides(editors: &mut HashMap<String, Editor<'static>>, over: &[J]) {
+    for f in over.iter().filter_map(|v| v["path"].as_str()) {
+        if let Some(e) = editors.get_mut(&key(f)) {
+            e.flush();
+        }
+    }
+}
+
+/// A package for a preview's cache: the open editor's copy when it has unsaved edits.
+fn cache_package(cache: &mut PackageCache, editors: &HashMap<String, Editor<'static>>, name: &str, file: &Path) {
+    let open = editors.get(&key(&file.to_string_lossy()));
+    if open.is_some_and(|e| e.is_dirty()) || !cache.insert_file(name, file) {
+        if let Some(e) = open {
+            cache.insert(name, e.pkg.clone());
+        }
+    }
+}
+
+/// A Wwise `.pck` of a folder (`folder`: the subfolder it is in).
+struct PckFile {
+    name: String,
+    path: PathBuf,
+    folder: Option<String>,
+    size: u64,
+}
+
+/// The `.pck` files of `dir` and its subfolders (Wwise's language folders,
+/// such as `English(US)`).
+fn pck_files(dir: &Path) -> Vec<PckFile> {
+    crate::folder::files(dir, &["pck"])
+        .into_iter()
+        .map(|path| PckFile {
+            name: path.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
+            folder: crate::folder::subfolder(dir, &path),
+            size: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            path,
+        })
+        .collect()
+}
+
+/// Whether a `.pck` holds nothing (read only when small).
+fn is_empty_pck(path: &Path, size: u64) -> bool {
+    size < 4096 && std::fs::read(path).ok().and_then(|b| akpk::Package::parse(&b).ok()).is_some_and(|p| p.banks.is_empty() && p.streams.is_empty() && p.externals.is_empty())
+}
+
+/// A condition of [`bnk::event_sounds`] as JSON, with the names of its ids
+/// when known.
+fn condition_json(c: &bnk::Condition) -> J {
+    use crate::wwise::names::name;
+    match c {
+        bnk::Condition::Variant { index, count } => {
+            json!({ "kind": "variant", "index": index, "count": count })
+        }
+        bnk::Condition::Crossfade { param, from, to } => {
+            json!({ "kind": "crossfade", "param": param, "paramName": name(*param), "from": from, "to": to })
+        }
+        bnk::Condition::Switch {
+            group,
+            states,
+            state,
+        } => {
+            json!({ "kind": if *state { "state" } else { "switch" }, "group": group, "groupName": name(*group), "states": states, "stateNames": states.iter().map(|s| name(*s)).collect::<Vec<_>>() })
+        }
+    }
+}
+
+/// `(category, owner, rest)` of a bank file name: `WWB_PC_Nyx_Skin02` →
+/// `("PC", "Nyx", "Skin02")`.
+fn bank_name_parts(stem: &str) -> Option<(String, String, String)> {
+    let lower = stem.to_ascii_lowercase();
+    let rest = if lower.starts_with("wwb_") {
+        &stem[4..]
+    } else if lower.starts_with("ww_") {
+        &stem[3..]
+    } else {
+        return None;
+    };
+    let mut it = rest.splitn(3, '_');
+    let cat = it.next()?.to_string();
+    let owner = it.next()?.to_string();
+    Some((cat, owner, it.next().unwrap_or("").to_string()))
+}
+
+/// [`mcts::workspace::Workspace::sound_owners`] with each owner's `.pck`
+/// files (`banks: [{path, file, folder, category, skin, only}]`, `only`
+/// null for every event of the file, else the names of the owner's events in
+/// it), and every event's label by lower-case name (`fx`, `part`, `owner`,
+/// `skin`; a champion's first).
+fn owners_with_banks(raw: &J, dir: &Path) -> SoundIndex {
+    let files = pck_files(dir);
+    let localized: HashSet<String> = files
+        .iter()
+        .filter(|f| f.folder.is_some())
+        .map(|f| f.name.to_ascii_lowercase())
+        .collect();
+    // By lower-case name: the language folder's file first (voice banks), as forObject.
+    let mut by_name: HashMap<String, &PckFile> = HashMap::new();
+    for f in &files {
+        let k = f.name.to_ascii_lowercase();
+        if f.folder.is_none() && localized.contains(&k) {
+            continue;
+        }
+        by_name.entry(k).or_insert(f);
+    }
+    let bank_of = |event: &str| -> Option<&PckFile> {
+        let group = event.split('.').next()?.to_ascii_lowercase();
+        let stem = group
+            .strip_prefix("ww_")
+            .map(|r| format!("wwb_{r}"))
+            .unwrap_or(group);
+        by_name.get(&stem).copied()
+    };
+    let mut labels: HashMap<String, J> = HashMap::new();
+    let owners = |list: &J, champion: bool, labels: &mut HashMap<String, J>| -> Vec<J> {
+        let mut out = Vec::new();
+        for o in list.as_array().into_iter().flatten() {
+            let events: Vec<&J> = o["events"].as_array().into_iter().flatten().collect();
+            // A champion's own names: those of its ability and weapon banks.
+            let mut tokens: HashSet<String> = HashSet::new();
+            if champion {
+                if let Some(r) = o["reference"].as_str().filter(|r| !r.is_empty()) {
+                    tokens.insert(r.to_ascii_lowercase());
+                }
+                // Abilities: what its own meshes play (a card may borrow another
+                // champion's FX); weapon: the weapon bank its events use most.
+                let mut weapons: HashMap<String, usize> = HashMap::new();
+                for e in &events {
+                    let Some((cat, owner, _)) = e["event"]
+                        .as_str()
+                        .and_then(|ev| bank_name_parts(ev.split('.').next().unwrap_or("")))
+                    else {
+                        continue;
+                    };
+                    if owner.eq_ignore_ascii_case("shared") {
+                        continue;
+                    }
+                    if cat.eq_ignore_ascii_case("pc") && e["part"] == "Champion" {
+                        tokens.insert(owner.to_ascii_lowercase());
+                    } else if cat.eq_ignore_ascii_case("wep") {
+                        *weapons.entry(owner.to_ascii_lowercase()).or_default() += 1;
+                    }
+                }
+                if let Some((w, _)) = weapons
+                    .into_iter()
+                    .max_by_key(|(w, n)| (*n, std::cmp::Reverse(w.clone())))
+                {
+                    tokens.insert(w);
+                }
+            }
+            // path → (file, only, skin).
+            let mut banks: std::collections::BTreeMap<
+                String,
+                (&PckFile, Option<Vec<String>>, Option<String>),
+            > = Default::default();
+            for f in by_name.values() {
+                if bank_name_parts(&f.name)
+                    .is_some_and(|(_, owner, _)| tokens.contains(&owner.to_ascii_lowercase()))
+                {
+                    banks.insert(f.path.to_string_lossy().to_string(), (f, None, None));
+                }
+            }
+            let mut by_event = Map::new();
+            for e in &events {
+                let Some(ev) = e["event"].as_str() else {
+                    continue;
+                };
+                let leaf = ev.rsplit('.').next().unwrap_or(ev).to_ascii_lowercase();
+                let f = bank_of(ev);
+                // A skin's swap reaching a sound of the base files: the skin keeps the default sound.
+                let base = f.is_some_and(|f| {
+                    bank_name_parts(&f.name).is_some_and(|(_, _, rest)| rest.is_empty())
+                });
+                let label = if base && !e["skin"].is_null() {
+                    json!({ "fx": e["fx"], "part": null, "skin": null, "owner": o["name"] })
+                } else {
+                    json!({ "fx": e["fx"], "part": e["part"], "skin": e["skin"], "owner": o["name"] })
+                };
+                labels.entry(leaf.clone()).or_insert_with(|| label.clone());
+                by_event.entry(leaf.clone()).or_insert(label);
+                let Some(f) = f else { continue };
+                let entry = banks
+                    .entry(f.path.to_string_lossy().to_string())
+                    .or_insert((f, Some(Vec::new()), None));
+                if let Some(only) = entry.1.as_mut() {
+                    if !only.contains(&leaf) {
+                        only.push(leaf.clone());
+                    }
+                }
+                if let Some(skin) = e["skin"].as_str().filter(|s| !s.is_empty()) {
+                    entry.2.get_or_insert_with(|| skin.to_string());
+                }
+            }
+            // A skin's voice banks share its ability banks' suffix (`_Skin04`).
+            let mut skin_of: HashMap<(String, String), String> = HashMap::new();
+            for (f, _, skin) in banks.values() {
+                if let (Some((_, owner, rest)), Some(skin)) = (bank_name_parts(&f.name), skin) {
+                    if !rest.is_empty() {
+                        skin_of
+                            .entry((owner.to_ascii_lowercase(), rest.to_ascii_lowercase()))
+                            .or_insert_with(|| skin.clone());
+                    }
+                }
+            }
+            // Voice lines, abilities, weapon, quick chat, then the rest; a skin's after the base, shared files last.
+            let mut banks: Vec<(String, (&PckFile, Option<Vec<String>>, Option<String>))> =
+                banks.into_iter().collect();
+            banks.sort_by_key(|(_, (f, only, _))| {
+                let (cat, owner, rest) = bank_name_parts(&f.name).unwrap_or_default();
+                let order = ["vox", "pc", "wep", "vgs", "mt"]
+                    .iter()
+                    .position(|c| cat.eq_ignore_ascii_case(c))
+                    .unwrap_or(9);
+                (
+                    only.is_some(),
+                    order,
+                    owner.to_ascii_lowercase(),
+                    !rest.is_empty(),
+                    rest.to_ascii_lowercase(),
+                )
+            });
+            let banks: Vec<J> = banks
+                .into_iter()
+                .map(|(path, (f, only, skin))| {
+                    let (cat, owner, rest) = bank_name_parts(&f.name).unwrap_or_default();
+                    // The base files are the default skin's, whatever a skin's swap reaches.
+                    let skin = if rest.is_empty() { None } else { skin.or_else(|| skin_of.get(&(owner.to_ascii_lowercase(), rest.to_ascii_lowercase())).cloned()) };
+                    json!({ "path": path, "file": f.name, "folder": f.folder, "category": cat, "variant": rest, "skin": skin, "only": only })
+                })
+                .collect();
+            let mut o = o.clone();
+            if let Some(m) = o.as_object_mut() {
+                m.remove("events");
+                m.insert("banks".into(), J::from(banks));
+                m.insert("events".into(), J::Object(by_event));
+            }
+            out.push(o);
+        }
+        out
+    };
+    let champions = owners(&raw["champions"], true, &mut labels);
+    let items = owners(&raw["items"], false, &mut labels);
+    let mut words = wwise::names::Words::builtin();
+    for l in labels.values() {
+        for k in ["fx", "part", "skin"] {
+            if let Some(t) = l[k].as_str() {
+                words.add_text(t);
+            }
+        }
+    }
+    SoundIndex {
+        owners: json!({ "champions": champions, "items": items }),
+        labels,
+        words,
+    }
+}
+
+/// `wwise.owners`' index ([`owners_with_banks`]).
+struct SoundIndex {
+    owners: J,
+    /// Every event's label by lower-case name: `fx`, `part`, `owner`, `skin`.
+    labels: HashMap<String, J>,
+    /// The words of those labels, to split event names into ([`wwise::names::event_title`]).
+    words: wwise::names::Words,
+}
+
 /// A Wwise `.pck` with replaced media, kept in memory until saved.
 struct PckEdit {
     path: PathBuf,
@@ -7126,5 +8021,31 @@ impl Server {
         let ed = self.editor(&path)?;
         crate::material_ops::set_parameter(ed, i, &name, crate::material_ops::ParamValue::Texture(tex))?;
         self.material_preview(&json!({ "path": path, "index": i }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pck_files_of_language_folders() {
+        let dir = std::env::temp_dir().join(format!("tempest-pck-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("English(US)")).unwrap();
+        let mut empty = akpk::Package::default();
+        empty.version = 1;
+        let mut full = empty.clone();
+        full.streams.push(akpk::Entry { id: 7, block: 1, language: 1, data: vec![1, 2, 3] });
+        std::fs::write(dir.join("WWB_VOX_Test.pck"), empty.to_bytes()).unwrap();
+        std::fs::write(dir.join("English(US)").join("WWB_VOX_Test.pck"), full.to_bytes()).unwrap();
+        std::fs::write(dir.join("WWB_SFX_Test.pck"), full.to_bytes()).unwrap();
+        let mut files = pck_files(&dir);
+        files.sort_by_key(|f| (f.name.clone(), f.folder.clone()));
+        let seen: Vec<(&str, Option<&str>)> = files.iter().map(|f| (f.name.as_str(), f.folder.as_deref())).collect();
+        assert_eq!(seen, [("WWB_SFX_Test", None), ("WWB_VOX_Test", None), ("WWB_VOX_Test", Some("English(US)"))]);
+        assert!(is_empty_pck(&files[1].path, files[1].size));
+        assert!(!is_empty_pck(&files[2].path, files[2].size));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

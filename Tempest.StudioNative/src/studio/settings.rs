@@ -6,7 +6,7 @@
 use gpui::{div, prelude::*, px, ClipboardItem, Context, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::switch::Switch;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Sizable, WindowExt};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, Selectable, Sizable, WindowExt};
 use gpui_kit_assets::IconName;
 
 use super::{prefs, Place, Studio, Tone, View};
@@ -45,6 +45,8 @@ impl Studio {
         let Some(place) = self.history.get(self.history_at).cloned() else { return };
         let f = self.prefs.folder_mut(&dir);
         match place {
+            Place::Home => f.view = Some("home".into()),
+            Place::Champions(_) => f.view = Some("champions".into()),
             Place::Package { package, export, .. } => {
                 f.view = Some("packages".into());
                 if f.recent.first() != Some(&package) {
@@ -56,6 +58,7 @@ impl Studio {
                 f.export = export;
             }
             Place::Assembly { .. } => f.view = Some("assembly".into()),
+            Place::Audio(_) => f.view = Some("audio".into()),
             Place::Mod => f.view = Some("mod".into()),
             Place::Map { .. } => f.view = Some("map".into()),
         }
@@ -74,11 +77,8 @@ impl Studio {
             self.record(place.clone());
             self.go_later(place, cx);
         }
-        match f.view.as_deref() {
-            Some("assembly") => self.pending_view = Some(View::Assembly),
-            Some("mod") => self.pending_view = Some(View::Mod),
-            Some("map") => self.pending_view = Some(View::Map),
-            _ => {}
+        if let Some(v) = f.view.as_deref().and_then(View::from_name).filter(|v| !matches!(v, View::Packages)) {
+            self.pending_view = Some(v);
         }
     }
 
@@ -111,11 +111,11 @@ impl Studio {
             let pinned = s.pinned().len();
             let recent = s.recent.len();
             let mcp = s.mcp.clone();
-            let section = |title: &'static str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_uppercase());
+            let section = |title: &'static str| div().pt_2().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(title.to_string());
             let hint = |text: &'static str| div().text_xs().text_color(theme.muted_foreground).child(text);
             let theme_button = |id: &'static str, label: &'static str, icon: IconName, value: &'static str| {
                 let me = me.clone();
-                Button::new(id).small().icon(Icon::new(icon)).label(label).when(p.theme == value, |b| b.primary()).on_click(move |_, window, cx| {
+                Button::new(id).small().ghost().selected(p.theme == value).icon(Icon::new(icon)).label(label).on_click(move |_, window, cx| {
                     prefs::theme_mode(value, Some(window), cx);
                     let _ = me.update(cx, |this, _| {
                         this.prefs.theme = value.into();
@@ -128,9 +128,13 @@ impl Studio {
                 let me = me.clone();
                 Switch::new(id).checked(on).label(label).on_click(move |v, window, cx| {
                     let v = *v;
-                    let _ = me.update(cx, |this, _| {
+                    let _ = me.update(cx, |this, cx| {
+                        let names = this.prefs.sound_names;
                         set(&mut this.prefs, v);
                         this.prefs.save();
+                        if names != this.prefs.sound_names {
+                            this.sound_names_changed(cx);
+                        }
                     });
                     window.refresh();
                 })
@@ -159,9 +163,14 @@ impl Studio {
                             window.refresh();
                         }))
                 })
+                .child(switch("custom-title-bar", "Use the Studio's own title bar", p.custom_title_bar, |p, v| p.custom_title_bar = v))
+                .child(hint("Off: the system's title bar sits above the Studio's header. Takes effect in windows opened from now on, or after a restart."))
                 .child(section("Saving"))
-                .child(switch("ask-in-place", "Ask before saving into the game folder", p.ask_in_place, |p, v| p.ask_in_place = v))
-                .child(hint("Saving overwrites the game's files (the Studio keeps the originals for the mod cooker). Workspace files and Export a copy never touch the game folder."))
+                .child(switch("ask-in-place", "Ask before overwriting game files", p.ask_in_place, |p, v| p.ask_in_place = v))
+                .child(hint("Patching overwrites the game's own files; only the launcher's Verify game files puts them back. Your mod, changes files and Export a copy never touch the game folder."))
+                .child(section("Sounds"))
+                .child(switch("sound-names", "Name sounds by what plays them", p.sound_names, |p, v| p.sound_names = v))
+                .child(hint("Events in words with the ability, card or skin they belong to, and each sound's role: heard by enemies, variant 2 of 5, on grass. Off: the names and ids the game files use. The game ships no file names for its sounds."))
                 .child(section("Starting"))
                 .child(switch("restore", "Reopen the package and object I was on", p.restore, |p, v| p.restore = v))
                 .child(hint("When a game folder opens, the Studio goes back to where you left it."))
@@ -205,21 +214,21 @@ impl Studio {
                             .gap_1()
                             .child(div().text_sm().child(format!("Listening on {url}")))
                             .child(hint("Agents can read what the Studio shows, open packages and tables, run commands and call the backend. The token changes every run (also in mcp.json next to the settings)."))
-                            .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family("Menlo").child(cmd))
+                            .child(div().p_2().rounded_md().bg(theme.secondary).text_xs().font_family(crate::studio::ui::mono()).child(cmd))
                             .child(h_flex().child(Button::new("mcp-copy").xsmall().label("Copy the claude command").on_click(move |_, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(c2.clone())))))
                             .into_any_element()
                     }
                     None => hint("Not running: the port was taken (another Studio is open?). Set TEMPEST_STUDIO_MCP_PORT to use another.").into_any_element(),
                 })
                 .child(section("Updates"))
-                .child(h_flex().gap_2().child(div().flex_1().text_sm().child(super::updates::describe())).child(Button::new("upd-check").small().label("Check now").on_click(|_, window, cx| {
+                .child(h_flex().gap_2().child(div().flex_1().min_w_0().text_sm().child(super::updates::describe())).child(Button::new("upd-check").small().label("Check now").on_click(|_, window, cx| {
                     super::updates::check(false, cx);
                     window.refresh();
                 })))
                 .child(switch("check-updates", "Look for a new version when the Studio starts", p.check_updates, |p, v| p.check_updates = v))
                 .child(section("About"))
                 .child(div().text_sm().child(format!("Tempest Studio (native) {}", env!("CARGO_PKG_VERSION"))))
-                .child(h_flex().gap_2().child(div().flex_1().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("Settings: {data}"))).child(Button::new("reveal-data").xsmall().ghost().icon(Icon::new(IconName::FolderOpen)).label("Show").on_click(move |_, _, cx| {
+                .child(h_flex().gap_2().child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child(format!("Settings: {data}"))).child(Button::new("reveal-data").xsmall().ghost().icon(Icon::new(IconName::FolderOpen)).label("Show").on_click(move |_, _, cx| {
                     let data = data.clone();
                     let _ = me3.update(cx, |this, cx| this.reveal_file(&data, cx));
                 })));

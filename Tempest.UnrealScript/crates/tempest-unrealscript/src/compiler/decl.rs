@@ -1688,7 +1688,7 @@ impl<'a> Compiler<'a> {
     /// `CompileFunctionDeclaration`.
     fn compile_function_declaration(&mut self, token: &mut Token, need_semicolon: &mut bool) -> CResult<()> {
         let mut nest_name: Option<&'static str> = None;
-        let mut func_name_retry = self.location();
+        let mut func_name_retry;
         let mut function_flags: u32 = func::PUBLIC;
         let mut precedence: i32 = 0;
         let mut inative: i32 = 0;

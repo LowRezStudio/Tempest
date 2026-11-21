@@ -8,16 +8,18 @@
 use gpui::{Context, PathPromptOptions};
 use serde_json::{json, Value as J};
 
-use super::{file_name, Place, Studio, Tone, View};
+use super::{file_name, Place, Studio, Tone};
 
 impl Studio {
     pub(super) fn twrk_state(&self) -> J {
         json!({
             "project": self.project,
             "native": true,
-            "view": match self.view { View::Packages => "packages", View::Assembly => "assembly", View::Mod => "mod", View::Audio => "audio", View::Map => "map" },
+            "view": self.view.name(),
             "package": self.selected_package,
             "export": self.selected_export,
+            // The ids new assembly content takes (a project keeps its own range).
+            "idRange": self.prefs.id_range.map(|(start, end)| json!({ "start": start, "end": end })),
         })
     }
 
@@ -28,9 +30,9 @@ impl Studio {
 
     /// `out` given (the driver), else asked for.
     pub(super) fn save_workspace_to(&mut self, portable: bool, out: Option<String>, cx: &mut Context<Self>) {
-        let unsaved = self.dirty.len() + self.assembly.as_ref().map(|a| a.read(cx).unsaved_count()).unwrap_or(0);
+        let unsaved = self.unsaved_total(cx);
         if unsaved == 0 {
-            self.toast(Tone::Info, "Nothing is unsaved: a workspace file keeps unsaved edits", cx);
+            self.toast(Tone::Info, "Nothing is edited: a workspace file keeps edits", cx);
             return;
         }
         let docs = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join("Documents")).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
@@ -57,7 +59,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => {
                     let n = r.json["files"].as_array().map(|f| f.len()).unwrap_or(0);
-                    this.toast(Tone::Success, format!("Wrote {} ({n} files, {}); the edits stay unsaved here", file_name(&out), crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
+                    this.toast(Tone::Success, format!("Wrote {} ({n} file{}, {}); your changes stay here too", file_name(&out), if n == 1 { "" } else { "s" }, crate::model::human_size(r.json["size"].as_u64().unwrap_or(0))), cx);
                     for w in r.json["warnings"].as_array().into_iter().flatten().filter_map(|w| w.as_str()).take(3) {
                         this.toast(Tone::Warning, w.to_string(), cx);
                     }
@@ -108,6 +110,8 @@ impl Studio {
                         this.clear_selection();
                         this.selected_package = None;
                         this.dirty.clear();
+                        this.movies.clear();
+                        this.focus_mode = false;
                         this.assembly = None;
                         this.cooker = None;
                         this.refilter_packages(cx);
@@ -129,6 +133,8 @@ impl Studio {
             let applied = apply.await;
             let _ = this.update(cx, |this, cx| match applied {
                 Ok(a) => {
+                    this.movies.clear();
+                    this.focus_mode = false;
                     let mut n = 0;
                     for p in a.json["packages"].as_array().into_iter().flatten() {
                         if let Some(pp) = p["path"].as_str() {
@@ -142,12 +148,25 @@ impl Studio {
                     let docs = a.json["docs"].as_array().map(|d| d.len()).unwrap_or(0);
                     this.applied_docs |= docs > 0;
                     this.adopt_project(&path, &state);
+                    this.sync_cooker(cx);
+                    // The id range the work was made with.
+                    if let (Some(start), Some(end)) = (state["idRange"]["start"].as_i64(), state["idRange"]["end"].as_i64()) {
+                        this.set_id_range(Some((start, end)));
+                        let (open, range) = (this.backend.call("mcts.open", json!({})), this.backend.call("mcts.idRange", json!({ "start": start, "end": end })));
+                        cx.background_executor().spawn(async move {
+                            let _ = open.await;
+                            let _ = range.await;
+                        })
+                        .detach();
+                    }
+                    let pkgs_word = if n == 1 { "package" } else { "packages" };
+                    let docs_word = if docs == 1 { "file" } else { "files" };
                     match &this.project {
                         Some(p) if p.file == path => {
                             let name = p.name.clone();
-                            this.toast(Tone::Success, format!("Opened the project {name}: {n} packages and {docs} assembly files with edits"), cx)
+                            this.toast(Tone::Success, format!("Opened {name}: {n} changed {pkgs_word} and {docs} changed game data {docs_word}"), cx)
                         }
-                        _ => this.toast(Tone::Success, format!("Opened {}: {n} packages and {docs} assembly files with unsaved edits", file_name(&path)), cx),
+                        _ => this.toast(Tone::Success, format!("Opened {}: {n} changed {pkgs_word} and {docs} changed game data {docs_word}", file_name(&path)), cx),
                     }
                     // Back where it was saved.
                     if let Some(pkg) = state["package"].as_str() {
@@ -174,11 +193,25 @@ impl Studio {
         super::state_file(&format!("recovery/{:016x}.twrk", h.finish()))
     }
 
-    /// Every two minutes with unsaved edits and no project, a linked
-    /// recovery copy; deleted once nothing is unsaved.
+    /// Two seconds after edits pause with unsaved edits and no project, a linked
+    /// recovery copy (the unnamed mod's draft) is written; deleted once nothing
+    /// is unsaved.
     pub(super) fn watch_recovery(cx: &mut Context<Self>) {
+        use std::sync::atomic::Ordering;
+        let mut seen = crate::backend::EDITS.load(Ordering::SeqCst);
+        let mut changed: Option<std::time::Instant> = None;
         cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(std::time::Duration::from_secs(120)).await;
+            cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+            let stamp = crate::backend::EDITS.load(Ordering::SeqCst);
+            if stamp != seen {
+                seen = stamp;
+                changed = Some(std::time::Instant::now());
+                continue;
+            }
+            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) {
+                continue;
+            }
+            changed = None;
             let alive = this.update(cx, |this, cx| {
                 let Some(dir) = this.dir.clone() else { return };
                 let Some(file) = Self::recovery_file(&dir) else { return };
@@ -186,6 +219,10 @@ impl Studio {
                     if file.exists() && this.recovery_offer.is_none() {
                         let _ = std::fs::remove_file(&file);
                     }
+                    return;
+                }
+                // An earlier session's draft waits for an answer: it is not overwritten.
+                if this.recovery_offer.is_some() {
                     return;
                 }
                 let _ = std::fs::create_dir_all(file.parent().unwrap());
@@ -207,15 +244,52 @@ impl Studio {
             let m = d.as_secs() / 60;
             if m < 60 { format!("{m} min ago") } else if m < 48 * 60 { format!("{} h ago", m / 60) } else { format!("{} days ago", m / 1440) }
         });
-        self.recovery_offer = Some((file.to_string_lossy().to_string(), ago.unwrap_or_default()));
+        let path = file.to_string_lossy().to_string();
+        self.recovery_offer = Some((path.clone(), ago.unwrap_or_default(), String::new()));
         cx.notify();
+        // What it holds, in words: the offer names it before asking.
+        let read = self.backend.call("twrk.read", json!({ "path": path }));
+        cx.spawn(async move |this, cx| {
+            let Ok(r) = read.await else { return };
+            let names: Vec<String> = r.json["files"].as_array().into_iter().flatten().filter_map(|f| f["path"].as_str()).map(|p| {
+                let name = super::file_name(p);
+                match name.to_ascii_lowercase().as_str() {
+                    "assembly.dat" => "game data".to_string(),
+                    n if n.starts_with("lang_") && n.ends_with(".dat") => {
+                        let code = &name[5..name.len() - 4];
+                        match super::cooker::lang_name(code) {
+                            Some(lang) => format!("{lang} texts"),
+                            None => format!("texts ({code})"),
+                        }
+                    }
+                    _ => name.trim_end_matches(".upk").to_string(),
+                }
+            }).collect();
+            let what = match names.len() {
+                0 => return,
+                1 => format!("1 changed file: {}", names[0]),
+                n if n <= 3 => format!("{n} changed files: {}", names.join(", ")),
+                n => format!("{n} changed files: {} and {} more", names[..2].join(", "), n - 2),
+            };
+            let _ = this.update(cx, |this, cx| {
+                if let Some(o) = this.recovery_offer.as_mut().filter(|o| o.0 == path) {
+                    o.2 = what;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn render_recovery(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         use gpui::{div, prelude::*};
         use gpui_component::button::{Button, ButtonVariants};
         use gpui_component::{h_flex, ActiveTheme, Sizable};
-        let (file, ago) = self.recovery_offer.clone()?;
+        let (file, ago, what) = self.recovery_offer.clone()?;
+        // Once there are new changes, the offer waits in the mod chip's menu.
+        if self.unsaved_total(cx) > 0 {
+            return None;
+        }
         let theme = cx.theme().clone();
         let f2 = file.clone();
         Some(
@@ -227,12 +301,12 @@ impl Studio {
                 .border_b_1()
                 .border_color(theme.border)
                 .text_sm()
-                .child(div().flex_1().child(format!("Unsaved work from an earlier session was kept ({ago}). Put it back?")))
-                .child(Button::new("rec-open").xsmall().primary().label("Restore it").on_click(cx.listener(move |this, _, _, cx| {
+                .child(div().flex_1().min_w_0().child(if what.is_empty() { format!("Changes from an earlier session were kept ({ago}). Put them back as your unnamed mod?") } else { format!("Changes from an earlier session were kept ({ago}), {what}. Put them back as your unnamed mod?") }))
+                .child(Button::new("rec-open").xsmall().label("Put them back").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     this.open_workspace_file(file.clone(), cx);
                 })))
-                .child(Button::new("rec-drop").xsmall().ghost().label("Throw it away").on_click(cx.listener(move |this, _, _, cx| {
+                .child(Button::new("rec-drop").xsmall().ghost().label("Throw them away").on_click(cx.listener(move |this, _, _, cx| {
                     this.recovery_offer = None;
                     let _ = std::fs::remove_file(&f2);
                     cx.notify();

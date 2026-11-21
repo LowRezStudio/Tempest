@@ -108,8 +108,9 @@ impl MovieEditor {
         let list = uniform_list(
             "mv-tree",
             n,
-            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+            cx.processor(|this, range: std::ops::Range<usize>, window, cx| {
                 let theme = cx.theme().clone();
+                let row_h = px((1.35 * f32::from(window.rem_size())).max(22.0).round());
                 range
                     .filter_map(|k| this.tree_cache.get(k).cloned().map(|it| (k, it)))
                     .map(|(k, it)| match it {
@@ -117,19 +118,31 @@ impl MovieEditor {
                             let on = this.node == node;
                             h_flex()
                                 .id(("mv-tree-row", k))
+                                .focusable()
+                                .tab_index(0)
                                 .child(crate::driver::probe(format!("mv-tree-{}", node.key())))
-                                .h(px(20.0))
+                                .h(row_h)
                                 .px_1p5()
                                 .when(indent, |d| d.pl_6())
                                 .gap_1p5()
                                 .rounded_sm()
+                                .border_1()
+                                .border_color(gpui::transparent_black())
+                                .focus_visible(|s| s.border_1().border_color(theme.ring))
                                 .text_xs()
                                 .cursor_pointer()
                                 .when(on, |d| d.bg(theme.primary).text_color(theme.primary_foreground))
                                 .when(!on, |d| d.hover(|d| d.bg(theme.list_hover)))
                                 .child(Icon::new(icon).xsmall())
                                 .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(label))
-                                .when(!extra.is_empty(), |d| d.child(div().font_family("Menlo").opacity(0.5).child(extra)))
+                                .when(!extra.is_empty(), |d| d.child(div().font_family(crate::studio::ui::mono()).text_color(if on { theme.primary_foreground } else { theme.muted_foreground }).child(extra)))
+                                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                    if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                        window.prevent_default();
+                                        cx.stop_propagation();
+                                        this.open(node, cx);
+                                    }
+                                }))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.tree_focus.focus(window, cx);
                                     this.open(node, cx);
@@ -155,9 +168,15 @@ impl MovieEditor {
                         }
                         Item::Group { id, title, count, open } => h_flex()
                             .id(("mv-tree-group", k))
-                            .h(px(20.0))
+                            .focusable()
+                            .tab_index(0)
+                            .h(row_h)
                             .px_1()
                             .gap_1()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus_visible(|s| s.border_1().border_color(theme.ring))
                             .text_xs()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .cursor_pointer()
@@ -165,7 +184,18 @@ impl MovieEditor {
                             .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronRight }).xsmall())
                             .child(Icon::new(group_icon(id)).xsmall())
                             .child(title)
-                            .child(div().font_weight(gpui::FontWeight::NORMAL).opacity(0.5).child(format!("({count})")))
+                            .child(div().font_weight(gpui::FontWeight::NORMAL).text_color(theme.muted_foreground).child(format!("({count})")))
+                            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    if !this.collapsed.remove(id) {
+                                        this.collapsed.insert(id);
+                                    }
+                                    this.tree_followed = None;
+                                    cx.notify();
+                                }
+                            }))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if !this.collapsed.remove(id) {
                                     this.collapsed.insert(id);
@@ -174,7 +204,7 @@ impl MovieEditor {
                                 cx.notify();
                             }))
                             .into_any_element(),
-                        Item::Sep => div().h(px(20.0)).flex().items_center().child(div().h(px(1.0)).w_full().bg(theme.border)).into_any_element(),
+                        Item::Sep => div().h(row_h).flex().items_center().child(div().h(px(1.0)).w_full().bg(theme.border)).into_any_element(),
                     })
                     .collect()
             }),
@@ -184,8 +214,8 @@ impl MovieEditor {
         v_flex()
             .size_full()
             .child(crate::driver::probe("mv-tree"))
-            .child(div().p_1().child(Input::new(&self.tree_filter).xsmall()))
-            .child(div().id("mv-tree-box").track_focus(&self.tree_focus).flex_1().min_h_0().px_1().pb_2().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, _, cx| this.tree_key(e, cx))).child(list))
+            .child(div().p_1().child(Input::new(&self.tree_filter).xsmall().cleanable(true)))
+            .child(div().id("mv-tree-box").track_focus(&self.tree_focus).tab_index(0).flex_1().min_h_0().px_1().pb_2().on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, _, cx| this.tree_key(e, cx))).child(list))
             .border_r_1()
             .border_color(theme.border)
             .into_any_element()

@@ -29,6 +29,9 @@ pub struct Section {
     pub material_name: String,
     /// Material slot of the mesh (what a component's `Materials[]` overrides).
     pub slot: usize,
+    /// The package `material` is an export of, when not the mesh's (a
+    /// preview drawing the slot with another package's material).
+    pub material_package: Option<String>,
 }
 
 /// Triangle-list geometry of one LOD.
@@ -36,6 +39,9 @@ pub struct Section {
 pub struct Geometry {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
+    /// `TangentX` and the basis determinant's sign (`TangentZ.w`): the
+    /// binormal is `cross(normal, tangent) * w`. Empty when not read.
+    pub tangents: Vec<[f32; 4]>,
     /// First UV set.
     pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
@@ -191,6 +197,12 @@ fn packed_normal(b: &[u8]) -> [f32; 3] {
     [f(b[0]), f(b[1]), f(b[2])]
 }
 
+/// `TangentX` (`x`) with the sign of the basis determinant `TangentZ.w` (`z`).
+fn packed_tangent(x: &[u8], z: &[u8]) -> [f32; 4] {
+    let t = packed_normal(x);
+    [t[0], t[1], t[2], if z[3] >= 128 { 1.0 } else { -1.0 }]
+}
+
 pub fn static_mesh_geometry(pkg: &Package, m: &StaticMesh, lod: usize) -> Result<Geometry> {
     let l = m.lod_models.get(lod).ok_or_else(|| Error::Format(format!("no LOD {lod}")))?;
     let n = l.num_vertices as usize;
@@ -216,6 +228,7 @@ pub fn static_mesh_geometry(pkg: &Package, m: &StaticMesh, lod: usize) -> Result
     for i in 0..n {
         let e = data.elem(i);
         g.normals.push(packed_normal(&e[4..8]));
+        g.tangents.push(packed_tangent(&e[0..4], &e[4..8]));
         let uv = if full {
             [f32::from_le_bytes([e[8], e[9], e[10], e[11]]), f32::from_le_bytes([e[12], e[13], e[14], e[15]])]
         } else {
@@ -230,7 +243,7 @@ pub fn static_mesh_geometry(pkg: &Package, m: &StaticMesh, lod: usize) -> Result
         s => return Err(Error::Format(format!("index size {s}"))),
     };
     for e in &l.elements {
-        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material), slot: e.material_index.max(0) as usize });
+        g.sections.push(Section { first_index: e.first_index, num_triangles: e.num_triangles, material: e.material, material_name: pkg.object_path(e.material), slot: e.material_index.max(0) as usize, material_package: None });
     }
     Ok(g)
 }
@@ -280,6 +293,7 @@ pub fn skeletal_mesh_geometry(pkg: &Package, m: &SkeletalMesh, lod: usize) -> Re
         let e = data.elem(i);
         let f = |o: usize| f32::from_le_bytes([e[o], e[o + 1], e[o + 2], e[o + 3]]);
         g.normals.push(packed_normal(&e[4..8]));
+        g.tangents.push(packed_tangent(&e[0..4], &e[4..8]));
         if packed {
             let v = u32::from_le_bytes([e[16], e[17], e[18], e[19]]);
             let sx = (((v & 0x7ff) << 21) as i32 >> 21) as f32 / 1023.0;
@@ -303,7 +317,7 @@ pub fn skeletal_mesh_geometry(pkg: &Package, m: &SkeletalMesh, lod: usize) -> Re
     g.indices = l.index_container.to_u32();
     for s in &l.sections {
         let material = m.materials.get(s.material_index as usize).copied().unwrap_or_default();
-        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material), slot: s.material_index as usize });
+        g.sections.push(Section { first_index: s.base_index, num_triangles: s.num_triangles, material, material_name: pkg.object_path(material), slot: s.material_index as usize, material_package: None });
     }
     Ok(g)
 }
@@ -576,6 +590,20 @@ pub fn write_glb_anims(name: &str, g: &Geometry, anims: &[GltfAnim]) -> Result<V
     let uvv = push_view(&mut bin, &uv_bytes, Some(34962));
     accessors.push(format!("{{\"bufferView\":{uvv},\"componentType\":5126,\"count\":{n},\"type\":\"VEC2\"}}"));
     let uv_acc = accessors.len() - 1;
+    // Tangents: the axis swap mirrors the basis, so the sign flips.
+    let mut tangent_attr = String::new();
+    if g.tangents.len() == n {
+        let mut t_bytes = Vec::with_capacity(n * 16);
+        for t in &g.tangents {
+            let d = to_gltf_dir([t[0], t[1], t[2]]);
+            for c in [d[0], d[1], d[2], -t[3]] {
+                t_bytes.extend_from_slice(&c.to_le_bytes());
+            }
+        }
+        let tv = push_view(&mut bin, &t_bytes, Some(34962));
+        accessors.push(format!("{{\"bufferView\":{tv},\"componentType\":5126,\"count\":{n},\"type\":\"VEC4\"}}"));
+        tangent_attr = format!(",\"TANGENT\":{}", accessors.len() - 1);
+    }
 
     // Skin attributes.
     let skinned = !g.bones.is_empty() && g.influences.len() == n;
@@ -649,7 +677,7 @@ pub fn write_glb_anims(name: &str, g: &Geometry, anims: &[GltfAnim]) -> Result<V
         accessors.push(format!("{{\"bufferView\":{iv},\"componentType\":5125,\"count\":{count},\"type\":\"SCALAR\"}}"));
         let ia = accessors.len() - 1;
         let mi = prims.len();
-        prims.push(format!("{{\"attributes\":{{\"POSITION\":{pos_acc},\"NORMAL\":{nrm_acc},\"TEXCOORD_0\":{uv_acc}{skin_attrs}}},\"indices\":{ia},\"material\":{mi}}}"));
+        prims.push(format!("{{\"attributes\":{{\"POSITION\":{pos_acc},\"NORMAL\":{nrm_acc},\"TEXCOORD_0\":{uv_acc}{tangent_attr}{skin_attrs}}},\"indices\":{ia},\"material\":{mi}}}"));
     }
 
     // Nodes: mesh node first, then one node per bone (joint i = node i + 1).
@@ -855,7 +883,7 @@ pub fn attach_materials(
     let mut jobs: Vec<(String, std::sync::Arc<Package>, String, usize, Object)> = Vec::new();
     let mut failed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for sec in &g.sections.clone() {
-        let (textures, unresolved) = material_textures_ext(cache, pkg_name, sec.material);
+        let (textures, unresolved) = material_textures_ext(cache, sec.material_package.as_deref().unwrap_or(pkg_name), sec.material);
         for u in unresolved {
             warn(&mut warnings, format!("{}: {u}: not found in the folder", sec.material_name));
         }
@@ -1020,6 +1048,10 @@ pub fn write_scene_glb(name: &str, meshes: &[(String, Geometry)], nodes: &[Scene
         }
         let mut prims = Vec::new();
         for (si, sec) in g.sections.iter().enumerate() {
+            // A section without triangles: an accessor of no elements is not valid glTF.
+            if sec.num_triangles == 0 {
+                continue;
+            }
             let m = g.materials.get(si);
             let key = m.map(|m| m.name.clone()).unwrap_or_else(|| sec.material_name.clone());
             let mi = match material_by_name.get(&key) {

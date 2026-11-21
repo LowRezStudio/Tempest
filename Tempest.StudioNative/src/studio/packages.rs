@@ -6,7 +6,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, uniform_list, Context, Image, ImageFormat, ScrollStrategy, Window};
+use gpui::{div, prelude::*, px, uniform_list, Context, Image, ImageFormat, KeyDownEvent, PathPromptOptions, ScrollStrategy, Window};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
@@ -59,7 +59,7 @@ impl Studio {
                             this.reveal(i, cx);
                             this.select_export(i, cx);
                         }
-                        this.set_status(format!("{}: {n} objects ({} ms)", file_name(&path), t.elapsed().as_millis()), cx);
+                        this.set_status(format!("{}: {n} object{} ({} ms)", file_name(&path), if n == 1 { "" } else { "s" }, t.elapsed().as_millis()), cx);
                     }
                     Err(e) => this.toast(Tone::Error, format!("{}: {e}", file_name(&path)), cx),
                 }
@@ -73,6 +73,7 @@ impl Studio {
         self.inspected = None;
         self.preview = None;
         self.mesh = None;
+        self.mesh_preview = None;
         self.material = None;
         self.slots = None;
         self.sound = None;
@@ -81,6 +82,7 @@ impl Studio {
         self.particles = None;
         self.deps = None;
         self.source = None;
+            self.dump = None;
         self.player.stop();
     }
 
@@ -97,6 +99,7 @@ impl Studio {
             Some(i) => {
                 self.reveal(i, cx);
                 self.mesh = None;
+                self.mesh_preview = None;
                 self.material = None;
                 self.slots = None;
                 self.sound = None;
@@ -109,6 +112,7 @@ impl Studio {
                     }
                 }
                 self.source = None;
+            self.dump = None;
                 self.select_export(i, cx);
             }
             None => {
@@ -160,10 +164,13 @@ impl Studio {
         let Some(t) = &self.open else { return };
         if self.selected_export != Some(i) {
             let keep_mesh = self.mesh.as_ref().is_some_and(|m| m.borrow().export == i);
+            self.prop_open.clear();
             self.deps = None;
             self.source = None;
+            self.dump = None;
             if !keep_mesh {
                 self.mesh = None;
+                self.mesh_preview = None;
             }
             self.material = None;
             self.slots = None;
@@ -222,7 +229,7 @@ impl Studio {
                 }
                 match r {
                     Ok(r) => this.inspected = Some(model::inspected(&r.json)),
-                    Err(e) => this.set_status(e, cx),
+                    Err(e) => this.toast(Tone::Error, e, cx),
                 }
                 this.preview = None;
                 this.load_tab(cx);
@@ -236,7 +243,7 @@ impl Studio {
                     }
                     match r {
                         Ok(r) => this.preview = r.bin(&r.json["png"]).map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))),
-                        Err(e) => this.set_status(format!("Preview: {e}"), cx),
+                        Err(e) => this.toast(Tone::Error, format!("Could not draw the preview: {}", super::ui::explain_error(&e)), cx),
                     }
                     cx.notify();
                 });
@@ -377,7 +384,7 @@ impl Studio {
             })
         };
         let (p1, p2, p3, p4, p5) = (path.clone(), path.clone(), path.clone(), path.clone(), path.clone());
-        let (p6, p7, p8, p9) = (path.clone(), path.clone(), path.clone(), path.clone());
+        let (p6, p7, p8, p9, p10) = (path.clone(), path.clone(), path.clone(), path.clone(), path.clone());
         let pinned = self.is_pinned(&path);
         menu.item(item("Open in a new tab", Box::new(move |s, _, cx| s.new_tab(Some(Place::package(p1.clone(), None)), cx))))
             .item(item(if pinned { "Unpin" } else { "Pin to the top of the list" }, Box::new(move |s, _, cx| s.toggle_pin(p6.clone(), cx))))
@@ -385,8 +392,10 @@ impl Studio {
             .item(item("Copy the file path", Box::new(move |s, _, cx| s.copy_text(p7.clone(), "file path", cx))))
             .item(item(if cfg!(target_os = "macos") { "Show in Finder" } else { "Show in the file manager" }, Box::new(move |s, _, cx| s.reveal_file(&p8, cx))))
             .separator()
-            .item(item("Save into the game folder…", Box::new(move |s, w, cx| s.save_packages(vec![p2.clone()], w, cx))).disabled(!dirty))
+            .item(item("Export all textures…", Box::new(move |s, _, cx| s.export_all_textures(p10.clone(), cx))))
+            .item(item("Batch import a folder…", Box::new(move |s, w, cx| s.run(Cmd::BatchImport, w, cx))))
             .item(item("Export a copy…", Box::new(move |s, _, cx| s.save_copy(p3.clone(), cx))))
+            .item(item("Patch the game file (advanced)…", Box::new(move |s, w, cx| s.save_packages(vec![p2.clone()], w, cx))).disabled(!dirty))
             .item(item("Discard the changes…", Box::new(move |s, w, cx| s.discard(p4.clone(), w, cx))).disabled(!dirty))
             .separator()
             .item(item("Check the package (verify)", Box::new(move |s, w, cx| s.verify(p5.clone(), w, cx))))
@@ -414,6 +423,13 @@ impl Studio {
                 let _ = me2.update(cx, |this, cx| this.new_tab(Some(Place::package(path.clone(), Some(i))), cx));
             }))
             .item(item("Copy the object path", Cmd::CopyPath))
+            .item({
+                // The path inside the package (Group.Name), as properties name it.
+                let (me, inner) = (me.clone(), self.open.as_ref().map(|t| t.object_path(i)).and_then(|p| p.split_once('.').map(|(_, rest)| rest.to_string())).unwrap_or_default());
+                PopupMenuItem::new("Copy the path inside the package").on_click(move |_, _, cx| {
+                    let _ = me.update(cx, |this, cx| this.copy_text(inner.clone(), "path", cx));
+                })
+            })
             .separator()
             .item(item("Rename", Cmd::Rename))
             .item(item("Duplicate", Cmd::Duplicate))
@@ -421,15 +437,20 @@ impl Studio {
             .separator()
             .item(item("Export to a file…", Cmd::ExportObject))
             .item(item("Replace from a file…", Cmd::ReplaceObject))
-            .item(item("Replace with an object of another package…", Cmd::ReplaceWith));
+            .item(item("Replace with an object of another package…", Cmd::ReplaceWith))
+            .item(item("Extract the raw data…", Cmd::ExtractRaw));
         if group {
             menu = menu.separator().item(item("Add an object here…", Cmd::AddObject)).item(item("Add a group here…", Cmd::AddGroup));
+        } else {
+            menu = menu.separator().item(item("Add next to it…", Cmd::AddObject));
         }
         menu.separator().item(item("Delete…", Cmd::Delete))
     }
 
-    fn render_packages(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    fn render_packages(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let theme = cx.theme().clone();
+        let focused = self.packages_focus.is_focused(window);
+        let row_h = px((1.5 * f32::from(window.rem_size())).max(ROW).round());
         let pinned = self.pinned();
         range
             .filter_map(|k| self.shown_packages.get(k).map(|&i| (k, i)))
@@ -438,15 +459,23 @@ impl Studio {
                 let selected = self.selected_package.as_deref() == Some(p.path.as_str());
                 let path = p.path.clone();
                 let badge = if p.map { "map" } else if p.script { "script" } else { "" };
+                // A champion's package says whose it is and what it holds.
+                let whose = self
+                    .champions
+                    .as_ref()
+                    .and_then(|c| c.package_label(&p.name))
+                    .or_else(|| super::champions::fallback_package_label(&p.name));
                 let menu_path = path.clone();
                 let me = cx.entity();
                 h_flex()
                     .id(("pkg", k))
                     .w_full()
-                    .h(px(ROW))
+                    .h(row_h)
                     .px_2()
                     .gap_2()
                     .text_sm()
+                    .border_1()
+                    .border_color(if selected && focused { theme.ring } else { gpui::transparent_black() })
                     .when(selected, |d| d.bg(theme.list_active))
                     .hover(|s| s.bg(theme.list_hover))
                     .on_click({
@@ -461,9 +490,25 @@ impl Studio {
                         })
                     })
                     .on_mouse_down(gpui::MouseButton::Middle, cx.listener(move |this, _, _, cx| this.new_tab(Some(Place::package(path.clone(), None)), cx)))
+                    .when_some(whose, |d, t| d.tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(t.clone()).build(window, cx)))
                     .when(pinned.contains(&p.path), |d| d.child(Icon::new(IconName::Pin).xsmall().text_color(theme.muted_foreground)))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(p.name.clone()))
-                    .when(self.dirty.contains(&p.path), |d| d.child(div().size(px(6.0)).rounded_full().bg(theme.warning)))
+                    .when(self.dirty.contains(&p.path), |d| {
+                        d.child(
+                            h_flex()
+                                .flex_none()
+                                .gap_1()
+                                .px_1()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(theme.border)
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(div().size(px(6.0)).rounded_full().bg(theme.warning))
+                                .child("edited"),
+                        )
+                    })
+                    .when_some(p.folder.clone(), |d, f| d.child(super::ui::folder_mark(("pkg-folder", k), f, &theme)))
                     .child(div().text_xs().text_color(theme.muted_foreground).child(badge))
                     .child(div().text_xs().text_color(theme.muted_foreground).child(model::human_size(p.size)))
                     .child(crate::driver::probe(format!("pkg-{k}")))
@@ -473,8 +518,10 @@ impl Studio {
             .collect()
     }
 
-    fn render_exports(&mut self, range: Range<usize>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+    fn render_exports(&mut self, range: Range<usize>, window: &mut Window, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let theme = cx.theme().clone();
+        let focused = self.exports_focus.is_focused(window);
+        let row_h = px((1.5 * f32::from(window.rem_size())).max(ROW).round());
         let Some(t) = &self.open else { return Vec::new() };
         range
             .filter_map(|k| self.rows.get(k).map(|&r| (k, r)))
@@ -487,11 +534,13 @@ impl Studio {
                 h_flex()
                     .id(("exp", k))
                     .w_full()
-                    .h(px(ROW))
+                    .h(row_h)
                     .pl(px(8.0 + depth as f32 * 14.0))
                     .pr_2()
                     .gap_1()
                     .text_sm()
+                    .border_1()
+                    .border_color(if selected && focused { theme.ring } else { gpui::transparent_black() })
                     .when(selected, |d| d.bg(theme.list_active))
                     .hover(|s| s.bg(theme.list_hover))
                     .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
@@ -526,7 +575,7 @@ impl Studio {
                                 }))
                             }),
                     )
-                    .child(Icon::new(super::class_icon(&e.class)).xsmall().text_color(if e.class.eq_ignore_ascii_case("package") { theme.warning.opacity(0.8) } else { theme.muted_foreground }))
+                    .child(Icon::new(super::class_icon(&e.class)).xsmall().text_color(if e.class.eq_ignore_ascii_case("package") { theme.warning } else { theme.muted_foreground }))
                     .child(div().flex_1().overflow_hidden().text_ellipsis().whitespace_nowrap().child(e.name.clone()))
                     .when(!e.class.eq_ignore_ascii_case("package"), |d| d.child(div().text_xs().text_color(theme.muted_foreground).whitespace_nowrap().child(super::pretty_class(&e.class))))
                     .child(crate::driver::probe(format!("exp-{k}")))
@@ -536,55 +585,154 @@ impl Studio {
             .collect()
     }
 
+    fn activate_packages_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self
+            .selected_package
+            .clone()
+            .or_else(|| self.shown_packages.first().map(|&i| self.packages[i].path.clone()));
+        let Some(path) = target else { return };
+        layout::update(&self.panes, |p| {
+            p.overlay = false;
+            p.second_hidden = false;
+        });
+        if self.open.as_ref().map(|t| t.path.as_str()) != Some(path.as_str()) {
+            self.user_open_package(path, cx);
+        } else {
+            cx.notify();
+        }
+        self.exports_focus.focus(window, cx);
+    }
+
+    fn activate_exports_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_export.is_none() {
+            if let Some(&(first, _)) = self.rows.first() {
+                self.user_select_export(first, cx);
+            }
+        }
+        let (Some(t), Some(i)) = (&self.open, self.selected_export) else { return };
+        if t.exports[i].class.eq_ignore_ascii_case("package") {
+            if t.has_children(i) {
+                self.toggle(i, cx);
+            }
+            return;
+        }
+        if self.inspected.is_some() {
+            window.focus_next(cx);
+        }
+    }
+
     pub(super) fn render_packages_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let pane_title = |title: &str, tools: gpui::AnyElement| h_flex().h(px(28.0)).px_2().gap_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(div().flex_1().child(title.to_uppercase())).child(tools);
+        let side_shown = self.panes.get().side();
+        let pane_title = |title: &str, tools: gpui::AnyElement| super::ui::pane_header(title.to_string(), tools, &theme);
         let packages = v_flex()
             .size_full()
             .child(pane_title(
-                "Packages",
+                "Game files",
                 h_flex()
                     .child(
                         Button::new("unsaved-only")
                             .xsmall()
                             .ghost()
                             .selected(self.unsaved_only)
-                            .label(if self.dirty.is_empty() { "Unsaved".to_string() } else { format!("Unsaved {}", self.dirty.len()) })
-                            .tooltip("Show only the packages with unsaved edits")
+                            .label(if self.dirty.is_empty() { "Edited".to_string() } else { format!("Edited {}", self.dirty.len()) })
+                            .tooltip("Show only the packages you edited")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.unsaved_only = !this.unsaved_only;
                                 this.refilter_packages(cx);
                             })),
                     )
+                    .child(Button::new("batch-import").xsmall().ghost().icon(Icon::new(IconName::Upload)).tooltip("Batch import a folder of edited files…").on_click(cx.listener(|this, _, window, cx| this.run(Cmd::BatchImport, window, cx))))
                     .child(Button::new("new-package").xsmall().ghost().icon(Icon::new(IconName::FilePlus)).tooltip("New package…").on_click(cx.listener(|this, _, window, cx| this.run(Cmd::NewPackage, window, cx))))
                     .into_any_element(),
             ))
-            .child(div().px_1().pb_1().child(Input::new(&self.package_filter).small()))
-            .child(div().key_context("Packages").track_focus(&self.packages_focus).flex_1().min_h_0().child(uniform_list("packages", self.shown_packages.len(), cx.processor(Self::render_packages)).track_scroll(&self.package_scroll).size_full()));
+            .child(super::ui::pane_filter(Input::new(&self.package_filter).small().cleanable(true)))
+            .child(
+                div()
+                    .id("packages-pane")
+                    .key_context("Packages")
+                    .track_focus(&self.packages_focus)
+                    .tab_index(0)
+                    .flex_1()
+                    .min_h_0()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(|s| s.border_color(theme.ring))
+                    .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                        if e.keystroke.key == "enter" && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.activate_packages_pane(window, cx);
+                        }
+                    }))
+                    .child(uniform_list("packages", self.shown_packages.len(), cx.processor(Self::render_packages)).track_scroll(&self.package_scroll).size_full()),
+            );
         let title = self.open.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| "Objects".into());
         let has_open = self.open.is_some();
+        let open_path = self.open.as_ref().map(|t| t.path.clone()).unwrap_or_default();
         let exports_body: gpui::AnyElement = if has_open {
             uniform_list("exports", self.rows.len(), cx.processor(Self::render_exports)).track_scroll(&self.export_scroll).size_full().into_any_element()
         } else {
-            v_flex().size_full().items_center().justify_center().gap_1().text_sm().text_color(theme.muted_foreground).child("Pick a package on the left").child(div().text_xs().child("or press ⌘P to find one by name")).into_any_element()
+            let empty_copy = if side_shown {
+                format!("Pick a package on the left, or press {} to find one by name.", super::commands::key_hint("⌘P"))
+            } else {
+                format!("Open the package list ({}) or press {} to find one by name.", super::commands::key_hint("⌘B"), super::commands::key_hint("⌘P"))
+            };
+            super::ui::empty(IconName::Package, "No package open", empty_copy, &theme)
+                .when(!side_shown, |d| {
+                    d.child(
+                        div()
+                            .relative()
+                            .child(
+                                Button::new("browse-packages")
+                                    .small()
+                                    .icon(Icon::new(IconName::PanelLeft))
+                                    .label("Browse packages…")
+                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_pane(false, cx))),
+                            )
+                            .child(crate::driver::probe("browse-packages")),
+                    )
+                })
+                .into_any_element()
         };
+        let open_first_tip = if side_shown { "Open a game file on the left first" } else { "Open a game file first" };
         let exports = v_flex()
             .size_full()
             .child(pane_title(
                 &title,
                 h_flex()
-                    .child(Button::new("add-object").xsmall().ghost().icon(Icon::new(IconName::Plus)).tooltip("Add to the package: an object from a file, a copy, a group…").disabled(!has_open).on_click(cx.listener(|this, _, window, cx| this.run(Cmd::AddObject, window, cx))))
-                    .child(Button::new("find-replace").xsmall().ghost().icon(Icon::new(IconName::Replace)).tooltip("Find and replace in the package…").disabled(!has_open).on_click(cx.listener(|this, _, window, cx| this.run(Cmd::FindReplace, window, cx))))
+                    .child(Button::new("export-textures").xsmall().ghost().icon(Icon::new(IconName::Download)).tooltip(if has_open { "Export all textures to a folder…" } else { open_first_tip }).disabled(!has_open).on_click(cx.listener(move |this, _, _, cx| this.export_all_textures(open_path.clone(), cx))))
+                    .child(Button::new("add-object").xsmall().ghost().icon(Icon::new(IconName::Plus)).tooltip(if has_open { "Add to the package: an object from a file, a copy, a group…" } else { open_first_tip }).disabled(!has_open).on_click(cx.listener(|this, _, window, cx| this.run(Cmd::AddObject, window, cx))))
+                    .child(Button::new("find-replace").xsmall().ghost().icon(Icon::new(IconName::Replace)).tooltip(if has_open { "Find and replace in the package…" } else { open_first_tip }).disabled(!has_open).on_click(cx.listener(|this, _, window, cx| this.run(Cmd::FindReplace, window, cx))))
                     .into_any_element(),
             ))
-            .child(div().px_1().pb_1().child(Input::new(&self.export_filter).small()))
-            .child(div().key_context("Exports").track_focus(&self.exports_focus).flex_1().min_h_0().child(exports_body));
+            .child(super::ui::pane_filter(Input::new(&self.export_filter).small().cleanable(true)))
+            .child(
+                div()
+                    .id("exports-pane")
+                    .key_context("Exports")
+                    .track_focus(&self.exports_focus)
+                    .tab_index(0)
+                    .flex_1()
+                    .min_h_0()
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus_visible(|s| s.border_color(theme.ring))
+                    .on_key_down(cx.listener(|this, e: &KeyDownEvent, window, cx| {
+                        if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                            window.prevent_default();
+                            cx.stop_propagation();
+                            this.activate_exports_pane(window, cx);
+                        }
+                    }))
+                    .child(exports_body),
+            );
         // Focus (a movie's stage) hides both lists.
         let mut panes = self.panes.get();
         if self.focus_mode {
             panes = layout::Panes { side_hidden: true, second_hidden: true, ..Default::default() };
         }
-        let sizes = self.pane_sizes("main", &[260.0, 400.0]);
+        let sizes = self.pane_sizes("main", &[super::ui::SIDE_PANE, 400.0]);
         let me = cx.entity().downgrade();
         let inspector = self.render_inspector(window, cx).into_any_element();
         layout::group(
@@ -606,7 +754,8 @@ impl Studio {
         files.sort();
         let me = cx.entity().downgrade();
         let assembly = self.assembly.as_ref().map(|a| a.read(cx).unsaved_files()).unwrap_or_default();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let max_w = window.viewport_size().width * 0.94;
             let theme = cx.theme().clone();
             let mut list = v_flex().gap_1();
             for f in &files {
@@ -615,26 +764,116 @@ impl Studio {
                     h_flex()
                         .gap_2()
                         .text_sm()
-                        .child(div().flex_1().child(file_name(f)))
+                        .child(div().flex_1().min_w_0().child(file_name(f)))
                         .child(Button::new(format!("open-{f}")).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me1.update(cx, |this, cx| this.user_open_package(f1.clone(), cx));
                         }))
-                        .child(Button::new(format!("save-{f}")).xsmall().label("Save…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("save-{f}")).xsmall().ghost().label("Patch the game…").tooltip("Advanced, for quick tests: overwrite the game's own file with your changes").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me2.update(cx, |this, cx| this.save_packages(vec![f2.clone()], window, cx));
                         }))
-                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard…").on_click(move |_, window, cx| {
+                        .child(Button::new(format!("discard-{f}")).xsmall().ghost().label("Discard…").tooltip("Throw away the changes to this file").on_click(move |_, window, cx| {
                             window.close_dialog(cx);
                             let _ = me3.update(cx, |this, cx| this.discard(f3.clone(), window, cx));
                         })),
                 );
             }
             for f in &assembly {
-                list = list.child(h_flex().gap_2().text_sm().child(div().flex_1().child(file_name(f))).child(div().text_xs().text_color(theme.muted_foreground).child("assembly · save it from the Assembly view")));
+                let me = me.clone();
+                list = list.child(
+                    h_flex()
+                        .gap_2()
+                        .text_sm()
+                        .child(div().flex_1().min_w_0().child(file_name(f)))
+                        .child(div().text_xs().text_color(theme.muted_foreground).child("game data"))
+                        .child(Button::new(format!("open-{f}")).xsmall().ghost().label("Open").on_click(move |_, window, cx| {
+                            window.close_dialog(cx);
+                            let _ = me.update(cx, |this, cx| this.set_view(super::View::Assembly, window, cx));
+                        })),
+                );
             }
-            dialog.title("Unsaved files").w(px(560.0)).child(list)
+            // Everything at once: the same commands as the palette's.
+            let (me1, me2) = (me.clone(), me.clone());
+            let n = files.len() + assembly.len();
+            let all = h_flex()
+                .gap_2()
+                .pb_2()
+                .mb_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(div().flex_1().min_w_0().whitespace_normal().text_sm().text_color(theme.muted_foreground).child(format!("{n} changed file{}: they go into your mod when you build it. The game's own files are untouched.", if n == 1 { "" } else { "s" })))
+                .child(
+                    div()
+                        .relative()
+                        .flex_none()
+                        .child(Button::new("discard-all").xsmall().danger().label("Discard all changes…").on_click(move |_, window, cx| {
+                            window.close_dialog(cx);
+                            let _ = me2.update(cx, |this, cx| this.run(super::commands::Cmd::DiscardAll, window, cx));
+                        }))
+                        .child(crate::driver::probe("discard-all")),
+                );
+            let advanced = h_flex()
+                .pt_2()
+                .mt_1()
+                .gap_2()
+                .border_t_1()
+                .border_color(theme.border)
+                .child(super::ui::hint("Testing without building? You can overwrite the game's own files instead (advanced; only Verify game files puts them back).", &theme).flex_1().min_w_0())
+                .child(Button::new("save-all").xsmall().ghost().label("Patch the game…").disabled(files.is_empty()).when(files.is_empty(), |b| b.tooltip("Only game data changed: patch it from the Game data view's ⋯ menu")).on_click(move |_, window, cx| {
+                    window.close_dialog(cx);
+                    let _ = me1.update(cx, |this, cx| this.run(super::commands::Cmd::SaveAll, window, cx));
+                }));
+            dialog.title("Changes").w(px(600.0)).max_w(max_w).child(all).child(div().id("unsaved-list").max_h(px(420.0)).overflow_y_scroll().child(list)).child(advanced)
         });
+    }
+
+    /// Export every 2D texture of `path` as `<Package>.<Group>.<Name>.png` into a chosen folder.
+    pub(super) fn export_all_textures(&mut self, path: String, cx: &mut Context<Self>) {
+        let dirs = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Export all textures into this folder".into()) });
+        let backend = self.backend.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut picked))) = dirs.await else { return };
+            let Some(dir) = picked.pop() else { return };
+            let r = backend.call("package.open", json!({ "path": path })).await;
+            let tables = match r {
+                Ok(r) => Tables::from_json(&path, &r.json),
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| this.toast(Tone::Error, format!("{}: {e}", file_name(&path)), cx));
+                    return;
+                }
+            };
+            let textures: Vec<(usize, String)> = (0..tables.exports.len())
+                .filter(|&i| {
+                    let c = tables.exports[i].class.to_ascii_lowercase();
+                    c.contains("texture2d") || c == "lightmaptexture2d" || c == "shadowmaptexture2d"
+                })
+                .map(|i| (i, tables.object_path(i)))
+                .collect();
+            if textures.is_empty() {
+                let _ = this.update(cx, |this, cx| this.toast(Tone::Info, format!("{} has no 2D textures to export", file_name(&path)), cx));
+                return;
+            }
+            let total = textures.len();
+            let mut ok = 0usize;
+            let mut failed = 0usize;
+            for (n, (index, obj_path)) in textures.into_iter().enumerate() {
+                if n % 5 == 0 {
+                    let _ = this.update(cx, |this, cx| this.set_status(format!("Exporting textures: {} / {total}…", n + 1), cx));
+                }
+                let safe: String = obj_path.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).collect();
+                let out = dir.join(format!("{safe}.png"));
+                match backend.call("texture.export", json!({ "path": path, "index": index, "mip": 0, "out": out.to_string_lossy() })).await {
+                    Ok(_) => ok += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            let _ = this.update(cx, |this, cx| {
+                let note = if failed > 0 { format!(" ({failed} skipped)") } else { String::new() };
+                this.toast(Tone::Success, format!("Exported {ok} texture{} to {}{note}", if ok == 1 { "" } else { "s" }, dir.display()), cx);
+            });
+        })
+        .detach();
     }
 
     /// The package's header in words: versions, compression, counts, flags.
@@ -649,12 +888,13 @@ impl Studio {
             let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let _ = cx.update_window(handle, |_, window, cx| {
                 let me = me.clone();
-                window.open_dialog(cx, move |dialog, _, cx| {
+                window.open_dialog(cx, move |dialog, window, cx| {
+                    let max_w = window.viewport_size().width * 0.94;
                     let theme = cx.theme().clone();
                     let yes = |b: &J| if b.as_bool() == Some(true) { "yes" } else { "no" };
                     let rows: Vec<(&str, String)> = vec![
                         ("File", format!("{} · {}", file_name(&path), model::human_size(size))),
-                        ("Objects", format!("{} exports, {} imports, {} names", s["exports"], s["imports"], s["names"])),
+                        ("Contents", format!("Objects: {}, external links: {}, names: {}", s["exports"], s["imports"], s["names"])),
                         ("Versions", format!("file {} · licensee {} · engine {} · cooked content {}", s["fileVersion"], s["licenseeVersion"], s["engineVersion"], s["cookedContentVersion"])),
                         ("Stored", format!("{}{} · {} chunks", if s["compressed"].as_bool() == Some(true) { "LZO-compressed" } else { "uncompressed" }, if s["obscured"].as_bool() == Some(true) { ", obscured" } else { "" }, s["chunks"])),
                         ("Cooked", yes(&s["cooked"]).to_string()),
@@ -667,11 +907,21 @@ impl Studio {
                         list = list.child(h_flex().gap_3().items_start().child(div().w(px(140.0)).flex_none().text_xs().text_color(theme.muted_foreground).child(k)).child(div().flex_1().min_w_0().text_sm().child(v)));
                     }
                     let (m1, m2, p1, p2) = (me.clone(), me.clone(), path.clone(), path.clone());
-                    dialog.title(format!("{} info", file_name(&path))).w(px(600.0)).child(list).footer(
+                    let (m3, m4, p3, p4) = (me.clone(), me.clone(), path.clone(), path.clone());
+                    dialog.title(format!("{} info", file_name(&path))).w(px(600.0)).max_w(max_w).child(list).footer(
                         h_flex()
                             .w_full()
                             .justify_end()
                             .gap_2()
+                            .child(Button::new("pi-imports").ghost().label("Imports…").tooltip("What the package takes from other packages").on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                let _ = m3.update(cx, |s, cx| s.package_tables_dialog(p3.clone(), false, window, cx));
+                            }))
+                            .child(Button::new("pi-names").ghost().label("Names…").tooltip("The package's name table").on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                let _ = m4.update(cx, |s, cx| s.package_tables_dialog(p4.clone(), true, window, cx));
+                            }))
+                            .child(div().flex_1())
                             .child(Button::new("pi-copy").ghost().label("Copy the path").on_click(move |_, _, cx| {
                                 let _ = m1.update(cx, |s, cx| s.copy_text(p1.clone(), "file path", cx));
                             }))

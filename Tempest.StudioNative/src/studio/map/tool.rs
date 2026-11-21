@@ -6,11 +6,20 @@
 //! backend call to answer with (`{"$backend": …}`).
 
 use gpui::{Context, Window};
+use gpui_component::ActiveTheme;
 use serde_json::{json, Value as J};
 
 use super::matinee::KeyRef;
 use super::{MapEditor, Mode, Tool};
 use crate::map_render::Shading;
+
+impl MapEditor {
+    /// Game shading's progress: materials with shaders, mesh parts drawn with them, requests left.
+    fn game_state(&self) -> J {
+        let (materials, parts) = self.view.with(|s| s.game_counts()).unwrap_or((0, 0));
+        json!({ "materials": materials, "parts": parts, "queued": self.game.queue.len(), "running": self.game.running, "failed": self.game.failed, "lastError": self.game.last_error, "animating": self.game.animating })
+    }
+}
 
 fn read(what: &str) -> J {
     json!({ "$read": what })
@@ -40,6 +49,7 @@ impl MapEditor {
             "selected": self.selected.as_ref().map(|(l, e)| self.actor_at(l, *e).map(|a| a.brief(l)).unwrap_or_else(|| json!({ "level": l, "export": e }))),
             "hiddenCategories": self.hidden_categories.iter().collect::<Vec<_>>(),
             "shading": self.shading.key(),
+            "game": self.game_state(),
             "tool": self.tool.key(),
             "heavyWalls": self.heavy,
             "meshes": { "loading": loading + self.mesh_queue.len(), "loaded": loaded, "failed": failed },
@@ -145,7 +155,7 @@ impl MapEditor {
                     }
                 }
                 if let Some(s) = a["shading"].as_str().and_then(Shading::parse) {
-                    self.shading = s;
+                    self.set_shading(s, cx);
                 }
                 self.apply_look();
                 cx.notify();
@@ -387,6 +397,12 @@ impl MapEditor {
                         }
                         self.nav_edit(if op == "cutRegion" { "deleteRegion" } else { "deleteFaces" }, json!({ "faces": faces }), cx);
                     }
+                    "generate" => {
+                        if self.nav.actors.is_empty() {
+                            return Ok(json!({ "$retry": true }));
+                        }
+                        self.nav_generate(cx);
+                    }
                     "moveVertex" => {
                         let v = a["vertex"].as_u64().ok_or("give vertex")?;
                         let l = a["location"].as_array().filter(|x| x.len() == 3).ok_or("give location")?;
@@ -398,7 +414,7 @@ impl MapEditor {
                     }
                     _ => {}
                 }
-                self.rebuild_nav();
+                self.rebuild_nav(cx.theme().mode.is_dark());
                 Ok(read("navmesh"))
             }
             "undo" => {
@@ -469,7 +485,7 @@ impl MapEditor {
             "matinee" => self.matinee.tl.clone().unwrap_or(J::Null),
             "timeline" => json!({ "key": self.matinee.key.as_ref().map(|k| json!({ "track": k.track, "curve": k.curve, "key": k.key })), "timeline": self.matinee.tl }),
             "matinees" => json!(self.matinee.list),
-            "navmesh" => json!({ "show": self.nav.show, "level": self.nav.level, "error": self.nav.error, "colour": if self.nav.by_cluster { "cluster" } else { "region" }, "selected": self.nav.selected.iter().take(500).collect::<Vec<_>>(), "actors": self.nav.actors.iter().map(|a| a.info.clone()).collect::<Vec<_>>() }),
+            "navmesh" => json!({ "show": self.nav.show, "level": self.nav.level, "error": self.nav.error, "colour": if self.nav.by_cluster { "cluster" } else { "region" }, "selected": self.nav.selected.iter().take(500).collect::<Vec<_>>(), "actors": self.nav.actors.iter().map(|a| a.info.clone()).collect::<Vec<_>>(), "generating": self.nav.generating, "generated": self.nav.generated }),
             "bake" => {
                 let Some(r) = &self.bake.last else { return J::Null };
                 let mut r = r.clone();
@@ -501,7 +517,11 @@ impl MapEditor {
                 let on = !self.collision.enabled;
                 self.toggle_collision(on, cx);
             }
-            Cmd::MapBakeLighting => self.open_bake(cx),
+            Cmd::MapBakeLighting => {
+                self.focus.focus(window, cx);
+                self.focus_modal = true;
+                self.open_bake(cx);
+            }
             Cmd::MapNewMatinee => {
                 let level = self.target_level().unwrap_or_default();
                 let actor = self.actor().map(|a| a.owner());
@@ -566,8 +586,8 @@ impl MapEditor {
                 self.view.dirty();
             }
             "shading" => {
-                self.shading = Shading::parse(words.get(1).copied().unwrap_or("")).ok_or("lit|unlit|untextured|wireframe")?;
-                self.apply_look();
+                let s = Shading::parse(words.get(1).copied().unwrap_or("")).ok_or("lit|unlit|untextured|wireframe|game")?;
+                self.set_shading(s, cx);
             }
             "heavy" => {
                 self.heavy = !self.heavy;
@@ -633,8 +653,12 @@ impl MapEditor {
                     _ => super::navmesh::Pick::Off,
                 };
             }
-            "export-dialog" => self.open_export(cx),
-            "bake-dialog" => self.open_bake(cx),
+            "export-dialog" => self.open_export(window, cx),
+            "bake-dialog" => {
+                self.focus.focus(window, cx);
+                self.focus_modal = true;
+                self.open_bake(cx);
+            }
             "close" => {
                 self.export.open = false;
                 self.bake.open = false;

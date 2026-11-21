@@ -17,6 +17,11 @@ export const FEATURE_FLAGS = {
 			"Publish mods to the mod repository straight from the launcher (otherwise packages must be uploaded by hand on the website).",
 		default: false,
 	},
+	"no-mod-update-prompts": {
+		description:
+			"Never show the automatic mod update popup. Update checks and auto-install still run; the instance page's updates button still works.",
+		default: false,
+	},
 } as const satisfies Record<string, FlagDefinition<FlagValue>>;
 
 export type FlagName = keyof typeof FEATURE_FLAGS;

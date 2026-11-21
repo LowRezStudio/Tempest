@@ -1,6 +1,6 @@
 [package]
 name = "tempest-studio-native"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.7"
 edition = "2021"
 license = "MIT"
 description = "Tempest Studio as a native GPUI app, linking tempest-assets directly"
@@ -53,3 +53,8 @@ opt-level = 3
 # The asset layer is hot (package parsing, LZO, textures) even in debug builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# wgpu-core's debug assertions capture a backtrace on every resource lock when
+# RUST_BACKTRACE is set: about 50 ms a frame on a level with game shaders.
+[profile.dev.package.wgpu-core]
+debug-assertions = false

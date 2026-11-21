@@ -84,6 +84,40 @@ renumbered or made boundaries, user edges to deleted faces dropped, face/edge da
 renumbered), move vertices (mesh AABB grown), then `write_back` re-encodes the touched arrays over
 their stored elements, rebuilds the tree and drops `clearanceCacheSeedingDataSet` (its items stay,
 unreferenced). Checked on TD_Abyss_P (3 faces deleted, a region cut, a vertex moved, saved copy):
-`upk verify` 0 mismatches, `upk havok verify` valid, three undos return the package to clean. Not
-done: rebuilding the cluster graph (`hkaiNavMeshClusteringTask`), generation from geometry. Not
-tested in game.
+`upk verify` 0 mismatches, `upk havok verify` valid, three undos return the package to clean. Not done for edits: rebuilding the cluster graph (`hkaiNavMeshClusteringTask`); generation (below)
+builds its own. Not tested in game.
+
+### Generation (`havok/generate.rs`, `map.navmeshGenerate`)
+
+Not Havok's generator (the 8.2 server links `hkaiNavMeshGenerationUtils`; not ported): Recast
+(`rerecast` 0.5.0, pure Rust) over what pawns collide with, made into a mesh with the shipped
+meshes' conventions. Input (`serve.rs` `walk_geometry`, the map and its streamed levels): the world
+BSP (`ULevel::Model` node polygons, `PF_NotSolid` surfaces left out; the older SG_T* maps are BSP),
+blocking volumes' `BrushAggGeom`, and each static mesh component blocking pawns
+(`collision::flags_json`) with its body setup's `AggGeom` (boxes as boxes, spheres and capsules as
+their boxes, `collision::agg_triangles`) or its LOD 0 triangles under complex collision; a mesh
+without a body setup blocks nothing and is left out. Instanced (foliage) components are skipped.
+Settings (Havok units): cell 0.75 × 0.25 (12 Unreal units across; 8 cost 3× the time on Bazaar for
+no more coverage: watershed regions dominate), agent radius 2.0625 (the shipped `erosionRadius`),
+height 11, climb 2.1875, slope 45°, up to 12 vertices a face. The voxel box is the current mesh's
+grown by 8 radii (else the walkable triangles' extent): far-off geometry overflows Recast's span
+heights. Each contour is cut into polygons on its own (`rerecast` fails the whole mesh on one it
+cannot triangulate; C++ Recast skips it). Faces are counter-clockwise seen from +Z, edges chained,
+opposites paired by vertices, all `ORIGINAL`, `padding` 0xCDCD, face/edge data 0, the AABB grown by
+the radius. Pruning: connected parts with no seed go (seeds: `NavigationPoint` actors and the current
+mesh's face centres, unless `keepUnreached`): Recast keeps roof tops, wall tops and closed
+interiors. Clusters grow breadth first to 400 units² (the shipped graphs: node near the cluster
+centroid, costs ≥ the straight distance, both ways, `hkHalf16`); our cost is the distance. The tree
+is rebuilt; jump links (user edge pairs, annotations) are dropped with the old faces; the tagfile is
+stored as a read and rewrite gives it (canonical: `upk havok verify` passes).
+
+Checked on the 69 shipped 8.1 meshes (`map.navmeshGenerate` then `package.save` to a scratch copy):
+every result valid, `upk havok verify` 0 failed, `upk verify` 0 mismatches, 83 s for all (Bazaar 17
+s). Coverage (share of one mesh's area whose face centres lie on the other): median 93 % of the
+shipped mesh covered and 92.5 % of ours on it, 44 maps ≥ 90 % both ways. Low ones are explained:
+Dragon Ruins streams `ruins_*` levels that are not in the folder (`missingLevels`), FT_P_v01 and
+FMM_P_v01_SiegeOnly ship meshes over areas with no geometry left (stale); Marauders, FishMarket and
+IceMines are at 75–80 % (not looked into). Not done: jump links (re-attaching the old pairs by
+position), Havok's own clustering, actors with empty bulk data (TimberMill, MossGarden: a template
+tagfile from another map would do). Not tested in game.
+

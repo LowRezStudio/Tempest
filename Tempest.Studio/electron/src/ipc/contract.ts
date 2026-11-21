@@ -458,6 +458,72 @@ export type MaterialPreview = {
 	switches: { name: string; value: boolean }[];
 };
 
+/** A uniform expression of a material shader map, as `UniformExpr::to_json` writes it. */
+export type UniformExpression = { op: string } & Record<string, unknown>;
+
+/** `material.gameShader`: a material's compiled base pass pair translated to WGSL, and what it reads. */
+export type GameShader = {
+	material: string;
+	materialPath: string | null;
+	/** What the module was translated from; `fallback` says why not SM5 when it was asked for. */
+	platform: "sm3" | "sm5";
+	fallback: string | null;
+	vertexFactory: string;
+	vertexShader: string;
+	pixelShader: string;
+	otherFactories: string[];
+	wgsl: string;
+	/** Vertex inputs in `@location` order (`POSITION0`, `TANGENT0`…), each a `vec4<f32>`. */
+	vertexInputs: string[];
+	vertexFloats: number;
+	pixelFloats: number;
+	/** Byte `offset` and `bytes` in the stage's flat array (SM5 packs scalars into components). */
+	vertexConstants: {
+		name: string;
+		register: number;
+		count: number;
+		offset: number;
+		bytes: number;
+	}[];
+	pixelConstants: {
+		name: string;
+		register: number;
+		count: number;
+		offset: number;
+		bytes: number;
+	}[];
+	/** The placement constants, read from their own uniform (group 0 binding 2). */
+	drawConstants: { name: string; slot: number; count: number }[];
+	drawFloats: number;
+	pixelVectors: UniformExpression[];
+	pixelScalars: UniformExpression[];
+	vertexVectors: UniformExpression[];
+	vertexScalars: UniformExpression[];
+	samplers: GameShaderSampler[];
+	vertexSamplers: GameShaderSampler[];
+	blendMode: string | null;
+	twoSided: boolean;
+	scalars: { name: string; value: number }[];
+	vectors: { name: string; value: [number, number, number, number] }[];
+};
+
+export type GameShaderSampler = {
+	register: number;
+	name: string;
+	kind: "d2" | "cube" | "volume";
+	binding: number;
+	/** The material's texture expression (its parameter name, else `#n`). */
+	expression?: string;
+	/** `cube`: a cube map that could not be resolved to its faces. */
+	source: "texture" | "missing" | "cube" | "renderer";
+	path?: string;
+	srgb?: boolean;
+	png?: Uint8Array;
+	/** A cube map's six faces (+X, −X, +Y, −Y, +Z, −Z), each a PNG. */
+	faces?: Uint8Array[];
+	error?: string;
+};
+
 type Target = { path: string; index: number };
 
 /** Every `upk serve` method with its params and result. */
@@ -971,7 +1037,7 @@ export type McsRowsPage = {
 	rows: [number, Record<string, McsCell>][];
 };
 export type McsField = { name: string; token: number; kind: McsKind; value: McsCell };
-export type McsStatus = { doc: string; dirty: boolean; undo: string[] };
+export type McsStatus = { doc: string; dirty: boolean; undo: string[]; redo: string[] };
 export type McsMessage = { text: string; name: string; path: McsPath };
 export type McsValidValue = { group: number; msgId: number; text: string };
 
@@ -1289,9 +1355,17 @@ export interface UpkMethods {
 	"package.verify": { params: { path: string }; result: VerifyReport };
 	"package.undo": {
 		params: { path: string };
-		result: { label: string | null; remaining: string[]; dirty: boolean };
+		result: { label: string | null; remaining: string[]; redo: string[]; dirty: boolean };
 	};
-	"package.undoList": { params: { path: string }; result: { labels: string[]; dirty: boolean } };
+	/** Puts back what `package.undo` took back; any new edit drops it. */
+	"package.redo": {
+		params: { path: string };
+		result: { label: string | null; remaining: string[]; redo: string[]; dirty: boolean };
+	};
+	"package.undoList": {
+		params: { path: string };
+		result: { labels: string[]; redo: string[]; dirty: boolean };
+	};
 	"package.discard": { params: { path: string }; result: boolean };
 	"object.get": { params: Target; result: ParsedObject };
 	"object.text": { params: Target; result: string };
@@ -1626,6 +1700,12 @@ export interface UpkMethods {
 		result: McsStatus & { deleted: number };
 	};
 	"mcts.undo": { params: { doc: string }; result: McsStatus & { undone: string | null } };
+	"mcts.redo": { params: { doc: string }; result: McsStatus & { redone: string | null } };
+	/** Each item's icon texture (`Package.Group.Texture`) and a bot's default skin item (whose icon is included). */
+	"mcts.icons": {
+		params: { items?: number[]; bot?: number };
+		result: { items: Record<string, string>; defaultSkin: number | null };
+	};
 	"mcts.save": { params: { doc: string; out?: string }; result: McsStatus & { out: string } };
 	"mcts.discard": { params: { doc: string }; result: McsStatus };
 	"mcts.find": {
@@ -1928,6 +2008,41 @@ export interface UpkMethods {
 			moves?: [number, number, number, number][];
 		};
 		result: NavMeshActor & { dirty: boolean };
+	};
+	/** Replace a nav mesh with one generated from what pawns collide with in the level and its streamed levels (see navmesh.md, "Generation"); one undo step. Settings are in Unreal units. */
+	"map.navmeshGenerate": {
+		params: {
+			path: string;
+			index?: number;
+			keepUnreached?: boolean;
+			settings?: {
+				cellSize?: number;
+				cellHeight?: number;
+				agentRadius?: number;
+				agentHeight?: number;
+				maxClimb?: number;
+				maxSlope?: number;
+				maxFaceVertices?: number;
+			};
+		};
+		result: NavMeshActor & {
+			dirty: boolean;
+			generated: {
+				triangles: number;
+				parts: number;
+				faces: number;
+				oldFaces: number;
+				clusters: number;
+				skippedOutlines: number;
+				seeds: number;
+				pruned: number;
+				missingLevels: string[];
+				gatherMs: number;
+				recastMs: number;
+				ms: number;
+				coverage: { oldCovered: number; newCovered: number };
+			};
+		};
 	};
 	/** A Matinee timeline (a SeqAct_Interp or InterpData export). */
 	"matinee.get": { params: { path: string; index: number }; result: MatineeTimeline };
@@ -2272,6 +2387,18 @@ export interface UpkMethods {
 		result: { dir: string; classes: number };
 	};
 	"material.preview": { params: Target & { textureSize?: number }; result: MaterialPreview };
+	/** A material, or a mesh with the `section` (of `lod`) whose material to draw. */
+	"material.gameShader": {
+		params: Target & {
+			textureSize?: number;
+			section?: number;
+			lod?: number;
+			materials?: (string | null)[];
+			resolveOnly?: boolean;
+			platform?: "sm3" | "sm5";
+		};
+		result: GameShader;
+	};
 	"material.setParameter": {
 		params: Target & {
 			name: string;

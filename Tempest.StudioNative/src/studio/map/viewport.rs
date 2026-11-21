@@ -1,6 +1,7 @@
 //! The 3D view: the scene drawn into a canvas (a frame only when something
 //! changed, at half resolution while the camera moves), the camera (left
-//! drag orbits, right drag looks around and WASD/QE fly while it is held,
+//! drag orbits, right drag looks around and WASD/QE fly while it is held
+//! (ZQSD/AE on an AZERTY layout),
 //! the arrows and Page Up/Down always fly, Shift faster, middle drag pans,
 //! the wheel zooms), click picking, and the gizmo (W move, E rotate, R
 //! scale, Q select only), which writes the actor on release.
@@ -29,6 +30,8 @@ struct Inner {
     bounds: Bounds<Pixels>,
     /// How long the last frame took to draw and read back, and its size.
     last_frame: (f32, (u32, u32)),
+    /// The frame the GPU is drawing (one at a time), when it was asked for, and its size.
+    pending: Option<(crate::mesh_view::PendingFrame, std::time::Instant, (u32, u32))>,
 }
 
 /// A gizmo handle.
@@ -80,13 +83,10 @@ pub struct View3d {
     pub focus: Option<FocusHandle>,
 }
 
-const AXIS_COLORS: [u32; 3] = [0xf38ba8, 0xa6e3a1, 0x89b4fa];
-const HOT: u32 = 0xf9e2af;
-
 impl View3d {
     pub fn new() -> View3d {
         let scene = MapScene::new();
-        View3d { inner: Rc::new(RefCell::new(Inner { scene, image: None, stale: Vec::new(), dirty: true, coarse: false, bounds: Bounds::default(), last_frame: (0.0, (0, 0)) })), drag: None, keys: HashSet::new(), fast: false, flying: false, settle: 0, hot: None, focus: None }
+        View3d { inner: Rc::new(RefCell::new(Inner { scene, image: None, stale: Vec::new(), dirty: true, coarse: false, bounds: Bounds::default(), last_frame: (0.0, (0, 0)), pending: None })), drag: None, keys: HashSet::new(), fast: false, flying: false, settle: 0, hot: None, focus: None }
     }
 
     /// Change the scene (`None` without a GPU).
@@ -157,8 +157,11 @@ impl MapEditor {
         Some(Gizmo { center, axes, size })
     }
 
-    fn gizmo_lines(&self, g: &Gizmo, out: &mut Vec<Cv>) {
-        let col = |h: Handle, k: usize| rgba(if self.view.hot == Some(h) || matches!(&self.view.drag, Some(Drag::Gizmo(d)) if d.handle == h) { HOT } else { AXIS_COLORS[k] }, 1.0);
+    fn gizmo_lines(&self, g: &Gizmo, dark: bool, out: &mut Vec<Cv>) {
+        let axis_colors: [u32; 3] = if dark { [0xf38ba8, 0xa6e3a1, 0x89b4fa] } else { [0xaf0b2f, 0x1d6412, 0x154bc2] };
+        let hot: u32 = if dark { 0xf9e2af } else { 0x824d00 };
+        let uniform_col: u32 = if dark { 0xcdd6f4 } else { 0x383b50 };
+        let col = |h: Handle, k: usize| rgba(if self.view.hot == Some(h) || matches!(&self.view.drag, Some(Drag::Gizmo(d)) if d.handle == h) { hot } else { axis_colors[k] }, 1.0);
         let mut seg = |a: Vec3, b: Vec3, c: [f32; 4]| {
             out.push(Cv::new(a, c));
             out.push(Cv::new(b, c));
@@ -200,7 +203,7 @@ impl MapEditor {
                 }
                 out.extend(boxes);
                 let h = g.size * 0.07;
-                box_lines(g.center - Vec3::splat(h), g.center + Vec3::splat(h), rgba(if self.view.hot == Some(Handle::Uniform) { HOT } else { 0xcdd6f4 }, 1.0), out);
+                box_lines(g.center - Vec3::splat(h), g.center + Vec3::splat(h), rgba(if self.view.hot == Some(Handle::Uniform) { hot } else { uniform_col }, 1.0), out);
             }
             Tool::Select => {}
         }
@@ -510,12 +513,7 @@ impl MapEditor {
             "right" => Some("right"),
             "pageup" => Some("up"),
             "pagedown" => Some("down"),
-            "w" if looking => Some("fwd"),
-            "s" if looking => Some("back"),
-            "a" if looking => Some("left"),
-            "d" if looking => Some("right"),
-            "e" if looking => Some("up"),
-            "q" if looking => Some("down"),
+            _ if looking => fly_key(k, azerty(cx)),
             _ => None,
         };
         if let Some(f) = fly {
@@ -530,6 +528,17 @@ impl MapEditor {
             "r" => self.tool = Tool::Scale,
             "q" => self.tool = Tool::Select,
             "f" => self.frame_selection(),
+            "h" if m.shift => {
+                self.hidden_actors.clear();
+                self.apply_visibility();
+            }
+            "h" => {
+                if let Some(sel) = self.selected.clone() {
+                    self.hidden_actors.insert(sel);
+                    self.select(None, false, cx);
+                    self.apply_visibility();
+                }
+            }
             "escape" => self.select(None, true, cx),
             "delete" | "backspace" => self.ask_remove(cx),
             "a" if m.shift => self.toggle_palette(window, cx),
@@ -544,13 +553,16 @@ impl MapEditor {
         let k = e.keystroke.key.as_str();
         self.view.fast = e.keystroke.modifiers.shift;
         let f = match k {
-            "up" | "w" => "fwd",
-            "down" | "s" => "back",
-            "left" | "a" => "left",
-            "right" | "d" => "right",
-            "pageup" | "e" => "up",
-            "pagedown" | "q" => "down",
-            _ => return,
+            "up" => "fwd",
+            "down" => "back",
+            "left" => "left",
+            "right" => "right",
+            "pageup" => "up",
+            "pagedown" => "down",
+            _ => match fly_key(k, azerty(cx)) {
+                Some(f) => f,
+                None => return,
+            },
         };
         self.view.keys.remove(f);
         cx.notify();
@@ -608,19 +620,20 @@ impl MapEditor {
     // ----- drawing ----------------------------------------------------------------------
 
     /// What is drawn over the scene this frame: the selection's box and light reach, the gizmo, Matinee paths.
-    fn overlays(&mut self) {
+    fn overlays(&mut self, dark: bool) {
         let mut over = Vec::new();
         let mut top = Vec::new();
+        let sel_col = if dark { 0xf9e2af } else { 0x824d00 };
         if let Some(k) = self.selected_node() {
             if let Some((lo, hi)) = self.view.with(|s| s.bounds(0, k)).flatten() {
-                box_lines(lo, hi, rgba(0xf9e2af, 1.0), &mut over);
+                box_lines(lo, hi, rgba(sel_col, 1.0), &mut over);
             }
             self.light_reach(&mut over);
         }
-        self.matinee_paths(&mut over);
-        self.nav_links(&mut top);
+        self.matinee_paths(dark, &mut over);
+        self.nav_links(dark, &mut top);
         if let Some(g) = self.gizmo() {
-            self.gizmo_lines(&g, &mut top);
+            self.gizmo_lines(&g, dark, &mut top);
         }
         self.view.with(|s| {
             s.overlay = over;
@@ -630,20 +643,24 @@ impl MapEditor {
 
     pub(super) fn render_viewport(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let dark = theme.mode.is_dark();
         if self.view.focus.is_none() {
             self.view.focus = Some(cx.focus_handle());
         }
         if let Some(e) = self.view.error() {
-            return div().size_full().flex().items_center().justify_center().text_sm().text_color(theme.danger).child(format!("The 3D view needs a GPU: {e}")).into_any_element();
+            return div().size_full().p_4().flex().items_center().justify_center().text_sm().whitespace_normal().text_color(theme.danger).child(format!("The 3D view needs a GPU: {}", crate::studio::ui::explain_error(&e))).into_any_element();
         }
         // The background follows the theme (sRGB → linear for the clear colour).
         let bg = theme.background.to_rgb();
         let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } as f64;
         let clear = [lin(bg.r), lin(bg.g), lin(bg.b)];
         if self.view.with(|s| std::mem::replace(&mut s.clear, clear) != clear) == Some(true) {
+            if self.nav.show {
+                self.rebuild_nav(dark);
+            }
             self.view.dirty();
         }
-        self.overlays();
+        self.overlays(dark);
         let inner = self.view.inner.clone();
         let _ = window;
         let view = canvas(
@@ -652,17 +669,27 @@ impl MapEditor {
                 st.bounds = bounds;
                 let scale = if st.coarse { 1.0 } else { window.scale_factor() };
                 let size = ((f32::from(bounds.size.width) * scale) as u32, (f32::from(bounds.size.height) * scale) as u32);
-                if st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size) {
-                    let st = &mut *st;
-                    if let Ok(scene) = &mut st.scene {
-                        let t = std::time::Instant::now();
-                        let image = scene.render(size.0, size.1);
-                        st.last_frame = (t.elapsed().as_secs_f32() * 1000.0, size);
-                        if let Some((old, _)) = st.image.replace((image, size)) {
-                            st.stale.push(old);
+                // The GPU draws while the UI goes on: a finished frame replaces the
+                // shown one, and the next is asked for only then (one in flight).
+                let st = &mut *st;
+                if let Ok(scene) = &mut st.scene {
+                    if let Some((frame, t, size)) = &mut st.pending {
+                        if let Some(image) = scene.collect(frame, false) {
+                            st.last_frame = (t.elapsed().as_secs_f32() * 1000.0, *size);
+                            if let Some((old, _)) = st.image.replace((image, *size)) {
+                                st.stale.push(old);
+                            }
+                            st.pending = None;
                         }
                     }
-                    st.dirty = false;
+                    if st.pending.is_none() && (st.dirty || st.image.as_ref().map(|(_, s)| *s) != Some(size)) {
+                        let t = std::time::Instant::now();
+                        st.pending = Some((scene.render(size.0, size.1), t, size));
+                        st.dirty = false;
+                    }
+                    if st.pending.is_some() {
+                        window.request_animation_frame();
+                    }
                 }
                 for old in std::mem::take(&mut st.stale) {
                     let _ = window.drop_image(old);
@@ -686,14 +713,37 @@ impl MapEditor {
         };
         let focus = self.view.focus.clone().expect("made above");
         let legend = self.heavy.then(|| {
-            let sw = |c: u32, t: &str| h_flex().gap_1p5().child(div().size(px(10.0)).rounded_sm().bg(super::hsla(c))).child(t.to_string());
-            let mut l = v_flex().absolute().top(px(8.0)).left(px(8.0)).p_2().gap_0p5().rounded_md().bg(theme.background.opacity(0.85)).text_xs().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Can't be stood on (m_bCanBaseOn False)"));
-            l = if self.xray { l.child(sw(0xff2d55, "flagged meshes (seen through walls)")).child(sw(0xffb020, "flagged volumes")) } else { l.child(sw(0xf24d66, "walls: heavy walls")).child(sw(0xfa994d, "slopes")).child(sw(0x9499b3, "roofs and floors (as intended)")) };
-            l.child(div().text_color(theme.muted_foreground).child(format!("{} actors flagged", self.rooftop_count())))
+            let sw = |c: gpui::Hsla, t: &str| h_flex().items_center().gap_1p5().child(div().size(px(10.0)).rounded_sm().bg(c)).child(t.to_string());
+            let mut l = v_flex().p_2().gap_0p5().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs().child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Can't be stood on (m_bCanBaseOn False)"));
+            l = if self.xray {
+                l.child(sw(theme.red, "flagged meshes (seen through walls)")).child(sw(theme.yellow, "flagged volumes"))
+            } else {
+                l.child(sw(theme.red, "walls: heavy walls")).child(sw(theme.yellow, "slopes")).child(sw(theme.muted_foreground, "roofs and floors (as intended)"))
+            };
+            let flagged = self.rooftop_count();
+            l.child(div().text_color(theme.muted_foreground).child(if flagged == 1 { "1 actor flagged".to_string() } else { format!("{flagged} actors flagged") }))
+        });
+        let col_legend = self.collision.enabled.then(|| {
+            let mut row = h_flex().gap_2().flex_wrap().p_2().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs();
+            for (id, label) in super::collision::BLOCKS {
+                row = row.child(h_flex().items_center().gap_1().child(div().size(px(8.0)).rounded_sm().bg(super::collision::block_ui_color(id, &theme))).child(*label));
+            }
+            row
+        });
+        let top_left = (legend.is_some() || col_legend.is_some()).then(|| {
+            let mut box_ = v_flex().absolute().top(px(8.0)).left(px(8.0)).gap_1p5();
+            if let Some(l) = legend {
+                box_ = box_.child(l);
+            }
+            if let Some(cl) = col_legend {
+                box_ = box_.child(cl);
+            }
+            box_
         });
         div()
             .id("map-viewport")
             .track_focus(&focus)
+            .tab_index(0)
             .size_full()
             .relative()
             .overflow_hidden()
@@ -714,20 +764,26 @@ impl MapEditor {
             .on_key_down(cx.listener(|this, e, window, cx| this.key_down(e, window, cx)))
             .on_key_up(cx.listener(|this, e, _, cx| this.key_up(e, cx)))
             .child(view)
-            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().bg(theme.background.opacity(0.8)).text_xs().font_family("Menlo").child(p)))
-            .children(legend)
+            .children(progress.map(|p| div().absolute().bottom(px(8.0)).left(px(8.0)).px_2().py_1().rounded_md().border_1().border_color(theme.border).bg(theme.popover).text_xs().font_family(crate::studio::ui::mono()).child(p)))
+            .children(top_left)
             .child(
                 div()
                     .absolute()
                     .bottom(px(8.0))
                     .right(px(8.0))
-                    .text_size(px(10.0))
-                    .font_family("Menlo")
+                    .px_2p5()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.popover)
+                    .text_xs()
                     .text_color(theme.muted_foreground)
-                    .text_right()
-                    .child("left drag orbit · right drag look, + WASD fly (Q E down/up) · middle drag pan · arrows fly · wheel zoom")
-                    .child("click select · W move · E rotate · R scale · Q select only · F frame")
-                    .child("⇧A add an actor · ⌘D duplicate · Delete delete"),
+                    .child(if azerty(cx) {
+                        "Right-drag + ZQSD to fly · click an actor to inspect or move · H hides"
+                    } else {
+                        "Right-drag + WASD to fly · click an actor to inspect or move · H hides"
+                    }),
             )
             .into_any_element()
     }
@@ -749,5 +805,40 @@ impl MapEditor {
             "center": pr(g.center),
             "axes": (0..3).map(|k| pr(g.center + g.axes[k] * g.size)).collect::<Vec<_>>(),
         }))
+    }
+}
+
+/// Whether the keyboard is laid out AZERTY (French, Belgian): flying is then ZQSD, A and E down and up.
+pub(super) fn azerty(cx: &gpui::App) -> bool {
+    let id = cx.keyboard_layout().id().to_ascii_lowercase();
+    ["french", "belgian", "azerty"].iter().any(|l| id.contains(l))
+}
+
+/// A fly direction of a letter key as typed (`key` follows the layout): the
+/// same four keys under the left hand, WASD + Q E, or ZQSD + A E.
+fn fly_key(k: &str, azerty: bool) -> Option<&'static str> {
+    Some(match (k, azerty) {
+        ("w", false) | ("z", true) => "fwd",
+        ("s", _) => "back",
+        ("a", false) | ("q", true) => "left",
+        ("d", _) => "right",
+        ("e", _) => "up",
+        ("q", false) | ("a", true) => "down",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod fly_tests {
+    use super::fly_key;
+
+    #[test]
+    fn the_fly_keys_follow_the_layout() {
+        assert_eq!(fly_key("w", false), Some("fwd"));
+        assert_eq!(fly_key("z", true), Some("fwd"));
+        assert_eq!(fly_key("q", true), Some("left"));
+        assert_eq!(fly_key("q", false), Some("down"));
+        assert_eq!(fly_key("a", true), Some("down"));
+        assert_eq!(fly_key("z", false), None);
     }
 }

@@ -1,0 +1,514 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T12:00:00Z",
+  "title": "Design System: Tempest Studio (native)",
+  "extensions": {
+    "colorMeta": {
+      "lavender": {
+        "role": "primary",
+        "displayName": "Lavender",
+        "canonical": "#b4befe",
+        "themeFields": [
+          "primary.background",
+          "ring",
+          "list.active.border",
+          "selection.background",
+          "list.active.background"
+        ],
+        "latte": "#3e50d8",
+        "tonalRamp": [
+          "oklch(25% 0.06 277)",
+          "oklch(35% 0.08 277)",
+          "oklch(45% 0.10 277)",
+          "oklch(55% 0.11 277)",
+          "oklch(65% 0.10 277)",
+          "oklch(75% 0.08 277)",
+          "oklch(85% 0.06 277)",
+          "oklch(94% 0.03 277)"
+        ]
+      },
+      "crust": {
+        "role": "neutral",
+        "displayName": "Crust (frame)",
+        "canonical": "#11111b",
+        "themeFields": [
+          "title_bar.background",
+          "status_bar.background"
+        ],
+        "latte": "#dce0e8",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "primary-foreground": {
+        "role": "neutral",
+        "displayName": "Primary foreground (on accent)",
+        "canonical": "#11111b",
+        "themeFields": [
+          "primary.foreground",
+          "sidebar.primary.foreground"
+        ],
+        "latte": "#eff1f5",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "mantle": {
+        "role": "neutral",
+        "displayName": "Mantle (side panes)",
+        "canonical": "#181825",
+        "themeFields": [
+          "sidebar.background",
+          "popover.background",
+          "list.head.background",
+          "tab_bar.background"
+        ],
+        "latte": "#e6e9ef",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "base": {
+        "role": "neutral",
+        "displayName": "Base (work area)",
+        "canonical": "#1e1e2e",
+        "themeFields": [
+          "background",
+          "table.background",
+          "list.background"
+        ],
+        "latte": "#eff1f5",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "surface0": {
+        "role": "neutral",
+        "displayName": "Surface0 (raised, rules)",
+        "canonical": "#313244",
+        "themeFields": [
+          "secondary.background",
+          "border",
+          "muted.background",
+          "title_bar.border",
+          "status_bar.border"
+        ],
+        "latte": "#ccd0da",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "surface1": {
+        "role": "neutral",
+        "displayName": "Surface1 (input stroke)",
+        "canonical": "#45475a",
+        "themeFields": [
+          "input.border",
+          "secondary.hover.background",
+          "switch.background"
+        ],
+        "latte": "#bcc0cc",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "#cdd6f4",
+        "themeFields": [
+          "foreground"
+        ],
+        "latte": "#4c4f69",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "subtext0": {
+        "role": "neutral",
+        "displayName": "Subtext0 (inactive tabs)",
+        "canonical": "#a6adc8",
+        "themeFields": [
+          "tab.foreground",
+          "table.head.foreground"
+        ],
+        "latte": "#52556d",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "overlay2": {
+        "role": "neutral",
+        "displayName": "Overlay2 (muted)",
+        "canonical": "#a5acc7",
+        "themeFields": [
+          "muted.foreground"
+        ],
+        "latte": "#52556d",
+        "tonalRamp": [
+          "#11111b",
+          "#181825",
+          "#1e1e2e",
+          "#313244",
+          "#45475a",
+          "#585b70",
+          "#a5acc7",
+          "#cdd6f4"
+        ]
+      },
+      "tone-mauve": {
+        "role": "tertiary",
+        "displayName": "Mauve (task tone)",
+        "canonical": "#cba6f7",
+        "themeFields": [
+          "base.magenta"
+        ],
+        "latte": "#7125d4",
+        "tonalRamp": [
+          "oklch(25% 0.08 305)",
+          "oklch(35% 0.11 305)",
+          "oklch(45% 0.14 305)",
+          "oklch(55% 0.15 305)",
+          "oklch(65% 0.14 305)",
+          "oklch(75% 0.11 305)",
+          "oklch(85% 0.08 305)",
+          "oklch(94% 0.04 305)"
+        ]
+      },
+      "tone-yellow": {
+        "role": "tertiary",
+        "displayName": "Yellow (task tone, warning)",
+        "canonical": "#f9e2af",
+        "themeFields": [
+          "base.yellow",
+          "warning.background"
+        ],
+        "latte": "#824d00",
+        "tonalRamp": [
+          "oklch(25% 0.05 85)",
+          "oklch(35% 0.07 85)",
+          "oklch(45% 0.09 85)",
+          "oklch(55% 0.10 85)",
+          "oklch(65% 0.10 85)",
+          "oklch(75% 0.09 85)",
+          "oklch(85% 0.07 85)",
+          "oklch(94% 0.04 85)"
+        ]
+      },
+      "tone-green": {
+        "role": "tertiary",
+        "displayName": "Green (task tone, success)",
+        "canonical": "#a6e3a1",
+        "themeFields": [
+          "base.green",
+          "success.background"
+        ],
+        "latte": "#1d6412",
+        "tonalRamp": [
+          "oklch(25% 0.06 145)",
+          "oklch(35% 0.08 145)",
+          "oklch(45% 0.10 145)",
+          "oklch(55% 0.11 145)",
+          "oklch(65% 0.11 145)",
+          "oklch(75% 0.10 145)",
+          "oklch(85% 0.08 145)",
+          "oklch(94% 0.04 145)"
+        ]
+      },
+      "tone-blue": {
+        "role": "tertiary",
+        "displayName": "Blue (task tone)",
+        "canonical": "#89b4fa",
+        "themeFields": [
+          "base.blue"
+        ],
+        "latte": "#154bc2",
+        "tonalRamp": [
+          "oklch(25% 0.07 260)",
+          "oklch(35% 0.10 260)",
+          "oklch(45% 0.13 260)",
+          "oklch(55% 0.14 260)",
+          "oklch(65% 0.13 260)",
+          "oklch(75% 0.10 260)",
+          "oklch(85% 0.07 260)",
+          "oklch(94% 0.03 260)"
+        ]
+      },
+      "tone-sky": {
+        "role": "tertiary",
+        "displayName": "Sky (task tone)",
+        "canonical": "#89dceb",
+        "themeFields": [
+          "base.cyan",
+          "info.background"
+        ],
+        "latte": "#055d82",
+        "tonalRamp": [
+          "oklch(25% 0.05 215)",
+          "oklch(35% 0.07 215)",
+          "oklch(45% 0.09 215)",
+          "oklch(55% 0.10 215)",
+          "oklch(65% 0.10 215)",
+          "oklch(75% 0.09 215)",
+          "oklch(85% 0.07 215)",
+          "oklch(94% 0.03 215)"
+        ]
+      },
+      "tone-red": {
+        "role": "tertiary",
+        "displayName": "Red (task tone, danger)",
+        "canonical": "#f38ba8",
+        "themeFields": [
+          "base.red",
+          "danger.background"
+        ],
+        "latte": "#af0b2f",
+        "tonalRamp": [
+          "oklch(25% 0.08 5)",
+          "oklch(35% 0.11 5)",
+          "oklch(45% 0.14 5)",
+          "oklch(55% 0.15 5)",
+          "oklch(65% 0.14 5)",
+          "oklch(75% 0.11 5)",
+          "oklch(85% 0.07 5)",
+          "oklch(94% 0.03 5)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The start page question only (text_xl, bold)."
+      },
+      "title-lg": {
+        "displayName": "Title large",
+        "purpose": "The mod's name in the Mod view bar (text_lg, bold)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Champion page sections, the Your mod card title (text_base, semibold)."
+      },
+      "pane-title": {
+        "displayName": "Pane title",
+        "purpose": "ui::pane_header and task row titles (text_sm, semibold)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "List rows, search field, ledes (text_sm)."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "ui::section group labels, sentence case, muted (text_xs, semibold)."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "ui::hint, details, counts, status line (text_xs, muted)."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "ui::mono(): ids, paths, code, raw table names, row counts."
+      }
+    },
+    "shadows": [
+      {
+        "name": "drawer",
+        "value": "gpui shadow_lg",
+        "purpose": "Only the compact-mode side pane drawer over the theme.overlay scrim; everything else is flat (theme shadow: false)."
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "default-window",
+        "value": "1440x900 (960x640pt OS minimum)"
+      },
+      {
+        "name": "compact-width",
+        "value": "1120pt; narrower windows collapse side panes into an overlay drawer"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action of a surface: Build mod, Build & install, Open.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9\"/><path d=\"m18 15 4-4\"/><path d=\"m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5\"/></svg>Build mod</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: #b4befe; color: #11111b; border: none; border-radius: 6px; font: 400 14px system-ui; cursor: pointer; } .ds-btn-primary:hover { background: #b4befee6; } .ds-btn-primary:active { background: #b4befecc; } .ds-btn-primary:focus-visible { outline: 1px solid #b4befe; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Every other action: header tools, the mod chip, Mod bar actions, tabs (selected state).",
+      "html": "<button class=\"ds-btn-ghost\">Remove from game</button> <button class=\"ds-btn-ghost is-selected\">Changes</button>",
+      "css": ".ds-btn-ghost { height: 24px; padding: 0 8px; background: transparent; color: #cdd6f4; border: none; border-radius: 6px; font: 400 14px system-ui; cursor: pointer; } .ds-btn-ghost:hover { background: #313244; } .ds-btn-ghost.is-selected { background: #313244; } .ds-btn-ghost:focus-visible { outline: 1px solid #b4befe; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A standalone secondary command (Create).",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg>Create</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; font: 400 14px system-ui; cursor: pointer; } .ds-btn-secondary:hover { background: #45475a; } .ds-btn-secondary:active { background: #585b70; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "search-field",
+      "description": "Header field that opens the command palette (⌘K).",
+      "html": "<div class=\"ds-search\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><span>Go to a package, object or command</span><kbd class=\"ds-kbd\">⌘K</kbd></div>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 8px; width: 360px; height: 26px; padding: 0 8px; background: #313244; color: #a5acc7; border: 1px solid #313244; border-radius: 6px; font: 400 14px system-ui; cursor: pointer; } .ds-search span { flex: 1; } .ds-search:hover { border-color: #b4befe; } .ds-kbd { padding: 0 4px; background: #313244; color: #a5acc7; border: 1px solid #313244; border-radius: 2px; font: 400 12px system-ui; }"
+    },
+    {
+      "name": "Activity Bar",
+      "kind": "nav",
+      "refersTo": "activity-bar",
+      "description": "60px crust rail of labeled vertical view tiles (icon + 10px short label); selected view uses surface0 fill.",
+      "html": "<nav class=\"ds-activity\"><button class=\"is-on\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 10a2 2 0 0 1 .7-1.5l7-6a2 2 0 0 1 2.6 0l7 6a2 2 0 0 1 .7 1.5v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/></svg><span>Start</span></button><button><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/></svg><span>Champs</span></button><button><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 8 12 3 3 8v8l9 5 9-5z\"/><path d=\"m3 8 9 5 9-5\"/><path d=\"M12 13v8\"/></svg><span>Files</span></button><hr><button><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m15 12-8.4 8.4a1 1 0 1 1-3-3L12 9\"/><path d=\"m18 15 4-4\"/></svg><span>Mod</span></button></nav>",
+      "css": ".ds-activity { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 60px; padding: 4px 0; background: #11111b; border-right: 1px solid #313244; } .ds-activity button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 52px; padding: 4px 2px; background: transparent; color: #a5acc7; border: none; border-radius: 6px; font: 400 10px/12px system-ui; } .ds-activity button:hover { background: #313244; color: #cdd6f4; } .ds-activity button.is-on { background: #313244; color: #cdd6f4; font-weight: 500; } .ds-activity hr { width: 36px; border: 0; border-top: 1px solid #313244; }"
+    },
+    {
+      "name": "Pane Header",
+      "kind": "custom",
+      "refersTo": "pane-header",
+      "description": "ui::pane_header: 32px min sentence-case title with muted tools.",
+      "html": "<div class=\"ds-pane\"><div class=\"ds-pane-head\"><span>Champions</span><small>58</small></div><div class=\"ds-row is-on\">Androxus</div><div class=\"ds-row\">Ash</div></div>",
+      "css": ".ds-pane { width: 240px; background: #181825; font-family: system-ui; } .ds-pane-head { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 2px 8px; color: #cdd6f4; font-size: 14px; font-weight: 600; } .ds-pane-head span { flex: 1; } .ds-pane-head small { color: #a5acc7; font-size: 12px; font-weight: 400; } .ds-row { margin: 0 4px; padding: 4px 8px; border-radius: 6px; color: #cdd6f4; font-size: 14px; cursor: pointer; } .ds-row:hover { background: #313244b3; } .ds-row.is-on { background: #b4befe33; }"
+    },
+    {
+      "name": "Task Row",
+      "kind": "custom",
+      "refersTo": "task-row",
+      "description": "Start page task: tone plate, title, detail, chevron.",
+      "html": "<div class=\"ds-task\"><div class=\"ds-plate\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.4 3.5 16 2a4 4 0 0 1-8 0L3.6 3.5a2 2 0 0 0-1.3 2.2l.6 3.5a1 1 0 0 0 1 .8H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.2a1 1 0 0 0 1-.8l.6-3.5a2 2 0 0 0-1.4-2.2z\"/></svg></div><div class=\"ds-task-text\"><b>Change a champion's look</b><small>Skins, weapons and models: swap textures, materials and meshes.</small></div><span class=\"ds-chev\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></span></div>",
+      "css": ".ds-task { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #1e1e2e; color: #cdd6f4; font-family: system-ui; cursor: pointer; } .ds-task:hover { background: #313244b3; } .ds-plate { width: 36px; height: 36px; border-radius: 6px; background: #cba6f724; color: #cba6f7; display: flex; align-items: center; justify-content: center; } .ds-task-text { flex: 1; display: flex; flex-direction: column; } .ds-task-text b { font-size: 14px; font-weight: 600; } .ds-task-text small { font-size: 12px; color: #a5acc7; } .ds-chev { color: #a5acc7; }"
+    },
+    {
+      "name": "Mod Chip",
+      "kind": "chip",
+      "refersTo": "button-ghost",
+      "description": "Header mod state: 7px dot (warning pending, success saved, danger failed, muted_foreground at full opacity with no mod) + ghost Briefcase button.",
+      "html": "<span class=\"ds-chip\"><i class=\"ds-dot\"></i><button>Unnamed mod · 3 changes</button></span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 4px; } .ds-dot { width: 7px; height: 7px; border-radius: 9999px; background: #f9e2af; } .ds-chip button { height: 24px; padding: 0 8px; background: transparent; color: #cdd6f4; border: none; border-radius: 6px; font: 400 14px system-ui; } .ds-chip button:hover { background: #313244; }"
+    },
+    {
+      "name": "Your Mod Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Mantle card with title, hint, actions; the start page's mod summary.",
+      "html": "<div class=\"ds-card\"><b>Your mod</b><small>No changes yet. Change anything and it is kept here automatically.</small></div>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 4px; width: 300px; padding: 16px; background: #181825; border: 1px solid #313244; border-radius: 8px; color: #cdd6f4; font-family: system-ui; } .ds-card b { font-size: 16px; font-weight: 600; } .ds-card small { font-size: 12px; color: #a5acc7; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Player's Workbench",
+    "overview": "A quiet, dark editor shell in Catppuccin Mocha (Latte in light mode) where the player's words come first and the engine's second. Structure carries hierarchy: four surface levels from the crust frame to raised surface0 cards, one lavender accent per surface, and Lucide line icons. Newcomer surfaces (Start, Champions, Mod) are roomy; power surfaces (Game files, Game data, Map) stay dense and keyboard-first, with every action also a `Cmd` in `commands.rs`.\n\nTokens live in `themes/catppuccin.json` (gpui-component theme fields); code reads them as `cx.theme().<field>`. Never hard-code a hex in Rust: pick the field. The frontmatter lists Mocha values; Latte equivalents are in `.impeccable/design.json` (`colorMeta.*.latte`).",
+    "keyCharacteristics": [
+      "Flat, tonal layering; no shadows (`\"shadow\": false`).",
+      "One primary (lavender) button per surface; selection is the only other accent.",
+      "Sentence-case titles, 14px rows, 12px meta and hints.",
+      "Plain-word labels with the technical name second, in mono and muted."
+    ],
+    "rules": [
+      {
+        "name": "The One Lavender Rule",
+        "body": "A surface has at most one `.primary()` button. When a prerequisite step exists (an unnamed mod), that step takes the primary and the main action drops to default (`cook-build` loses `.primary()` while \"Name this mod…\" holds it).",
+        "section": "colors"
+      },
+      {
+        "name": "The Tone Plate Rule",
+        "body": "Category tones appear only on the start page's task plates, behind a mod's initials when it has no icon (`ui::mod_icon`, picked from its id as the website does), and as state color (danger/warning/success). They never fill buttons, headers or rows.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "Every title, label and button is sentence case. No uppercase, no tracking.",
+        "section": "typography"
+      },
+      {
+        "name": "The Plain Name First Rule",
+        "body": "Where an engine name exists, show the friendly name in body text, then the raw name in mono using `muted_foreground` at full 100% opacity (`assembly/side.rs::friendly_table`)—never dimmed with `.opacity(...)`, which drops below WCAG AA contrast. Unmapped names fall back to mono alone.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ladder Rule",
+        "body": "A new region picks its rung by role (frame, side pane, work area, raised), never a new color. Need separation inside a rung? Use a 1px `border` rule.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** read colors from `cx.theme()` fields (`title_bar`, `sidebar`, `background`, `secondary`, `primary`, `muted_foreground`, `list_active`, `list_hover`, `border`) and add any new token to both themes in `themes/catppuccin.json`.",
+      "**Do** use the `ui.rs` helpers for pane headers, toolbars, sections, hints, empty, loading and error states.",
+      "**Do** use only Lucide icons registered in `src/assets.rs` (`icon_assets!`); register a new one there first.",
+      "**Do** write UI copy in the player's words: \"changes\", \"game files\", \"game data\", \"sounds\", \"Build mod\", \"your mod\"; technical names second, in mono.",
+      "**Do** give every disabled control a tooltip with the reason, and every error a way out."
+    ],
+    "donts": [
+      "**Don't** put more than one `.primary()` button on a surface (The One Lavender Rule).",
+      "**Don't** use category tones outside the start page plates and danger/warning/success state.",
+      "**Don't** add shadows; separation is the surface ladder and 1px rules.",
+      "**Don't** use \"cooker\", \"unsaved\" or \"write into the game\" in UI copy; element ids may keep them.",
+      "**Don't** use uppercase labels, kickers or eyebrows above titles; section labels are sentence-case group names only.",
+      "**Don't** lower text contrast with `.opacity(...)` on `muted_foreground`; keep muted text at full 100% opacity so every surface meets WCAG 2.1 AA.",
+      "**Don't** use emoji or text glyphs as icons."
+    ]
+  }
+}

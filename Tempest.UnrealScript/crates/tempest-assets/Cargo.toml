@@ -34,3 +34,6 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 usvg = { version = "0.48", default-features = false }
 # Glyph outlines for adding characters to a movie font.
 ttf-parser = "0.25"
+# Nav mesh generation from level geometry (Recast, pure Rust): walkable polygons for `havok::generate`.
+rerecast = { version = "=0.5.0", default-features = false, features = ["std"] }
+glam = "0.33"

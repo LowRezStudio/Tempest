@@ -58,14 +58,8 @@ impl Studio {
                 Ok(json!({ "index": i, "path": path, "class": class }))
             }
             "studio_set_mode" => {
-                let v = match s("mode").as_deref() {
-                    Some("assembly") => View::Assembly,
-                    Some("audio") => View::Audio,
-                    Some("mod") => View::Mod,
-                    Some("packages") => View::Packages,
-                    Some("map") => View::Map,
-                    m => return Err(format!("unknown mode {m:?}")),
-                };
+                let m = s("mode");
+                let Some(v) = m.as_deref().and_then(View::from_name) else { return Err(format!("unknown mode {m:?}")) };
                 self.set_view(v, window, cx);
                 Ok(json!({ "status": "ok" }))
             }
@@ -89,7 +83,7 @@ impl Studio {
             }
             "studio_open_table" => {
                 let table = s("table").ok_or("missing table")?;
-                let place = Place::Assembly { file: s("doc").unwrap_or_else(|| "assembly".into()), table: Some(table), row: args["row"].as_u64().map(|r| r as usize) };
+                let place = Place::Assembly { file: s("doc").unwrap_or_else(|| "assembly".into()), path: Vec::new(), table: Some(table), row: args["row"].as_u64().map(|r| r as usize) };
                 self.record(place.clone());
                 self.go(place, window, cx);
                 Ok(json!({ "status": "ok" }))
@@ -126,13 +120,7 @@ impl Studio {
     }
 
     fn mcp_state(&self, cx: &gpui::App) -> J {
-        let view = match self.view {
-            View::Packages => "packages",
-            View::Assembly => "assembly",
-            View::Audio => "audio",
-            View::Mod => "mod",
-            View::Map => "map",
-        };
+        let view = self.view.name();
         let open = self.open.as_ref().map(|t| {
             let sel = self.selected_export.filter(|&i| i < t.exports.len()).map(|i| json!({ "index": i, "path": t.object_path(i), "class": t.exports[i].class }));
             json!({ "path": t.path, "name": t.name, "exports": t.exports.len(), "selected": sel })
@@ -145,7 +133,11 @@ impl Studio {
             "packages": self.packages.len(),
             "view": view,
             "open": open,
-            "assembly": self.assembly.as_ref().map(|a| match a.read(cx).place() { Place::Assembly { file, table, row } => json!({ "file": file, "table": table, "row": row }), _ => J::Null }),
+            "assembly": self.assembly.as_ref().map(|a| a.read(cx).state_json()),
+            "material": self.material_state_json(),
+            "audio": self.audio_state_json(),
+            "meshGame": self.mesh_game.clone(),
+            "meshPreview": self.mesh_preview.as_ref().map(|p| p.slots.iter().map(|(s, m)| json!({ "slot": s, "package": m.package, "export": m.export })).collect::<Vec<_>>()),
             "unsaved": unsaved,
             "project": self.project.as_ref().map(|p| json!({ "name": p.name, "file": p.file, "state": self.project_saving.label() })),
             "wizardOpen": self.wizard.is_some(),

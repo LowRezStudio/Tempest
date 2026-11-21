@@ -2,13 +2,16 @@
 //! colour textures resolved through the material chain) drawn with wgpu into
 //! an off-screen texture, read back as BGRA and shown as a GPUI image. GPUI
 //! does not lend its GPU device, so the viewer has its own; a frame is drawn
-//! only when the camera or the size changes.
+//! only when the camera or the size changes. Sections can be drawn by their
+//! material's own game shaders instead (`game_material::GamePass`).
 
 use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
 use gpui::RenderImage;
 use wgpu::util::DeviceExt;
+
+use crate::game_material::{from_gltf, to_gltf_matrix, Frame, GamePass, GameVertex};
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -78,6 +81,14 @@ struct Primitive {
     material: wgpu::BindGroup,
     /// Skinned on the CPU when the GLB has an animation.
     skin: Option<SkinnedPrim>,
+    /// The mesh section it draws (its glTF material).
+    section: Option<usize>,
+    /// The vertices in the game's space (as posed), for a game pass.
+    game_vertices: Vec<GameVertex>,
+    /// The bind pose tangents (glb space, with the basis sign), skinned with the rest.
+    tangents: Vec<[f32; 4]>,
+    /// The game pass drawing it (an index into `MeshView::game`) and its vertices for that pass.
+    game: Option<(usize, wgpu::Buffer)>,
 }
 
 /// A skinned primitive's bind-pose vertices and their joints.
@@ -172,6 +183,34 @@ pub(crate) struct Gpu {
     pub globals_layout: wgpu::BindGroupLayout,
     pub material_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
+    /// Render targets of the last few frame sizes, kept between frames (allocating
+    /// a multisampled colour and depth pair costs more than drawing a level).
+    targets: std::sync::Mutex<Vec<Targets>>,
+}
+
+/// One frame size's render targets and readback buffer.
+struct Targets {
+    size: (u32, u32),
+    target: wgpu::Texture,
+    views: (wgpu::TextureView, wgpu::TextureView, wgpu::TextureView),
+    readback: wgpu::Buffer,
+    /// Bytes per row of the readback (padded to 256).
+    row: u32,
+}
+
+impl Targets {
+    fn new(gpu: &Gpu, w: u32, h: u32) -> Targets {
+        let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        let texture = |samples: u32, format: wgpu::TextureFormat, usage: wgpu::TextureUsages| gpu.device.create_texture(&wgpu::TextureDescriptor { label: None, size, mip_level_count: 1, sample_count: samples, dimension: wgpu::TextureDimension::D2, format, usage, view_formats: &[] });
+        let target = texture(1, FORMAT, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC);
+        // Drawn multisampled, resolved into `target`.
+        let msaa = texture(SAMPLES, FORMAT, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let depth = texture(SAMPLES, DEPTH, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let views = (target.create_view(&Default::default()), msaa.create_view(&Default::default()), depth.create_view(&Default::default()));
+        let row = (w * 4).div_ceil(256) * 256;
+        let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (row * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+        Targets { size: (w, h), target, views, readback, row }
+    }
 }
 
 static GPU: std::sync::OnceLock<Result<Arc<Gpu>, String>> = std::sync::OnceLock::new();
@@ -201,6 +240,9 @@ pub struct MeshView {
     floor: f32,
     pub show_grid: bool,
     pub show_skeleton: bool,
+    /// The sections' materials' game shaders, and whether to draw with them.
+    game: Vec<GamePass>,
+    pub use_game: bool,
 }
 
 struct Bones {
@@ -223,9 +265,10 @@ impl MeshView {
             b.world = world.clone();
         }
         let mats: Vec<Vec<Mat4>> = anim.skins.iter().map(|s| s.joints.iter().zip(&s.inverse_bind).map(|(&j, ib)| world[j] * *ib).collect()).collect();
-        for p in &self.primitives {
+        for p in &mut self.primitives {
             let Some(sk) = &p.skin else { continue };
             let m = &mats[sk.skin];
+            let mut posed_tangents = Vec::new();
             let out: Vec<Vertex> = sk
                 .base
                 .iter()
@@ -243,10 +286,18 @@ impl MeshView {
                     }
                     let pos = skin.transform_point3(Vec3::from(v.pos));
                     let normal = skin.transform_vector3(Vec3::from(v.normal)).normalize_or_zero();
+                    if let Some(t) = p.tangents.get(k) {
+                        let x = skin.transform_vector3(Vec3::new(t[0], t[1], t[2])).normalize_or_zero();
+                        posed_tangents.push([x.x, x.y, x.z, t[3]]);
+                    }
                     Vertex { pos: pos.into(), normal: normal.into(), uv: v.uv }
                 })
                 .collect();
             self.gpu.queue.write_buffer(&p.vertices, 0, bytemuck::cast_slice(&out));
+            p.game_vertices = game_vertices(&out, &posed_tangents);
+            if let Some((g, buf)) = &p.game {
+                self.gpu.queue.write_buffer(buf, 0, bytemuck::cast_slice(&self.game[*g].vertex_data(&p.game_vertices)));
+            }
         }
     }
 
@@ -284,6 +335,66 @@ impl MeshView {
     pub fn can_wireframe(&self) -> bool {
         self.gpu.wireframe.is_some()
     }
+
+    /// The mesh sections the primitives draw, once each, in order.
+    pub fn sections(&self) -> Vec<usize> {
+        let mut out: Vec<usize> = Vec::new();
+        for s in self.primitives.iter().filter_map(|p| p.section) {
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+        out
+    }
+
+    /// Draw `sections` with `pass` (their material's game shaders); the pass's index.
+    pub fn set_game_pass(&mut self, sections: &[usize], pass: GamePass) -> usize {
+        self.game.push(pass);
+        self.add_game_sections(self.game.len() - 1, sections);
+        self.game.len() - 1
+    }
+
+    /// Draw `sections` with game pass `g` too.
+    pub fn add_game_sections(&mut self, g: usize, sections: &[usize]) {
+        let Some(pass) = self.game.get(g) else { return };
+        for p in self.primitives.iter_mut().filter(|p| p.section.is_some_and(|s| sections.contains(&s))) {
+            p.game = Some((g, pass.vertex_buffer(&p.game_vertices)));
+        }
+    }
+
+    /// The game passes (to update their parameters or clock).
+    pub fn game_passes(&mut self) -> &mut [GamePass] {
+        &mut self.game
+    }
+
+    /// Sections drawn by game shaders, of all the sections.
+    pub fn game_sections(&self) -> (usize, usize) {
+        let all = self.sections();
+        let drawn = all.iter().filter(|s| self.primitives.iter().any(|p| p.section == Some(**s) && p.game.is_some())).count();
+        (drawn, all.len())
+    }
+
+    /// Whether this frame draws with the game passes.
+    fn drawing_game(&self) -> bool {
+        self.use_game && self.textured && !self.wireframe && !self.game.is_empty()
+    }
+}
+
+/// Glb-space vertices (with tangents, when there are) in the game's space.
+pub(crate) fn game_vertices(vertices: &[Vertex], tangents: &[[f32; 4]]) -> Vec<GameVertex> {
+    vertices
+        .iter()
+        .enumerate()
+        .map(|(k, v)| {
+            let n = Vec3::from(v.normal);
+            // Without tangents: any direction across the normal.
+            let t = tangents.get(k).copied().unwrap_or_else(|| {
+                let t = n.any_orthonormal_vector();
+                [t.x, t.y, t.z, 1.0]
+            });
+            from_gltf(Vec3::from(v.pos), n, t, v.uv)
+        })
+        .collect()
 }
 
 impl Gpu {
@@ -352,7 +463,7 @@ impl Gpu {
         );
         let white_view = white_tex.create_view(&Default::default());
         let white = device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: &material_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&white_view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) }] });
-        Ok(Gpu { device, queue, pipeline, wireframe, white, lines: lines_pipe, globals_layout, material_layout, sampler })
+        Ok(Gpu { device, queue, pipeline, wireframe, white, lines: lines_pipe, globals_layout, material_layout, sampler, targets: Default::default() })
     }
 }
 
@@ -411,11 +522,15 @@ impl MeshView {
             let skins = gltf.skins().map(|sk| {
                 let reader = sk.reader(buffer_data);
                 let joints: Vec<usize> = sk.joints().map(|j| j.index()).collect();
-                let inverse_bind = reader.read_inverse_bind_matrices().map(|m| m.map(|x| Mat4::from_cols_array_2d(&x)).collect()).unwrap_or_else(|| vec![Mat4::IDENTITY; joints.len()]);
+                let inverse_bind = sk.inverse_bind_matrices().filter(|a| a.count() > 0).and_then(|_| reader.read_inverse_bind_matrices()).map(|m| m.map(|x| Mat4::from_cols_array_2d(&x)).collect()).unwrap_or_else(|| vec![Mat4::IDENTITY; joints.len()]);
                 Skin { joints, inverse_bind }
             }).collect();
             let mut length = 0f32;
             let channels = a.channels().filter_map(|c| {
+                // A track without keys: the readers underflow on an empty accessor.
+                if c.sampler().input().count() == 0 || c.sampler().output().count() == 0 {
+                    return None;
+                }
                 let reader = c.reader(buffer_data);
                 let times: Vec<f32> = reader.read_inputs()?.collect();
                 length = length.max(times.last().copied().unwrap_or(0.0));
@@ -444,11 +559,22 @@ impl MeshView {
             let world = if skinned { Mat4::IDENTITY } else { world };
             let normal_m = world.inverse().transpose();
             for prim in mesh.primitives() {
+                if crate::map_render::empty_primitive(&prim) {
+                    continue;
+                }
                 let reader = prim.reader(buffer_data);
                 let Some(pos) = reader.read_positions() else { continue };
                 let pos: Vec<Vec3> = pos.map(|p| world.transform_point3(Vec3::from(p))).collect();
                 let normals: Vec<Vec3> = reader.read_normals().map(|n| n.map(|n| normal_m.transform_vector3(Vec3::from(n)).normalize_or_zero()).collect()).unwrap_or_else(|| vec![Vec3::Y; pos.len()]);
                 let uvs: Vec<[f32; 2]> = reader.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_else(|| vec![[0.0; 2]; pos.len()]);
+                let tangents: Vec<[f32; 4]> = reader
+                    .read_tangents()
+                    .filter(|_| prim.get(&gltf::Semantic::Tangents).is_some_and(|a| a.count() == pos.len()))
+                    .map(|t| t.map(|t| {
+                        let x = world.transform_vector3(Vec3::new(t[0], t[1], t[2])).normalize_or_zero();
+                        [x.x, x.y, x.z, t[3]]
+                    }).collect())
+                    .unwrap_or_default();
                 let indices: Vec<u32> = reader.read_indices().map(|i| i.into_u32().collect()).unwrap_or_else(|| (0..pos.len() as u32).collect());
                 for p in &pos {
                     lo = lo.min(*p);
@@ -467,6 +593,10 @@ impl MeshView {
                     indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX }),
                     count: indices.len() as u32,
                     material: material_group(base.unwrap_or(&white)),
+                    section: prim.material().index(),
+                    game_vertices: game_vertices(&vertices, &tangents),
+                    tangents,
+                    game: None,
                 });
             }
         }
@@ -503,7 +633,7 @@ impl MeshView {
             }
             Bones { parents, joints: sk.joints().map(|j| j.index()).collect(), world }
         });
-        let mut v = MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center, radius, camera: Camera { yaw: 0.6, pitch: 0.25, distance: radius * 2.6 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim, bones, floor: lo.y, show_grid: false, show_skeleton: false };
+        let mut v = MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center, radius, camera: Camera { yaw: 0.6, pitch: 0.25, distance: radius * 2.6 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim, bones, floor: lo.y, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: true };
         if v.anim.is_some() {
             v.set_time(0.0);
         }
@@ -556,9 +686,13 @@ impl MeshView {
             count: indices.len() as u32,
             material,
             skin: None,
+            section: None,
+            game_vertices: Vec::new(),
+            tangents: Vec::new(),
+            game: None,
         }];
         let triangles = indices.len() / 3;
-        Ok(MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center: Vec3::ZERO, radius: 1.0, camera: Camera { yaw: 0.6, pitch: 0.25, distance: 2.9 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim: None, bones: None, floor: -1.0, show_grid: false, show_skeleton: false })
+        Ok(MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center: Vec3::ZERO, radius: 1.0, camera: Camera { yaw: 0.6, pitch: 0.25, distance: 2.9 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim: None, bones: None, floor: -1.0, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: false })
     }
 
     /// Draw a `width`×`height` frame (device pixels).
@@ -575,6 +709,16 @@ impl MeshView {
             (Some(lines), true) => lines,
             _ => &self.gpu.pipeline,
         };
+        // The game passes see the scene in the game's space: the same camera through the space change.
+        let game = self.drawing_game();
+        if game {
+            let swap = |v: Vec3| Vec3::new(v.x, v.z, v.y) * 100.0;
+            let frame = Frame { view_proj: view_proj * to_gltf_matrix(), eye: swap(eye), target: swap(self.center), near: 1.0, light: None };
+            for g in &self.game {
+                g.prepare(&frame);
+            }
+        }
+        let by_game = |p: &&Primitive| game && p.game.is_some();
         draw_frame(&self.gpu, w, h, self.clear, |pass| {
             pass.set_bind_group(0, &self.globals, &[]);
             if let (Some(buf), true) = (&line_buf, grid_count > 0) {
@@ -583,15 +727,25 @@ impl MeshView {
                 pass.draw(0..grid_count, 0..1);
             }
             pass.set_pipeline(mesh_pipeline);
-            for p in &self.primitives {
+            for p in self.primitives.iter().filter(|p| !by_game(p)) {
                 pass.set_bind_group(1, if self.textured { &p.material } else { &self.gpu.white }, &[]);
                 pass.set_vertex_buffer(0, p.vertices.slice(..));
                 pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..p.count, 0, 0..1);
             }
+            // Opaque sections, then the blended ones over them.
+            for translucent in [false, true] {
+                for p in self.primitives.iter().filter(by_game) {
+                    let Some((g, buf)) = &p.game else { continue };
+                    if self.game[*g].translucent == translucent {
+                        self.game[*g].draw(pass, buf, &p.indices, p.count);
+                    }
+                }
+            }
             if let Some(buf) = &line_buf {
                 if (lines.len() as u32) > grid_count {
                     pass.set_pipeline(&self.gpu.lines);
+                    pass.set_bind_group(0, &self.globals, &[]);
                     pass.set_vertex_buffer(0, buf.slice(..));
                     pass.draw(grid_count..lines.len() as u32, 0..1);
                 }
@@ -643,21 +797,29 @@ pub(crate) fn draw_frame(gpu: &Gpu, w: u32, h: u32, clear: [f64; 3], draw: impl 
 
 /// `draw_frame` with the depth cleared to `depth` (0 for a reversed depth buffer).
 pub(crate) fn draw_frame_depth(gpu: &Gpu, w: u32, h: u32, clear: [f64; 3], depth_clear: f32, draw: impl FnOnce(&mut wgpu::RenderPass<'_>)) -> Arc<RenderImage> {
-    let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
-    let target = gpu.device.create_texture(&wgpu::TextureDescriptor { label: None, size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: FORMAT, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC, view_formats: &[] });
-    // Drawn multisampled, resolved into `target`.
-    let msaa = gpu.device.create_texture(&wgpu::TextureDescriptor { label: None, size, mip_level_count: 1, sample_count: SAMPLES, dimension: wgpu::TextureDimension::D2, format: FORMAT, usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[] });
-    let depth = gpu.device.create_texture(&wgpu::TextureDescriptor { label: None, size, mip_level_count: 1, sample_count: SAMPLES, dimension: wgpu::TextureDimension::D2, format: DEPTH, usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[] });
-    let (tv, mv, dv) = (target.create_view(&Default::default()), msaa.create_view(&Default::default()), depth.create_view(&Default::default()));
-    // Rows of the copy are padded to 256 bytes.
-    let row = (w * 4).div_ceil(256) * 256;
-    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (row * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+    submit_frame(gpu, w, h, clear, depth_clear, draw).take(gpu, true).unwrap_or_else(|| Arc::new(RenderImage::new(Vec::<image::Frame>::new())))
+}
+
+/// A frame on its way back from the GPU ([`submit_frame`]).
+pub(crate) struct PendingFrame {
+    targets: Option<Targets>,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Draw one `w`×`h` frame with `draw` and start reading it back, without waiting for the GPU.
+pub(crate) fn submit_frame(gpu: &Gpu, w: u32, h: u32, clear: [f64; 3], depth_clear: f32, draw: impl FnOnce(&mut wgpu::RenderPass<'_>)) -> PendingFrame {
+    let cached = {
+        let mut list = gpu.targets.lock().unwrap_or_else(|e| e.into_inner());
+        list.iter().position(|t| t.size == (w, h)).map(|k| list.remove(k))
+    };
+    let t = cached.unwrap_or_else(|| Targets::new(gpu, w, h));
+    let (tv, mv, dv) = &t.views;
     let mut enc = gpu.device.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &mv, depth_slice: None, resolve_target: Some(&tv), ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: clear[0], g: clear[1], b: clear[2], a: 1.0 }), store: wgpu::StoreOp::Discard } })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &dv, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(depth_clear), store: wgpu::StoreOp::Discard }), stencil_ops: None }),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: mv, depth_slice: None, resolve_target: Some(tv), ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: clear[0], g: clear[1], b: clear[2], a: 1.0 }), store: wgpu::StoreOp::Discard } })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: dv, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(depth_clear), store: wgpu::StoreOp::Discard }), stencil_ops: None }),
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
@@ -665,24 +827,42 @@ pub(crate) fn draw_frame_depth(gpu: &Gpu, w: u32, h: u32, clear: [f64; 3], depth
         draw(&mut pass);
     }
     enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-        wgpu::TexelCopyBufferInfo { buffer: &readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
-        size,
+        wgpu::TexelCopyTextureInfo { texture: &t.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyBufferInfo { buffer: &t.readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.row), rows_per_image: Some(h) } },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
     );
     gpu.queue.submit([enc.finish()]);
-    let slice = readback.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |_| {});
-    let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
-    let Ok(data) = slice.get_mapped_range() else { return Arc::new(RenderImage::new(Vec::<image::Frame>::new())) };
-    let mut bgra = Vec::with_capacity((w * h * 4) as usize);
-    for y in 0..h as usize {
-        let start = y * row as usize;
-        bgra.extend_from_slice(&data[start..start + w as usize * 4]);
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = ready.clone();
+    t.readback.slice(..).map_async(wgpu::MapMode::Read, move |r| flag.store(r.is_ok(), std::sync::atomic::Ordering::Release));
+    PendingFrame { targets: Some(t), ready }
+}
+
+impl PendingFrame {
+    /// The frame as a GPUI image once the GPU is done (`wait`: block until then); its targets go back for the next frame.
+    pub fn take(&mut self, gpu: &Gpu, wait: bool) -> Option<Arc<RenderImage>> {
+        let _ = gpu.device.poll(if wait { wgpu::PollType::wait_indefinitely() } else { wgpu::PollType::Poll });
+        if !self.ready.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        let t = self.targets.take()?;
+        let (w, h) = t.size;
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        if let Ok(data) = t.readback.slice(..).get_mapped_range() {
+            for y in 0..h as usize {
+                let start = y * t.row as usize;
+                bgra.extend_from_slice(&data[start..start + w as usize * 4]);
+            }
+        }
+        t.readback.unmap();
+        {
+            let mut list = gpu.targets.lock().unwrap_or_else(|e| e.into_inner());
+            list.insert(0, t);
+            list.truncate(4);
+        }
+        let img = image::RgbaImage::from_raw(w, h, bgra)?;
+        Some(Arc::new(RenderImage::new(smallvec_one(image::Frame::new(img)))))
     }
-    drop(data);
-    readback.unmap();
-    let frame = image::Frame::new(image::RgbaImage::from_raw(w, h, bgra).expect("frame size"));
-    Arc::new(RenderImage::new(smallvec_one(frame)))
 }
 
 fn smallvec_one(frame: image::Frame) -> Vec<image::Frame> {

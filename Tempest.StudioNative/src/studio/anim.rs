@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use gpui::{canvas, div, fill, point, prelude::*, px, size, AnyElement, Bounds, Context, MouseButton, Pixels, Window};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Sizable, Selectable};
 use serde_json::{json, Value as J};
 
 use super::mesh::{viewport, MeshState};
@@ -65,7 +65,7 @@ impl Studio {
                 }
                 match info {
                     Ok(r) => this.anim = Some(AnimState { export: i, info: r.json, mesh: mesh.clone(), view: None, time: 0.0, playing: None, speed: 1.0, looping: true, note: "Loading the mesh…".into(), bar: Default::default(), drag: None }),
-                    Err(e) => this.set_status(format!("Animation: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Animation: {e}"), cx),
                 }
                 cx.notify();
             });
@@ -73,7 +73,17 @@ impl Studio {
             let (glb, note) = match &r {
                 Ok(r) => {
                     let missing = r.json["tracksWithoutBone"].as_array().map(|a| a.len()).unwrap_or(0);
-                    let note = format!("on {}{}", r.json["mesh"]["name"].as_str().unwrap_or_default(), if missing > 0 { format!(" · {missing} tracks have no bone in this mesh") } else { String::new() });
+                    let note = format!(
+                        "on {}{}",
+                        r.json["mesh"]["name"].as_str().unwrap_or_default(),
+                        if missing == 1 {
+                            " · 1 track has no bone in this mesh".to_string()
+                        } else if missing > 1 {
+                            format!(" · {missing} tracks have no bone in this mesh")
+                        } else {
+                            String::new()
+                        }
+                    );
                     (r.bin(&r.json["glb"]).map(|b| b.to_vec()), note)
                 }
                 Err(e) => (None, e.clone()),
@@ -157,7 +167,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| match r {
                 Ok(_) => {
                     this.dirty.insert(path.clone());
-                    this.set_status(format!("{done} (unsaved)"), cx);
+                    this.set_status(done.to_string(), cx);
                     this.load_anim(path.clone(), shown, mesh.clone(), cx);
                 }
                 Err(e) => this.toast(Tone::Error, format!("Could not edit the animation: {e}"), cx),
@@ -186,13 +196,14 @@ impl Studio {
         let len = field(format!("{length:.3}"), window, cx);
         let rate_in = field(format!("{rate}"), window, cx);
         let me = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let theme = cx.theme().clone();
-            let row = |label: &'static str, hint: String, i: &gpui::Entity<InputState>| h_flex().gap_3().child(div().w(px(150.0)).text_sm().child(label)).child(div().w(px(120.0)).child(Input::new(i).small())).child(div().flex_1().text_xs().text_color(theme.muted_foreground).child(hint));
+            let row = |label: &'static str, hint: String, i: &gpui::Entity<InputState>| h_flex().gap_3().child(div().w(px(150.0)).text_sm().child(label)).child(div().w(px(120.0)).child(Input::new(i).small())).child(div().flex_1().min_w_0().text_xs().text_color(theme.muted_foreground).child(hint));
             let (me, f2, t2, l2, r2) = (me.clone(), from.clone(), to.clone(), len.clone(), rate_in.clone());
             dialog
                 .title("Edit the sequence")
                 .w(px(600.0))
+                .max_w(window.viewport_size().width * 0.94)
                 .child(
                     v_flex()
                         .gap_2()
@@ -242,7 +253,7 @@ impl Studio {
                     .px_1()
                     .rounded_sm()
                     .hover(|s| s.bg(theme.list_hover))
-                    .child(div().w(px(56.0)).font_family("Menlo").text_xs().child(format!("{t:.2} s")))
+                    .child(div().w(px(56.0)).font_family(crate::studio::ui::mono()).text_xs().child(format!("{t:.2} s")))
                     .child(div().flex_1().min_w_0().text_sm().overflow_hidden().text_ellipsis().whitespace_nowrap().child(if comment.is_empty() { name } else { format!("{name} · {comment}") }))
                     .child(Button::new(("nt-go", k)).xsmall().ghost().label("Go").tooltip("Move the playhead here").on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(a) = &mut this.anim {
@@ -258,7 +269,7 @@ impl Studio {
         }
         v_flex()
             .gap_1()
-            .child(h_flex().child(div().flex_1().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("NOTIFIES (drag the orange marks on the timeline)")).child(Button::new("anim-edit").xsmall().label("Edit the sequence…").tooltip("Trim, change the length or the rate").on_click(cx.listener(|this, _, window, cx| this.anim_edit_dialog(window, cx)))))
+            .child(h_flex().child(div().flex_1().min_w_0().text_xs().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("Notifies (drag the marks on the timeline)")).child(Button::new("anim-edit").xsmall().label("Edit the sequence…").tooltip("Trim, change the length or the rate").on_click(cx.listener(|this, _, window, cx| this.anim_edit_dialog(window, cx)))))
             .child(body)
             .into_any_element()
     }
@@ -402,12 +413,13 @@ impl Studio {
                 }
                 cx.notify();
             }));
-            if (speed - v).abs() < 1e-3 { b.primary() } else { b.ghost() }
+            b.ghost().selected((speed - v).abs() < 1e-3)
         };
+        let playing = a.playing.is_some();
         let controls = h_flex()
             .gap_2()
-            .child(Button::new("anim-play").small().primary().label(if a.playing.is_some() { "Pause" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.anim_play(cx))))
-            .child(div().font_family("Menlo").text_xs().child(format!("{:.2} / {:.2} s · frame {} / {}", a.time, len, (a.time * fps).round() as i64, info["numFrames"])))
+            .child(Button::new("anim-play").small().ghost().selected(playing).label(if playing { "Pause" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.anim_play(cx))))
+            .child(div().font_family(crate::studio::ui::mono()).text_xs().child(format!("{:.2} / {:.2} s · frame {} / {}", a.time, len, (a.time * fps).round() as i64, info["numFrames"])))
             .child(div().flex_1())
             .child(speed_btn("0.25×", 0.25, cx))
             .child(speed_btn("0.5×", 0.5, cx))
@@ -420,16 +432,17 @@ impl Studio {
                     }
                     cx.notify();
                 }));
-                if a.looping { b.primary() } else { b.ghost() }
+                b.ghost().selected(a.looping)
             });
+        let notifies_n = notifies_count(info);
         let mut body = v_flex().gap_2().child(view).child(timeline).child(controls).child(div().text_xs().text_color(theme.muted_foreground).child(format!(
-            "{} · {} tracks, {} keys, {} · rate {} · {}",
+            "{} · {}, {}, {} · rate {} · {}",
             a.note,
-            info["tracks"],
-            info["keys"],
+            if info["tracks"].as_u64() == Some(1) { "1 track".to_string() } else { format!("{} tracks", info["tracks"]) },
+            if info["keys"].as_u64() == Some(1) { "1 key".to_string() } else { format!("{} keys", info["keys"]) },
             info["keyFormat"].as_str().unwrap_or_default(),
             info["rateScale"],
-            if notifies_count(info) > 0 { format!("{} notifies (orange)", notifies_count(info)) } else { "no notifies".into() }
+            if notifies_n == 1 { "1 notify".to_string() } else if notifies_n > 1 { format!("{notifies_n} notifies") } else { "no notifies".to_string() }
         )));
         // Another mesh to play it on.
         let meshes = info["meshes"].as_array().cloned().unwrap_or_default();
@@ -444,7 +457,7 @@ impl Studio {
                     let (Some(path), Some(e)) = (this.open.as_ref().map(|t| t.path.clone()), this.selected_export) else { return };
                     this.load_anim(path, e, Some((p.clone(), i)), cx);
                 }));
-                row = row.child(if on { b.primary() } else { b.ghost() });
+                row = row.child(b.ghost().selected(on));
             }
             body = body.child(row);
         }
@@ -459,7 +472,7 @@ impl Studio {
                     this.reveal(i, cx);
                     this.user_select_export(i, cx);
                 }));
-                row = row.child(if me == Some(i as u64) { b.primary() } else { b.ghost() });
+                row = row.child(b.ghost().selected(me == Some(i as u64)));
             }
             body = body.child(row);
         }

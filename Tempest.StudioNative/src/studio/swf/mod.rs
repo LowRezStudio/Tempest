@@ -33,7 +33,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::resizable::{h_resizable, resizable_panel, v_resizable};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, Selectable};
 use gpui_kit_assets::IconName;
 use serde_json::{json, Value as J};
 
@@ -143,9 +143,10 @@ pub fn edit_key(e: &J) -> String {
 /// An earlier state of the pending edits, the key of the change that replaced it, and when.
 type Undo = (Vec<(String, J)>, Option<String>, Instant);
 
-/// An inline field being typed in: its key and input.
+/// An inline field being typed in: its key, initial value, and input.
 struct Field {
     key: String,
+    from: String,
     input: Entity<InputState>,
     _sub: Subscription,
 }
@@ -181,6 +182,8 @@ pub struct MovieEditor {
     edits: Vec<(String, J)>,
     /// Earlier states of the edits (newest last), with the key of the change and when.
     undo: Vec<Undo>,
+    /// Pending edits `undo_edit` took back, newest last.
+    redo: Vec<Vec<(String, J)>>,
     /// Bumped whenever the edits change.
     pub version: u64,
     pub node: Node,
@@ -209,6 +212,10 @@ pub struct MovieEditor {
     hover_seq: u64,
     /// Resource tree and properties widths, timeline height (kept in the settings).
     pub(crate) panes: [f32; 3],
+    pub hide_tree: bool,
+    pub hide_props: bool,
+    tree_toggled: bool,
+    props_toggled: bool,
     script_filter: Entity<InputState>,
     tag_filter: Entity<InputState>,
     stage: stage::Stage,
@@ -264,6 +271,7 @@ impl MovieEditor {
             loading: false,
             edits: Vec::new(),
             undo: Vec::new(),
+            redo: Vec::new(),
             version: 0,
             node: Node::Frames,
             frame: 0,
@@ -284,6 +292,10 @@ impl MovieEditor {
             hover_seq: 0,
             this: cx.entity().downgrade(),
             panes: [230.0, 290.0, 260.0],
+            hide_tree: false,
+            hide_props: false,
+            tree_toggled: false,
+            props_toggled: false,
             script_filter,
             tag_filter,
             stage: stage::Stage::new(cx),
@@ -314,9 +326,60 @@ impl MovieEditor {
 
     /// Act on the Studio after the current update: the Studio may be the one
     /// updating this editor (an entity cannot be updated twice at once).
+    /// Available horizontal width for this movie editor inside the window.
+    fn available_width(&self, window: &Window, cx: &App) -> f32 {
+        let vw = f32::from(window.viewport_size().width);
+        let used = self
+            .studio
+            .upgrade()
+            .map(|s| {
+                let s = s.read(cx);
+                if s.focus_mode {
+                    return 0.0;
+                }
+                let p = s.panes.get();
+                let sizes = s.pane_sizes("packages", &[240.0, 280.0]);
+                let side = if p.side() {
+                    if p.side_w > 0.0 { p.side_w } else { sizes[0] }
+                } else {
+                    0.0
+                };
+                let second = if p.second() { sizes[1] } else { 0.0 };
+                side + second
+            })
+            .unwrap_or(0.0);
+        (vw - used).max(320.0)
+    }
+
+    /// Which internal side panes are shown and their clamped widths so Stage always has generous room.
+    fn shown_side_panes(&self, window: &Window, cx: &App) -> (bool, bool, f32, f32, bool) {
+        let vw = f32::from(window.viewport_size().width);
+        let avail = self.available_width(window, cx);
+        let auto_hide_props = (vw < 1280.0 && avail < 1040.0) || avail < 860.0;
+        let auto_hide_tree = (vw < 1280.0 && avail < 720.0) || avail < 560.0;
+        let show_tree = if self.tree_toggled { !self.hide_tree } else { !self.hide_tree && !auto_hide_tree };
+        let show_props = self.target().is_some() && if self.props_toggled { !self.hide_props } else { !self.hide_props && !auto_hide_props };
+        let side_budget = (avail - 320.0).max(150.0);
+        let (mut tree_w, mut props_w) = (self.panes[0], self.panes[1]);
+        let mut capped = false;
+        if show_tree && show_props && tree_w + props_w > side_budget {
+            let scale = (side_budget / (tree_w + props_w)).clamp(0.45, 1.0);
+            tree_w = (tree_w * scale).max(140.0);
+            props_w = (props_w * scale).max(160.0);
+            capped = true;
+        } else if show_tree && tree_w > side_budget {
+            tree_w = side_budget.max(140.0);
+            capped = true;
+        } else if show_props && props_w > side_budget {
+            props_w = side_budget.max(160.0);
+            capped = true;
+        }
+        (show_tree, show_props, tree_w, props_w, capped)
+    }
+
     /// Keep a resized pane's size for every editor and the next run: `0` the main row
     /// (tree, centre, properties), `2` the stage over the timeline.
-    fn pane_saver(&self, group: usize) -> impl Fn(&Entity<gpui_component::resizable::ResizableState>, &mut Window, &mut gpui::App) + 'static {
+    fn pane_saver(&self, group: usize, show_tree: bool, show_props: bool, capped: bool) -> impl Fn(&Entity<gpui_component::resizable::ResizableState>, &mut Window, &mut gpui::App) + 'static {
         let (studio, me) = (self.studio.clone(), self.this.clone());
         move |state, _, cx| {
             let sizes: Vec<f32> = state.read(cx).sizes().iter().map(|s| f32::from(*s)).collect();
@@ -328,9 +391,15 @@ impl MovieEditor {
                 let Some(t) = sizes.get(1) else { return };
                 panes[2] = *t;
             } else {
-                let Some(t) = sizes.first() else { return };
-                panes[0] = *t;
-                if sizes.len() == 3 {
+                if capped {
+                    return;
+                }
+                if show_tree {
+                    if let Some(t) = sizes.first() {
+                        panes[0] = *t;
+                    }
+                }
+                if show_props && sizes.len() == 3 {
                     panes[1] = sizes[2];
                 }
             }
@@ -367,6 +436,17 @@ impl MovieEditor {
         self.with_studio(cx, move |s, cx| s.set_status(text, cx));
     }
 
+    /// Notify the Studio (and an open Mod view or Changes dialog) that pending stage edits changed.
+    fn notify_studio(&self, cx: &mut Context<Self>) {
+        self.with_studio(cx, |s, cx| {
+            if let Some(c) = s.cooker.clone() {
+                c.update(cx, |_, cx| cx.notify());
+            }
+            cx.notify();
+            cx.refresh_windows();
+        });
+    }
+
     /// The package now has unsaved changes (Apply, a replaced texture, an added image).
     fn mark_dirty(&self, refresh: bool, cx: &mut Context<Self>) {
         let path = self.path.clone();
@@ -375,11 +455,40 @@ impl MovieEditor {
             if refresh {
                 s.refresh_package(path, None, cx);
             }
+            if let Some(c) = s.cooker.clone() {
+                c.update(cx, |c, cx| c.refresh(cx));
+            }
             cx.notify();
+            cx.refresh_windows();
         });
     }
 
     // ----- the document -------------------------------------------------------------
+
+    /// Number of unapplied staged edits in this movie editor.
+    pub fn unapplied_count(&self) -> usize {
+        self.edits.len()
+    }
+
+    /// Whether this movie editor holds unapplied staged edits.
+    /// Whether an undone stage edit can be put back.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+
+    pub fn has_unapplied(&self) -> bool {
+        !self.edits.is_empty()
+    }
+
+    /// Whether `swf.apply` is currently writing staged edits into the package.
+    pub fn is_applying(&self) -> bool {
+        self.applying
+    }
+
+    /// Movie identity: `(package_path, export_index, display_name)`.
+    pub fn movie_target(&self) -> (&str, usize, &str) {
+        (&self.path, self.index, &self.name)
+    }
 
     pub fn pending(&self) -> J {
         J::Array(self.edits.iter().map(|(_, e)| e.clone()).collect())
@@ -601,7 +710,7 @@ impl MovieEditor {
                         }
                         this.select_reselect();
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not read the timeline: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not read the timeline: {}", crate::studio::ui::explain_error(&e)), cx),
                 }
                 cx.notify();
             });
@@ -625,7 +734,7 @@ impl MovieEditor {
                         this.set_tree(tree.json);
                         this.info = info.json;
                     }
-                    (Err(e), _) | (_, Err(e)) => this.toast(Tone::Error, format!("The edit does not apply: {e}"), cx),
+                    (Err(e), _) | (_, Err(e)) => this.toast(Tone::Error, format!("The edit does not apply: {}", crate::studio::ui::explain_error(&e)), cx),
                 }
                 this.load_timeline(cx);
                 cx.notify();
@@ -713,6 +822,7 @@ impl MovieEditor {
         match self.undo.last_mut() {
             Some(last) if key.is_some() && last.1 == key && now.duration_since(last.2).as_millis() < 600 => last.2 = now,
             _ => {
+                self.redo.clear();
                 self.undo.push((self.edits.clone(), key, now));
                 if self.undo.len() > 100 {
                     self.undo.remove(0);
@@ -727,13 +837,22 @@ impl MovieEditor {
         self.version += 1;
         self.detail = None;
         self.refresh(cx);
+        self.notify_studio(cx);
         cx.notify();
     }
 
     /// Take back the last change of the pending edits (false: there is none).
     pub fn undo_edit(&mut self, cx: &mut Context<Self>) -> bool {
         let Some((edits, ..)) = self.undo.pop() else { return false };
-        self.edits = edits;
+        self.redo.push(std::mem::replace(&mut self.edits, edits));
+        self.changed(cx);
+        true
+    }
+
+    /// Put back the last change `undo_edit` took back (false: there is none).
+    pub fn redo_edit(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(edits) = self.redo.pop() else { return false };
+        self.undo.push((std::mem::replace(&mut self.edits, edits), None, Instant::now()));
         self.changed(cx);
         true
     }
@@ -754,7 +873,33 @@ impl MovieEditor {
     }
 
     pub fn discard(&mut self, cx: &mut Context<Self>) {
+        if self.edits.is_empty() {
+            return;
+        }
+        self.stage.invalidate();
+        if let Some(sv) = &mut self.script_view {
+            sv.reload = true;
+        }
         self.commit(Vec::new(), None, cx);
+    }
+
+    /// Drop every unapplied staged edit (and its local undo/redo history), refreshing the stage.
+    pub fn discard_unapplied(&mut self, cx: &mut Context<Self>) {
+        if self.edits.is_empty() && self.undo.is_empty() && self.redo.is_empty() {
+            return;
+        }
+        self.edits.clear();
+        self.undo.clear();
+        self.redo.clear();
+        self.version += 1;
+        self.detail = None;
+        self.stage.invalidate();
+        if let Some(sv) = &mut self.script_view {
+            sv.reload = true;
+        }
+        self.refresh(cx);
+        self.notify_studio(cx);
+        cx.notify();
     }
 
     /// Merge a change into the pending edit of a placement tag.
@@ -910,10 +1055,10 @@ impl MovieEditor {
                     let (iw, ih) = (image["width"].as_f64().unwrap_or(1.0), image["height"].as_f64().unwrap_or(1.0));
                     let stretched = ((sw / sh.max(1.0)) / (iw / ih.max(1.0)) - 1.0).abs() > 0.01;
                     let tone = if stretched { Tone::Warning } else { Tone::Success };
-                    this.toast(tone, format!("Image replaced: {sw}×{sh} {}; the movie draws it at {iw}×{ih}{}. Save the package to keep it.", t.json["format"].as_str().unwrap_or(""), if stretched { ", so it is stretched (another aspect ratio)" } else { "" }), cx);
+                    this.toast(tone, format!("Image replaced: {sw}×{sh} {}; the movie draws it at {iw}×{ih}{}. Kept in your mod.", t.json["format"].as_str().unwrap_or(""), if stretched { ", so it is stretched (another aspect ratio)" } else { "" }), cx);
                     cx.notify();
                 }
-                Err(e) => this.toast(Tone::Error, format!("Could not replace the image: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not replace the image: {}", crate::studio::ui::explain_error(&e)), cx),
             });
         })
         .detach();
@@ -931,7 +1076,7 @@ impl MovieEditor {
             let r = backend.call("texture.export", json!({ "path": path, "index": texture, "out": out.to_string_lossy() })).await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(r) => this.toast(Tone::Success, format!("{} bytes written to {}", r.json["bytes"], r.json["out"].as_str().unwrap_or("")), cx),
-                Err(e) => this.toast(Tone::Error, format!("Could not export the image: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not export the image: {}", crate::studio::ui::explain_error(&e)), cx),
             });
         })
         .detach();
@@ -954,9 +1099,11 @@ impl MovieEditor {
                 s
             })
         };
+        let name_input = input("texture name (default <movie>_<file name>)", "", window, cx);
+        name_input.update(cx, |s, cx| s.focus(window, cx));
         self.adding_image = Some(AddImage {
             file: None,
-            name: input("texture name (default <movie>_<file name>)", "", window, cx),
+            name: name_input,
             instance: input("instance name (optional, for scripts)", "", window, cx),
             x: input("x", "0", window, cx),
             y: input("y", "0", window, cx),
@@ -997,14 +1144,14 @@ impl MovieEditor {
                         this.open(Node::Char(id), cx);
                     }
                     let placed = j["placed"]["depth"].as_u64().map(|d| format!(", placed at depth {d}")).unwrap_or_default();
-                    this.toast(Tone::Success, format!("Image added: {} ({}×{}) → {}{placed}. Save the package to keep it.", j["fileName"].as_str().unwrap_or(""), j["width"], j["height"], j["texture"]["path"].as_str().unwrap_or("")), cx);
+                    this.toast(Tone::Success, format!("Image added: {} ({}×{}) → {}{placed}. Kept in your mod.", j["fileName"].as_str().unwrap_or(""), j["width"], j["height"], j["texture"]["path"].as_str().unwrap_or("")), cx);
                     this.load(cx);
                 }
                 Err(e) => {
                     if let Some(a) = &mut this.adding_image {
                         a.working = false;
                     }
-                    this.toast(Tone::Error, format!("Could not add the image: {e}"), cx);
+                    this.toast(Tone::Error, format!("Could not add the image: {}", crate::studio::ui::explain_error(&e)), cx);
                 }
             });
         })
@@ -1015,8 +1162,10 @@ impl MovieEditor {
     fn written(&mut self, cx: &mut Context<Self>) {
         self.edits.clear();
         self.undo.clear();
+        self.redo.clear();
         self.version += 1;
         self.stage.invalidate();
+        self.notify_studio(cx);
         cx.notify();
     }
 
@@ -1027,6 +1176,7 @@ impl MovieEditor {
         }
         self.applying = true;
         let call = self.backend.call("swf.apply", json!({ "path": self.path, "index": self.index, "edits": self.pending() }));
+        self.notify_studio(cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let r = call.await;
@@ -1037,13 +1187,16 @@ impl MovieEditor {
                         this.mark_dirty(false, cx);
                         this.written(cx);
                         let n = r.json["edits"].as_u64().unwrap_or(0);
-                        this.toast(Tone::Success, format!("Movie updated: {n} edit{}, {} bytes; save the package to keep them", if n == 1 { "" } else { "s" }, r.json["bytes"]), cx);
+                        this.toast(Tone::Success, format!("Movie updated: {n} edit{}, {} bytes in your mod", if n == 1 { "" } else { "s" }, r.json["bytes"]), cx);
                         if let Some(sv) = &mut this.script_view {
                             sv.reload = true;
                         }
                         this.load(cx);
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not apply the edits: {e}"), cx),
+                    Err(e) => {
+                        this.notify_studio(cx);
+                        this.toast(Tone::Error, format!("Could not apply the changes: {}", crate::studio::ui::explain_error(&e)), cx);
+                    }
                 }
                 cx.notify();
             });
@@ -1070,25 +1223,39 @@ impl MovieEditor {
         if let Some(f) = self.field.as_ref().filter(|f| f.key == key) {
             return div().w(px(width)).child(Input::new(&f.input).xsmall()).into_any_element();
         }
+        let (k_key, v_key) = (key.clone(), value.clone());
         let v = value.clone();
         div()
             .id(gpui::SharedString::from(format!("f-{key}")))
+            .focusable()
+            .tab_index(0)
             .w(px(width))
             .px_1()
             .rounded_sm()
+            .border_1()
+            .border_color(gpui::transparent_black())
             .bg(theme.secondary)
             .cursor_text()
-            .font_family("Menlo")
+            .font_family(crate::studio::ui::mono())
             .text_xs()
             .overflow_hidden()
             .text_ellipsis()
             .whitespace_nowrap()
+            .focus_visible(|s| s.border_color(theme.ring))
             .child(if value.is_empty() { "—".to_string() } else { value })
+            .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.start_field(k_key.clone(), v_key.clone(), window, cx);
+                }
+            }))
             .on_click(cx.listener(move |this, _, window, cx| this.start_field(key.clone(), v.clone(), window, cx)))
             .into_any_element()
     }
 
     pub fn start_field(&mut self, key: String, value: String, window: &mut Window, cx: &mut Context<Self>) {
+        let from = value.clone();
         let input = cx.new(|cx| {
             let mut s = InputState::new(window, cx);
             s.set_value(value, window, cx);
@@ -1103,12 +1270,17 @@ impl MovieEditor {
                 this.commit_field(&k, v, cx);
             }
             InputEvent::Blur if this.field.as_ref().is_some_and(|f| f.key == k) => {
-                this.field = None;
-                cx.notify();
+                let v = input.read(cx).value().to_string();
+                let changed = this.field.take().is_some_and(|f| v != f.from);
+                if changed {
+                    this.commit_field(&k, v, cx);
+                } else {
+                    cx.notify();
+                }
             }
             _ => {}
         });
-        self.field = Some(Field { key, input, _sub: sub });
+        self.field = Some(Field { key, from, input, _sub: sub });
         cx.notify();
     }
 
@@ -1269,19 +1441,42 @@ impl MovieEditor {
 
     fn render_toolbar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let sep = || div().w(px(1.0)).h(px(14.0)).mx_0p5().bg(theme.border);
         let trail = self.trail();
-        let mut bar = h_flex().px_2().py_1().gap_2().flex_wrap().border_b_1().border_color(theme.border).text_xs();
+        let ring = theme.ring;
+        let mut bar = crate::studio::ui::toolbar(&theme).py_1().gap_1p5().flex_wrap().items_center().text_xs();
         if trail.len() > 1 || (trail.len() == 1 && self.node == Node::Frames) {
-            let mut crumbs = h_flex().gap_1().min_w_0();
+            let mut crumbs = h_flex().gap_1().min_w_0().items_center();
             let n = trail.len();
             for (k, (id, label)) in trail.into_iter().enumerate() {
                 if k > 0 {
-                    crumbs = crumbs.child(div().text_color(theme.muted_foreground).child("›"));
+                    crumbs = crumbs.child(Icon::new(IconName::ChevronRight).xsmall().text_color(theme.muted_foreground));
                 }
                 crumbs = crumbs.child(if k + 1 == n {
                     div().font_weight(gpui::FontWeight::SEMIBOLD).child(label).into_any_element()
                 } else {
-                    div().id(("crumb", k)).cursor_pointer().text_color(theme.link).child(label).on_click(cx.listener(move |this, _, _, cx| this.go_to(id, cx))).into_any_element()
+                    div()
+                        .id(("crumb", k))
+                        .focusable()
+                        .tab_index(0)
+                        .px_0p5()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::transparent_black())
+                        .focus_visible(move |s| s.border_color(ring))
+                        .cursor_pointer()
+                        .text_color(theme.link)
+                        .hover(|s| s.underline())
+                        .child(label)
+                        .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, window, cx| {
+                            if (e.keystroke.key == "enter" || e.keystroke.key == "space") && !e.keystroke.modifiers.modified() {
+                                window.prevent_default();
+                                cx.stop_propagation();
+                                this.go_to(id, cx);
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| this.go_to(id, cx)))
+                        .into_any_element()
                 });
             }
             bar = bar.child(crumbs);
@@ -1289,104 +1484,220 @@ impl MovieEditor {
             bar = bar.child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(self.title()));
         }
         let info = &self.info;
-        bar = bar.child(div().font_family("Menlo").text_color(theme.muted_foreground).child(format!(
-            "{} v{} · {}×{} · {} fps · {} characters",
+        let char_count = self.chars.len();
+        bar = bar.child(div().font_family(crate::studio::ui::mono()).text_color(theme.muted_foreground).child(format!(
+            "{} v{} · {}×{} · {} fps · {}",
             info["signature"].as_str().unwrap_or(""),
             info["version"],
             info["width"].as_f64().unwrap_or(0.0),
             info["height"].as_f64().unwrap_or(0.0),
             info["frameRate"].as_f64().unwrap_or(0.0),
-            self.chars.len()
+            if char_count == 1 { "1 character".to_string() } else { format!("{char_count} characters") }
         )));
         bar = bar.child(div().flex_1());
+        let (show_tree, show_props, _, _, _) = self.shown_side_panes(window, cx);
         let focused = self.studio.upgrade().is_some_and(|s| s.read(cx).focus_mode);
-        let toggle = |b: Button, on: bool| if on { b.primary() } else { b.ghost() };
-        bar = bar.child(toggle(Button::new("mv-focus").xsmall().label("Focus").tooltip(if focused { "Show the package and object lists again" } else { "Give the movie editor the whole window (hides the package and object lists)" }), focused).on_click(cx.listener(|this, _, _, cx| {
-            this.with_studio(cx, |s, cx| {
-                s.focus_mode = !s.focus_mode;
-                cx.notify();
-            });
-        })));
+        let toggle = |b: Button, on: bool| b.ghost().selected(on);
         let target = self.target();
+        // Group 1: Panes & Focus (≤ 3 items).
+        bar = bar.child(
+            h_flex()
+                .gap_0p5()
+                .items_center()
+                .child(toggle(Button::new("mv-toggle-tree").xsmall().icon(Icon::new(IconName::PanelLeft)).tooltip(if show_tree { "Hide the movie resource tree" } else { "Show the movie resource tree" }), show_tree).on_click(cx.listener(move |this, _, _, cx| {
+                    this.hide_tree = show_tree;
+                    this.tree_toggled = true;
+                    cx.notify();
+                })))
+                .when(target.is_some(), |b| {
+                    b.child(toggle(Button::new("mv-toggle-props").xsmall().icon(Icon::new(IconName::SlidersHorizontal)).tooltip(if show_props { "Hide the placement & character inspector" } else { "Show the placement & character inspector" }), show_props).on_click(cx.listener(move |this, _, _, cx| {
+                        this.hide_props = show_props;
+                        this.props_toggled = true;
+                        cx.notify();
+                    })))
+                })
+                .child(toggle(Button::new("mv-focus").xsmall().label("Focus").tooltip(if focused { "Show the package and object lists again" } else { "Give the movie editor the whole window (hides the package and object lists)" }), focused).on_click(cx.listener(|this, _, _, cx| {
+                    this.with_studio(cx, |s, cx| {
+                        s.focus_mode = !s.focus_mode;
+                        cx.notify();
+                    });
+                }))),
+        );
+        // Group 2: Stage tools & Zoom (≤ 4 items).
         if target.is_some() {
-            if self.sprite().is_some_and(|s| s != 0) {
-                bar = bar
-                    .child(toggle(Button::new("mv-layout").xsmall().label("Layout").tooltip("The layout the placements describe: no scripts, nested sprites on their first frame"), !self.play).on_click(cx.listener(|this, _, _, cx| this.set_play(false, cx))))
-                    .child(toggle(Button::new("mv-playclip").xsmall().label("Play").tooltip("Run the sprite with its timeline and scripts"), self.play).on_click(cx.listener(|this, _, _, cx| this.set_play(true, cx))));
-            }
+            let zoom_val = self.stage.zoom;
+            let zoom = if zoom_val == 0.0 { "Fit".to_string() } else { format!("{}%", (zoom_val * 100.0).round()) };
+            let me_zoom = cx.entity().downgrade();
+            let mut tools = h_flex().gap_0p5().items_center();
             if self.layout() {
-                bar = bar
-                    .child(toggle(Button::new("mv-move").xsmall().icon(Icon::new(IconName::ArrowRight)).tooltip("Move tool (V): drag the selection, arrows nudge"), self.tool == Tool::Move).on_click(cx.listener(|this, _, _, cx| {
+                tools = tools
+                    .child(toggle(Button::new("mv-move").xsmall().icon(Icon::new(IconName::MousePointer2)).tooltip("Move tool (V): drag the selection, arrows nudge"), self.tool == Tool::Move).on_click(cx.listener(|this, _, _, cx| {
                         this.tool = Tool::Move;
                         cx.notify();
                     })))
                     .child(toggle(Button::new("mv-transform").xsmall().icon(Icon::new(IconName::Scan)).tooltip("Free transform (Q): handles scale (Shift keeps proportions, Alt from the centre), the knob rotates (Shift: 15° steps)"), self.tool == Tool::Transform).on_click(cx.listener(|this, _, _, cx| {
                         this.tool = Tool::Transform;
                         cx.notify();
-                    })))
-                    .child(toggle(Button::new("mv-bounds").xsmall().icon(Icon::new(IconName::Grid3x3)).tooltip("Show every object's bounds"), self.show_bounds).on_click(cx.listener(|this, _, _, cx| {
-                        this.show_bounds = !this.show_bounds;
-                        cx.notify();
                     })));
             }
-            let zoom = if self.stage.zoom == 0.0 { "fit".to_string() } else { format!("{}%", (self.stage.zoom * 100.0).round()) };
-            bar = bar
-                .child(Button::new("mv-zout").xsmall().ghost().label("−").tooltip("Zoom out").on_click(cx.listener(|this, _, _, cx| this.stage.zoom_by(0.8, cx))))
-                .child(Button::new("mv-zoom").xsmall().ghost().label(zoom).tooltip("Fit (click) / 100%").on_click(cx.listener(|this, _, _, cx| {
-                    if this.stage.zoom == 0.0 {
-                        this.stage.zoom = 1.0;
-                    } else {
-                        this.stage.fit();
-                    }
-                    cx.notify();
-                })))
-                .child(Button::new("mv-zin").xsmall().ghost().label("+").tooltip("Zoom in (⌘+wheel)").on_click(cx.listener(|this, _, _, cx| this.stage.zoom_by(1.25, cx))))
-                .child(Button::new("mv-fit").xsmall().ghost().label("Fit").tooltip("Fit and centre (middle-drag or Space+drag pans)").on_click(cx.listener(|this, _, _, cx| {
-                    this.stage.fit();
-                    cx.notify();
-                })));
+            if self.sprite().is_some_and(|s| s != 0) {
+                let playing = self.play;
+                tools = tools.child(
+                    toggle(
+                        Button::new("mv-playclip")
+                            .xsmall()
+                            .icon(Icon::new(if playing { IconName::Pause } else { IconName::Play }))
+                            .label(if playing { "Stop" } else { "Play" })
+                            .tooltip(if playing { "Return to timeline layout" } else { "Run the sprite with its timeline and scripts" }),
+                        playing,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_play(!playing, cx))),
+                );
+            }
+            tools = tools.child(
+                Button::new("mv-zoom")
+                    .xsmall()
+                    .ghost()
+                    .label(zoom)
+                    .dropdown_caret(true)
+                    .tooltip("Stage zoom (⌘+wheel zooms, Space+drag pans)")
+                    .dropdown_menu(move |menu, _, _| {
+                        let (m_fit, m_in, m_out) = (me_zoom.clone(), me_zoom.clone(), me_zoom.clone());
+                        let mut menu = menu
+                            .item(PopupMenuItem::new("Fit to view").checked(zoom_val == 0.0).on_click(move |_, _, cx| {
+                                let _ = m_fit.update(cx, |this, cx| {
+                                    this.stage.fit();
+                                    cx.notify();
+                                });
+                            }))
+                            .separator();
+                        for (pct, factor) in [(50, 0.5f64), (100, 1.0), (200, 2.0)] {
+                            let m = me_zoom.clone();
+                            menu = menu.item(PopupMenuItem::new(format!("{pct}%")).checked((zoom_val - factor).abs() < 0.01).on_click(move |_, _, cx| {
+                                let _ = m.update(cx, |this, cx| {
+                                    this.stage.zoom = factor;
+                                    cx.notify();
+                                });
+                            }));
+                        }
+                        menu.separator()
+                            .item(PopupMenuItem::new("Zoom in (⌘+wheel)").on_click(move |_, _, cx| {
+                                let _ = m_in.update(cx, |this, cx| this.stage.zoom_by(1.25, cx));
+                            }))
+                            .item(PopupMenuItem::new("Zoom out").on_click(move |_, _, cx| {
+                                let _ = m_out.update(cx, |this, cx| this.stage.zoom_by(0.8, cx));
+                            }))
+                    }),
+            );
+            bar = bar.child(sep()).child(tools);
         }
-        if let Some(t) = target.clone().filter(|_| !self.play) {
+        // Group 3: Secondary stage, image & export actions ("Stage & export").
+        {
             let me = cx.entity().downgrade();
+            let is_layout = self.layout();
+            let show_bounds = self.show_bounds;
+            let is_subsprite = self.sprite().is_some_and(|s| s != 0);
+            let is_play = self.play;
+            let has_target = target.is_some();
+            let export_target = target.clone().filter(|_| !self.play);
             let frames = (self.sprite().is_some() && self.frames() > 1).then(|| (self.sprite().unwrap_or(0), self.frames()));
-            bar = bar.child(Button::new("mv-export").xsmall().ghost().icon(Icon::new(IconName::Download)).label("Export").dropdown_menu(move |menu, _, _| {
-                let mut menu = menu;
-                let (m1, t1) = (me.clone(), t.clone());
-                menu = menu.item(PopupMenuItem::new("SVG (vectors)").on_click(move |_, _, cx| {
-                    let _ = m1.update(cx, |this, cx| this.export_svg(t1.clone(), cx));
-                }));
-                for k in [1u32, 2, 4] {
-                    let (m, t) = (me.clone(), t.clone());
-                    menu = menu.item(PopupMenuItem::new(format!("PNG {k}×")).on_click(move |_, _, cx| {
-                        let _ = m.update(cx, |this, cx| this.export_png(t.clone(), k, cx));
-                    }));
-                }
-                if let Some((sprite, n)) = frames {
-                    let m = me.clone();
-                    menu = menu.item(PopupMenuItem::new(format!("All {n} frames as PNGs…")).on_click(move |_, _, cx| {
-                        let _ = m.update(cx, |this, cx| this.export_frames(sprite, 1, cx));
-                    }));
-                }
-                menu
-            }));
+            bar = bar.child(sep()).child(
+                Button::new("mv-stage-menu")
+                    .xsmall()
+                    .ghost()
+                    .label("Stage & export")
+                    .dropdown_caret(true)
+                    .tooltip("Bounds, layout mode, stage framing, image import and SVG/PNG export")
+                    .dropdown_menu(move |menu, _, _| {
+                        let mut menu = menu;
+                        let mut has_view_items = false;
+                        if is_layout {
+                            let m = me.clone();
+                            menu = menu.item(PopupMenuItem::new("Show object bounds").checked(show_bounds).on_click(move |_, _, cx| {
+                                let _ = m.update(cx, |this, cx| {
+                                    this.show_bounds = !this.show_bounds;
+                                    cx.notify();
+                                });
+                            }));
+                            has_view_items = true;
+                        }
+                        if is_subsprite {
+                            let (m1, m2) = (me.clone(), me.clone());
+                            menu = menu
+                                .item(PopupMenuItem::new("Layout mode (no scripts)").checked(!is_play).on_click(move |_, _, cx| {
+                                    let _ = m1.update(cx, |this, cx| this.set_play(false, cx));
+                                }))
+                                .item(PopupMenuItem::new("Play sprite with scripts").checked(is_play).on_click(move |_, _, cx| {
+                                    let _ = m2.update(cx, |this, cx| this.set_play(true, cx));
+                                }));
+                            has_view_items = true;
+                        }
+                        if has_target {
+                            let m = me.clone();
+                            menu = menu.item(PopupMenuItem::new("Fit and centre stage").on_click(move |_, _, cx| {
+                                let _ = m.update(cx, |this, cx| {
+                                    this.stage.fit();
+                                    cx.notify();
+                                });
+                            }));
+                            has_view_items = true;
+                        }
+                        if has_view_items {
+                            menu = menu.separator();
+                        }
+                        let m_img = me.clone();
+                        menu = menu.item(PopupMenuItem::new("Add image…").on_click(move |_, window, cx| {
+                            let _ = m_img.update(cx, |this, cx| this.open_add_image(window, cx));
+                        }));
+                        if let Some(t) = export_target.clone() {
+                            let (m_svg, t_svg) = (me.clone(), t.clone());
+                            menu = menu.separator().item(PopupMenuItem::new("Export SVG (vectors)…").on_click(move |_, _, cx| {
+                                let _ = m_svg.update(cx, |this, cx| this.export_svg(t_svg.clone(), cx));
+                            }));
+                            for k in [1u32, 2, 4] {
+                                let (m_png, t_png) = (me.clone(), t.clone());
+                                menu = menu.item(PopupMenuItem::new(format!("Export PNG {k}×…")).on_click(move |_, _, cx| {
+                                    let _ = m_png.update(cx, |this, cx| this.export_png(t_png.clone(), k, cx));
+                                }));
+                            }
+                            if let Some((sprite, n)) = frames {
+                                let m_fr = me.clone();
+                                menu = menu.item(PopupMenuItem::new(if n == 1 { "Export frame as PNG…".to_string() } else { format!("Export all {n} frames as PNGs…") }).on_click(move |_, _, cx| {
+                                    let _ = m_fr.update(cx, |this, cx| this.export_frames(sprite, 1, cx));
+                                }));
+                            }
+                        }
+                        menu
+                    }),
+            );
         }
-        bar = bar.child(Button::new("mv-image").xsmall().ghost().icon(Icon::new(IconName::Image)).label("Image").tooltip("Add a PNG or DDS to the movie as an external image (and a shape drawing it, placed on this frame)").on_click(cx.listener(|this, _, window, cx| this.open_add_image(window, cx))));
+        // Group 4: Staged pending edits (or Mod view jump once applied).
+        let pending = self.edits.len();
         let dirty = self.studio.upgrade().is_some_and(|s| s.read(cx).dirty.contains(&self.path));
-        if self.edits.is_empty() && dirty {
-            bar = bar.child(Button::new("mv-mod").xsmall().label("Make a mod").tooltip("Open the Mod view: the package's changes ship as a delta (only the changed objects)").on_click(cx.listener(|this, _, window, cx| {
+        if pending > 0 {
+            bar = bar.child(sep()).child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(crate::studio::ui::badge(Some(IconName::TriangleAlert), format!("{pending} unapplied"), theme.warning, &theme))
+                    .child(Button::new("mv-discard").xsmall().ghost().label("Discard").tooltip("Drop the pending edits").on_click(cx.listener(|this, _, _, cx| this.discard(cx))))
+                    .child(
+                        Button::new("mv-apply")
+                            .xsmall()
+                            .label(if self.applying { "Applying…".to_string() } else { format!("Apply {pending} edit{}", if pending > 1 { "s" } else { "" }) })
+                            .disabled(self.applying)
+                            .tooltip(if self.applying { "Applying pending edits…" } else { "Keep these edits in your mod (one undo step)" })
+                            .on_click(cx.listener(|this, _, _, cx| this.apply(cx))),
+                    ),
+            );
+        } else if dirty {
+            bar = bar.child(sep()).child(Button::new("mv-mod").xsmall().label("Build mod").tooltip("Open Mod: your package changes ship as a delta (only the changed objects)").on_click(cx.listener(|this, _, window, cx| {
                 let studio = this.studio.clone();
                 window.defer(cx, move |window, cx| {
                     let _ = studio.update(cx, |s, cx| s.set_view(super::View::Mod, window, cx));
                 });
             })));
         }
-        if !self.edits.is_empty() {
-            let n = self.edits.len();
-            bar = bar
-                .child(Button::new("mv-discard").xsmall().ghost().label("Discard").tooltip("Drop the pending edits").on_click(cx.listener(|this, _, _, cx| this.discard(cx))))
-                .child(Button::new("mv-apply").xsmall().primary().label(if self.applying { "Applying…".to_string() } else { format!("Apply {n} edit{}", if n > 1 { "s" } else { "" }) }).disabled(self.applying).tooltip("Write them into the package (one undo step)").on_click(cx.listener(|this, _, _, cx| this.apply(cx))));
-        }
-        let _ = window;
         bar
     }
 
@@ -1441,13 +1752,14 @@ impl Render for MovieEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         if let (Some(e), true) = (&self.error, self.tree.is_null()) {
-            return div().p_3().text_sm().text_color(theme.danger).child(e.clone()).into_any_element();
+            return div().p_3().text_sm().whitespace_normal().text_color(theme.danger).child(crate::studio::ui::explain_error(e)).into_any_element();
         }
         if self.tree.is_null() || self.info.is_null() {
             return div().p_3().text_sm().text_color(theme.muted_foreground).child("Reading the movie…").into_any_element();
         }
+        let (show_tree, show_props, tree_w, props_w, capped) = self.shown_side_panes(window, cx);
         let toolbar = self.render_toolbar(window, cx);
-        let tree = self.render_tree(window, cx);
+        let tree: AnyElement = if show_tree { self.render_tree(window, cx) } else { div().into_any_element() };
         let center: AnyElement = match self.node {
             Node::Movie => v_flex()
                 .size_full()
@@ -1462,11 +1774,11 @@ impl Render for MovieEditor {
                         .child(resizable_panel().child(
                             v_flex()
                                 .size_full()
-                                .child(div().px_2().py_0p5().border_b_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child("Click to select (Alt+click: the one below) · drag or arrows move it (Shift: 10 px) · Q: scale and rotate handles, V: move · double-click, Enter or Space edits inside a clip · Backspace goes up · nothing is written until Apply"))
+                                .child(div().px_2().py_0p5().border_b_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground).overflow_hidden().text_ellipsis().whitespace_nowrap().child("Click or drag clips on stage to move/scale (Q: handles, double-click: edit inside); click Apply edits in the toolbar to keep changes in your mod."))
                                 .child(div().flex_1().min_h_0().child(self.render_stage(window, cx))),
                         ))
                         .child(resizable_panel().size(px(self.panes[2])).child(self.render_timeline(window, cx)))
-                        .on_resize(self.pane_saver(2))
+                        .on_resize(self.pane_saver(2, show_tree, show_props, capped))
                         .into_any_element()
                 } else {
                     self.render_stage(window, cx)
@@ -1474,9 +1786,14 @@ impl Render for MovieEditor {
             }
             _ => div().into_any_element(),
         };
-        let mut layout = h_resizable("mv-main").child(resizable_panel().size(px(self.panes[0])).flex_none().child(tree)).child(resizable_panel().flex_basis(px(0.0)).overflow_hidden().child(center)).on_resize(self.pane_saver(0));
+        let group_key = (show_tree as usize) * 1024 + (show_props as usize) * 512 + if capped { (tree_w as usize).min(255) * 2 + usize::from(props_w > 0.0) } else { 0 };
+        let mut layout = h_resizable(("mv-main", group_key))
+            .child(resizable_panel().visible(show_tree).size(px(tree_w)).flex_none().child(tree))
+            .child(resizable_panel().flex_basis(px(0.0)).overflow_hidden().child(div().min_w(px(260.0)).size_full().child(center)))
+            .on_resize(self.pane_saver(0, show_tree, show_props, capped));
         if self.target().is_some() {
-            layout = layout.child(resizable_panel().size(px(self.panes[1])).flex_none().child(self.render_props(window, cx)));
+            let props: AnyElement = if show_props { self.render_props(window, cx) } else { div().into_any_element() };
+            layout = layout.child(resizable_panel().visible(show_props).size(px(props_w)).flex_none().child(props));
         }
         let dialog = self.render_add_image(window, cx);
         v_flex()
@@ -1484,6 +1801,31 @@ impl Render for MovieEditor {
             .track_focus(&self.focus)
             .size_full()
             .relative()
+            .on_action(cx.listener(|this, _: &super::Cancel, window, cx| {
+                if this.field.take().is_some() {
+                    cx.notify();
+                } else if this.adding_image.is_some() {
+                    if this.adding_image.as_ref().is_some_and(|a| !a.working) {
+                        this.adding_image = None;
+                        if this.target().is_some() {
+                            this.stage.focus.focus(window, cx);
+                        } else {
+                            this.focus.focus(window, cx);
+                        }
+                        cx.notify();
+                    }
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &super::ZoomReset, window, cx| {
+                if this.stage.focus.is_focused(window) && this.target().is_some() {
+                    this.stage.fit();
+                    cx.notify();
+                } else {
+                    cx.propagate();
+                }
+            }))
             .child(toolbar)
             .child(div().flex_1().min_h_0().child(layout))
             .children(dialog)
@@ -1501,7 +1843,7 @@ impl MovieEditor {
         let mut body = v_flex()
             .gap_3()
             .text_sm()
-            .child(h_flex().gap_2().child(div().flex_1().font_family("Menlo").text_xs().child(file.clone().unwrap_or_else(|| "No file yet".into()))).child(Button::new("ai-browse").small().label("Browse…").on_click(cx.listener(|_, _, _, cx| {
+            .child(h_flex().gap_2().child(div().flex_1().font_family(crate::studio::ui::mono()).text_xs().child(file.clone().unwrap_or_else(|| "No file yet".into()))).child(Button::new("ai-browse").small().label("Browse…").on_click(cx.listener(|_, _, _, cx| {
                 let files = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Image to add (PNG or DDS)".into()) });
                 cx.spawn(async move |this, cx| {
                     let Ok(Ok(Some(mut f))) = files.await else { return };
@@ -1531,7 +1873,7 @@ impl MovieEditor {
                 cx.notify();
             })));
             if a.place {
-                body = body.child(h_flex().pl_6().gap_2().items_center().text_xs().child("x").child(div().w(px(80.0)).child(Input::new(&a.x).xsmall())).child("y").child(div().w(px(80.0)).child(Input::new(&a.y).xsmall())).child(div().flex_1().child(Input::new(&a.instance).xsmall())));
+                body = body.child(h_flex().pl_6().gap_2().items_center().text_xs().child("x").child(div().w(px(80.0)).child(Input::new(&a.x).xsmall())).child("y").child(div().w(px(80.0)).child(Input::new(&a.y).xsmall())).child(div().flex_1().min_w_0().child(Input::new(&a.instance).xsmall())));
             }
         }
         let pending = self.edits.len();
@@ -1540,23 +1882,36 @@ impl MovieEditor {
             if pending > 0 { format!(" The {pending} pending edit{} written with it.", if pending > 1 { "s are" } else { " is" }) } else { String::new() }
         )));
         let working = a.working;
+        let disabled = file.is_none() || working;
         let footer = h_flex()
             .justify_end()
             .gap_2()
-            .child(Button::new("ai-cancel").ghost().label("Cancel").on_click(cx.listener(|this, _, _, cx| {
+            .child(Button::new("ai-cancel").ghost().label("Cancel").disabled(working).when(working, |b| b.tooltip("Wait until the image is added")).on_click(cx.listener(|this, _, window, cx| {
                 this.adding_image = None;
+                if this.target().is_some() {
+                    this.stage.focus.focus(window, cx);
+                } else {
+                    this.focus.focus(window, cx);
+                }
                 cx.notify();
             })))
-            .child(Button::new("ai-add").primary().label(if working { "Adding…" } else { "Add" }).disabled(file.is_none() || working).on_click(cx.listener(|this, _, _, cx| this.add_image(cx))));
+            .child(
+                Button::new("ai-add")
+                    .label(if working { "Adding…" } else { "Add" })
+                    .disabled(disabled)
+                    .when(disabled, |b| b.tooltip(if working { "Adding the image to the movie…" } else { "Choose a PNG or DDS file above first" }))
+                    .on_click(cx.listener(|this, _, _, cx| this.add_image(cx))),
+            );
         Some(
             div()
                 .absolute()
                 .inset_0()
+                .occlude()
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(gpui::black().opacity(0.4))
-                .child(v_flex().w(px(520.0)).p_4().gap_3().rounded_lg().bg(theme.popover).border_1().border_color(theme.border).shadow_lg().child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Add an image")).child(body).child(footer))
+                .bg(theme.overlay)
+                .child(v_flex().w(px(520.0)).max_w(gpui::relative(0.94)).p_4().gap_3().rounded_lg().bg(theme.popover).border_1().border_color(theme.border).child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Add an image")).child(body).child(footer))
                 .into_any_element(),
         )
     }
@@ -1610,7 +1965,7 @@ impl MovieEditor {
                     self.toast(Tone::Warning, warnings.join("\n"), cx);
                 }
             }
-            Err(e) => self.toast(Tone::Error, format!("Could not export: {e}"), cx),
+            Err(e) => self.toast(Tone::Error, format!("Could not export: {}", crate::studio::ui::explain_error(&e)), cx),
         }
     }
 
@@ -1645,7 +2000,7 @@ impl MovieEditor {
             let r = Self::render_png(backend, params, scale, None).await.and_then(|(png, w, h)| std::fs::write(&out, &png).map(|_| (png.len(), w, h)).map_err(|e| e.to_string()));
             let _ = this.update(cx, |this, cx| match r {
                 Ok((n, w, h)) => this.toast(Tone::Success, format!("{w}×{h}, {n} bytes written to {}", out.display()), cx),
-                Err(e) => this.toast(Tone::Error, format!("Could not render the PNG: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not render the PNG: {}", crate::studio::ui::explain_error(&e)), cx),
             });
         })
         .detach();
@@ -1686,7 +2041,7 @@ impl MovieEditor {
             .await;
             let _ = this.update(cx, |this, cx| match r {
                 Ok(n) => this.toast(Tone::Success, format!("{n} frame{} written to {}", if n == 1 { "" } else { "s" }, dir.display()), cx),
-                Err(e) => this.toast(Tone::Error, format!("Could not render the frames: {e}"), cx),
+                Err(e) => this.toast(Tone::Error, format!("Could not render the frames: {}", crate::studio::ui::explain_error(&e)), cx),
             });
         })
         .detach();
@@ -1738,6 +2093,7 @@ impl Studio {
             self.focus_mode = true;
         }
         self.movies.insert(key, m.clone());
+        self.sync_cooker(cx);
         Some(m)
     }
 
@@ -1892,7 +2248,7 @@ impl MovieEditor {
                     let r = Self::render_png(backend, params, scale, None).await.and_then(|(png, w, h)| std::fs::write(&out, &png).map(|_| (w, h)).map_err(|e| e.to_string()));
                     let _ = this.update(cx, |this, cx| match r {
                         Ok((w, h)) => this.status(format!("{w}×{h} written to {out}"), cx),
-                        Err(e) => this.toast(Tone::Error, e, cx),
+                        Err(e) => this.toast(Tone::Error, crate::studio::ui::explain_error(&e), cx),
                     });
                 })
                 .detach();

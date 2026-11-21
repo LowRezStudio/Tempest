@@ -48,6 +48,8 @@ impl Default for Bake {
 
 impl MapEditor {
     pub(super) fn open_bake(&mut self, cx: &mut Context<Self>) {
+        self.export.open = false;
+        self.palette.open = false;
         self.bake.open = true;
         cx.notify();
     }
@@ -116,7 +118,7 @@ impl MapEditor {
                         this.bake.last = Some(r.json);
                         this.bake.info = None;
                     }
-                    Err(e) => this.toast(Tone::Error, format!("Could not bake the lighting: {e}"), cx),
+                    Err(e) => this.toast(Tone::Error, format!("Could not bake the lighting: {}", crate::studio::ui::explain_error(&e)), cx),
                 }
                 cx.notify();
             });
@@ -156,7 +158,7 @@ impl MapEditor {
                         this.bake.picture = r.bin(&r.json["png"]).and_then(|png| image::load_from_memory(png).ok()).map(|i| crate::swf_player::to_render_image(i.to_rgba8()));
                         this.bake.info = Some((key, Ok(r.json)));
                     }
-                    Err(e) => this.bake.info = Some((key, Err(e))),
+                    Err(e) => this.bake.info = Some((key, Err(crate::studio::ui::explain_error(&e)))),
                 }
                 cx.notify();
             });
@@ -265,7 +267,7 @@ impl MapEditor {
             let fmt = |v: &J| v.as_array().map(|a| a.iter().map(|x| format!("{:.3}", x.as_f64().unwrap_or(0.0))).collect::<Vec<_>>().join(" ")).unwrap_or_default();
             let mut info = v_flex().gap_1().pt_2().border_t_1().border_color(theme.border).child(h_flex().gap_2().child(div().font_weight(gpui::FontWeight::MEDIUM).child("Selected mesh's light map")).child(div().flex_1()).child(div().text_color(theme.muted_foreground).child(format!("Exposure {:.2}", self.bake.exposure_value))).children(self.bake.exposure.as_ref().map(|s| div().w(px(110.0)).child(Slider::new(s)))));
             match self.bake.info.as_ref().map(|i| &i.1) {
-                Some(Err(e)) => info = info.child(div().text_color(theme.danger).child(e.clone())),
+                Some(Err(e)) => info = info.child(div().text_color(theme.danger).whitespace_normal().child(e.clone())),
                 Some(Ok(j)) if !j.is_null() => {
                     let lod = &j["lods"][0];
                     let mut text = v_flex().min_w_0().text_color(theme.muted_foreground);
@@ -274,7 +276,7 @@ impl MapEditor {
                     } else {
                         text = text.child(format!("{}, {} lights", lod["kind"].as_str().unwrap_or(""), lod["lights"].as_array().map(|a| a.len()).unwrap_or(0)));
                         for t in lod["textures"].as_array().into_iter().flatten() {
-                            text = text.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family("Menlo").child(format!("{} × {}", t["texture"].as_str().unwrap_or("—"), fmt(&t["scale"]))));
+                            text = text.child(div().overflow_hidden().text_ellipsis().whitespace_nowrap().font_family(crate::studio::ui::mono()).child(format!("{} × {}", t["texture"].as_str().unwrap_or("—"), fmt(&t["scale"]))));
                         }
                         text = text.child(format!("scale {}, bias {}", fmt(&lod["coordinateScale"]), fmt(&lod["coordinateBias"])));
                         if !j["decoded"].is_null() {
@@ -290,19 +292,35 @@ impl MapEditor {
             body = body.child(info);
         }
         let progress = self.progress.as_ref().filter(|p| p.0 == "light.progress").map(|p| format!(" {}/{}", p.1, p.2)).unwrap_or_else(|| "…".into());
+        let busy = self.bake.busy;
         body = body.child(
             h_flex()
                 .gap_2()
                 .justify_end()
-                .when(self.bake.busy, |d| d.child(div().mr_auto().text_color(theme.muted_foreground).child(format!("Baking{progress}"))))
-                .child(Button::new("bake-close").small().label("Close").disabled(self.bake.busy).on_click(cx.listener(|this, _, _, cx| {
-                    this.bake.open = false;
-                    cx.notify();
-                })))
-                .child(Button::new("bake-run").small().primary().label(if self.bake.busy { "Baking…" } else { "Bake" }).disabled(self.bake.busy).on_click(cx.listener(|this, _, _, cx| {
-                    let scope = this.bake.scope;
-                    this.bake_now(scope, None, None, json!({}), cx);
-                }))),
+                .when(busy, |d| d.child(div().mr_auto().text_color(theme.muted_foreground).child(format!("Baking{progress}"))))
+                .child(
+                    Button::new("bake-close")
+                        .small()
+                        .ghost()
+                        .label("Close")
+                        .disabled(busy)
+                        .when(busy, |b| b.tooltip("Wait for light map baking to finish"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.bake.open = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("bake-run")
+                        .small()
+                        .label(if busy { "Baking…" } else { "Bake" })
+                        .disabled(busy)
+                        .when(busy, |b| b.tooltip("Light map baking is already running"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let scope = this.bake.scope;
+                            this.bake_now(scope, None, None, json!({}), cx);
+                        })),
+                ),
         );
         Some(super::palette::modal("Bake lighting", 560.0, body.into_any_element(), cx))
     }
