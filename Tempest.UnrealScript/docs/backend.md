@@ -37,8 +37,9 @@ canonical hash of objects that referred to the deleted one).
 
 `upk serve` is a JSON-lines RPC server over stdin/stdout for `Tempest.Studio`: one request per line
 (`{"id", "method", "params"}`), one response per line (`{"id", "ok", "result" | "error", "ms"}`),
-plus id-less event lines (`{"event": "search.progress", ...}`). It keeps the `ClassDb` (leaked to
-`'static` on `workspace.open`, so editors can borrow it), the `TextureSource`, one `Editor` per
+plus id-less event lines (`{"event": "search.progress", ...}`). It keeps the `ClassDb` (an `Arc` editors borrow as
+`'static`; one a script save replaced stays in `old_dbs` until no open or kept editor uses it,
+`retire_dbs` between requests), the `TextureSource`, one `Editor` per
 opened package (keyed by canonical path) and a per-package search index in memory (built on a
 background thread from `workspace.open`, ≈2 s for a full cooked folder, joined by `index_all` before
 the first search, batch plan or textured mesh/material preview). Methods:
@@ -78,7 +79,9 @@ returned as that request's error instead of ending the server.
 
 `ClassDb::load_files` parses the script packages in parallel (`Context::load_files_parallel`,
 `par::map`; 0.75 s for 8.1's 16 packages) and `list_packages` reads the 993 summaries in parallel.
-The search index is persisted compressed under the OS cache folder
+A package's search index keeps its object paths in one string (`text` + `ends`): one
+allocation per package instead of one per export, and a lower-case package is searched with one
+`memmem` pass over all its paths. The search index is persisted compressed under the OS cache folder
 (`<cache>/tempest-studio/index/<hash>.idx`, entries reused while a package's size and mtime match).
 `upk serve` answers framed after `{"method":"protocol","params":{"frames":true}}`: header line `{id,
 ok, ms, len, bin:[…]}` + result JSON + raw payloads (`BinSink`, `{"$bin": n}` markers); without the

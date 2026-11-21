@@ -449,7 +449,8 @@ impl<'a> Reader<'a> {
 
     fn row(&mut self) -> Result<Row> {
         let count = self.count()?;
-        let mut row = Row::default();
+        // One entry per field: no spare capacity in millions of rows.
+        let mut row = Row { entries: Vec::with_capacity(count.min(1 << 12)) };
         let mut read = 0;
         while read < count {
             read += self.entry(&mut row)?;
@@ -553,8 +554,12 @@ impl<'a> Reader<'a> {
 }
 
 fn utf16(b: &[u8]) -> String {
-    let units: Vec<u16> = b.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-    String::from_utf16_lossy(&units)
+    let units = b.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]]));
+    // Mostly ASCII: one exact allocation instead of a grown one.
+    if units.clone().all(|u| u < 0x80) {
+        return units.map(|u| u as u8 as char).collect();
+    }
+    char::decode_utf16(units).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)).collect()
 }
 
 /// Parse a marshal (not obscured).
