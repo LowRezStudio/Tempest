@@ -21,7 +21,8 @@ it), each with its base (`recorded`, launcher `backup`, else `game`: the game fo
 taken as the original); `mod.preview` and `mod.cook` take `{source, target, kind, mode}` items
 (`mod_item`: content from memory when the source is open and dirty, else the file; a delta against
 the recorded base, the launcher backup or the game folder's file; a target missing from the game
-folder must be shipped whole); `mod.match` finds the game file a file from anywhere is a copy of;
+folder must be shipped whole); `mod.match` finds the game file a file from anywhere is a copy of; `mod.upgrade {mod, out,
+compression}` rewrites a mod package with its game files as today's deltas ([deltas](deltas.md));
 `mod.addCopy` / `mod.forgetCopy`; `delta.record {path, from}` records a base from another file.
 `mod.cook` writes a launcher mod folder (manifest like the launcher cooker's `buildManifest`,
 README.md, icon.png, `deltas/` (made with sharing on; a delta none of whose object files another

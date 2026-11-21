@@ -1,8 +1,8 @@
 //! Tools of the command palette that are not a view of their own: open a
 //! package file from anywhere, rewrite a package compressed or not, export a
 //! script package's class sources, prepare a mod folder from chosen files
-//! (with their recorded bases), discard every unsaved edit, and the
-//! package's import and name tables.
+//! (with their recorded bases), upgrade a mod package to deltas, discard
+//! every unsaved edit, and the package's import and name tables.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -227,6 +227,78 @@ impl Studio {
         let dirty: Vec<String> = self.dirty.iter().cloned().collect();
         let view = cx.new(|cx| ModFolder::new(backend, me, files, dirty, window, cx));
         window.open_dialog(cx, move |dialog, window, _| dialog.title("Prepare a mod folder").w(px(640.0)).max_w(window.viewport_size().width * 0.94).child(view.clone()));
+    }
+
+    /// Upgrade a mod: pick it, choose where the new package goes, let the
+    /// backend make every game file it changes a delta of today's format
+    /// (`mod.upgrade`, checked file by file), then pack it, and sign it with
+    /// the signing key when there is one, like a build.
+    pub(super) fn upgrade_mod(&mut self, cx: &mut Context<Self>) {
+        let pick = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Upgrade this mod".into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = pick.await else { return };
+            let Some(input) = paths.into_iter().next() else { return };
+            let stem = input.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "mod".into());
+            let near = input.parent().map(|p| p.to_path_buf()).unwrap_or_else(documents);
+            let Ok(target) = this.update(cx, |_, cx| cx.prompt_for_new_path(&near, Some(&format!("{stem}-upgraded.tempest")))) else { return };
+            let Ok(Ok(Some(out))) = target.await else { return };
+            let _ = this.update(cx, |this, cx| this.upgrade_mod_to(input, out, cx));
+        })
+        .detach();
+    }
+
+    /// [`Studio::upgrade_mod`] once the files are known (also the driver's `upgrade <mod> <out>`).
+    pub(super) fn upgrade_mod_to(&mut self, input: std::path::PathBuf, out: std::path::PathBuf, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            if out == input {
+                let _ = this.update(cx, |this, cx| this.toast(Tone::Error, "Choose another file for the upgraded mod: it would replace the mod itself", cx));
+                return;
+            }
+            let stem = input.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "mod".into());
+            let staging = std::env::temp_dir().join("tempest-studio-native").join("upgrade").join(&stem);
+            let _ = std::fs::remove_dir_all(&staging);
+            let Ok(call) = this.update(cx, |this, cx| {
+                this.toast(Tone::Info, format!("Upgrading {}…", file_name(&input.to_string_lossy())), cx);
+                this.backend.call("mod.upgrade", json!({ "mod": input.to_string_lossy(), "out": staging.to_string_lossy() }))
+            }) else { return };
+            let report = match call.await {
+                Ok(r) => r.json,
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| this.toast(Tone::Error, format!("Could not upgrade {}: {e}", file_name(&input.to_string_lossy())), cx));
+                    return;
+                }
+            };
+            let (s, o) = (staging.to_string_lossy().to_string(), out.to_string_lossy().to_string());
+            let packed = cx.background_executor().spawn(async move { super::cooker::run_cli_split(&["pack".into(), s, o]) }).await;
+            let signed = match &packed {
+                Ok((0, _, _)) if super::cooker::signing_key().exists() => {
+                    let o = out.to_string_lossy().to_string();
+                    Some(cx.background_executor().spawn(async move { super::cooker::run_cli_split(&["sign".into(), o]) }).await)
+                }
+                _ => None,
+            };
+            let _ = std::fs::remove_dir_all(&staging);
+            let _ = this.update(cx, |this, cx| {
+                match packed {
+                    Ok((0, _, _)) => {}
+                    Ok((_, out, err)) => return this.toast(Tone::Error, format!("tempest mod pack failed: {}", (out + &err).trim()), cx),
+                    Err(e) => return this.toast(Tone::Error, e, cx),
+                }
+                let size = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                let files = report["files"].as_array().cloned().unwrap_or_default();
+                let made = files.iter().filter(|f| f["result"] == "delta").count();
+                let signed = if matches!(signed, Some(Ok((0, _, _)))) { "signed" } else { "not signed" };
+                this.toast(Tone::Success, format!("Upgraded {}: {} → {} ({made} of {} game files as deltas, {signed})", file_name(&input.to_string_lossy()), model::human_size(size(&input)), model::human_size(size(&out)), files.len()), cx);
+                for f in files.iter().filter(|f| f["result"] == "kept").take(3) {
+                    this.toast(Tone::Warning, format!("{}: {}", file_name(f["file"].as_str().unwrap_or_default()), f["why"].as_str().unwrap_or_default()), cx);
+                }
+                this.last_upgrade = Some(json!({ "out": out.to_string_lossy(), "before": size(&input), "after": size(&out), "files": files, "signed": signed }));
+                if std::env::var_os("TEMPEST_DRIVE").is_none() {
+                    cx.reveal_path(&out);
+                }
+            });
+        })
+        .detach();
     }
 
     /// The imports and names of a package, filtered (the Package info dialog's lists).

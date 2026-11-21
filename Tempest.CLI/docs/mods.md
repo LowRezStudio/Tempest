@@ -56,6 +56,20 @@ launcher. Format, `upk delta create|apply|info|digest|verify` and the Studio's b
 are ordinary entries in `CHECKSUMS`, and the code policy below does not treat script packages as
 code.
 
+**Upgrading a mod** (`tempest mod upgrade <mod> --game <folder> [--output <file>] [--key <file>]
+[--fast] [--json]`): rewrites a mod so every game file it changes ships as a delta of today's format.
+The input is a `.tempest` or `.zip` package, a mod folder, or a bare `.upk` / `.pck` / `.dat` of the
+first mod format (a manifest is made from its name). `upk mod upgrade` does the work (`mod.upgrade`
+in the [backend](../../Tempest.UnrealScript/docs/deltas.md)): whole files under `files/` and deltas
+of older builders are made again against the game at `--game` (its pristine file: the launcher's
+backup when a mod changed it), each new delta is rebuilt and compared with the mod's file, and the
+mod's own entry is kept when that fails or when the delta is not smaller zipped (files `upk` cannot
+read, or a delta bigger than the file); a file the same as the game's is left out; code, scripts,
+readme, icon and new files are carried over. The CLI packs the result like `mod pack`, next to the
+mod as `<name>-upgraded.tempest` by default, and signs it with `--key` (the author's signature does
+not cover the new contents: an upgraded package with DLLs or Lua needs signing again to install).
+Clean HUD 7.5 MB → 0.94 MB, Golden Seris 38 MB → 2.2 MB, both install to byte-identical game files.
+
 ## Mod signing
 
 `.tempest` packages carry `CHECKSUMS` (sha256 per file), `CHECKSUMS.asc` (OpenPGP signature over it)

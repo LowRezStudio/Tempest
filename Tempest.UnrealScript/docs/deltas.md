@@ -107,6 +107,25 @@ resolver: jobs `{base, deltas, out, dir, game}` in one process, events as JSON l
 object's class is unknown (its references would be copied as indices), and the CLI picks the first
 given package's folder that holds `Core.upk`.
 
+Mod upgrades (`upgrade.rs`, `mod.upgrade` in `serve.rs`, `upk mod upgrade <mod> --game <dir> -o
+<out-dir> [--fast]`, the CLI's `tempest mod upgrade`): `upgrade::unpack` extracts a `.tempest` /
+`.zip` (refusing entries outside the folder), copies a folder, or turns a first-format `.upk` /
+`.pck` / `.dat` into `files/<game path>` with a manifest from its name; drops the seal (`CHECKSUMS`,
+`CHECKSUMS.asc`, `SIGNER.pub`); finds each entry's game file case-insensitively in the folder's own
+spelling (`game_file`). `files/` packages, marshals and Wwise files the game has, and `deltas/`
+whose target exists (rebuilt first with `upgrade::rebuild` from the pristine file, the launcher's
+backup else the game's; a delta adding classes the database lacks is kept as it was) become cooker
+items; a preview pass (`mod_items`, no sharing) drops files equal to the game's and keeps entries
+the cooker cannot read; `mod_cook` makes the rest (sharing objects several files hold), the
+original `manifest.toml` is written back; every new delta is rebuilt and compared with the mod's
+file (`upgrade::differences`, object by object, row by row, entry by entry, in parallel) and kept
+only when equal and smaller zipped than the original entry (`zipped_size`, deflate as in the
+package; deltas with shared objects are not size-checked); otherwise the original entry is put back
+with the shared objects its old delta used, and unused shared files are removed. The report lists
+each file's `result` (delta, kept with `why`, left out), zipped sizes, delta version and shared
+objects. Porcelain Palace's three unreadable map packages are kept whole, its others become 0.8–2.2
+KB deltas over 2.6 MB of objects both map versions share.
+
 Wwise package deltas (`kind: "pck"`, `wwise/delta.rs`): no image; the header's `ops` name table
 entries or bank parts (paths above, what the launcher's conflict check reads as `ops[].path`), each
 `add`/`set` payload is a slice of one stream (`stream: [0, offset, len]`, `size`), `set`/`delete`

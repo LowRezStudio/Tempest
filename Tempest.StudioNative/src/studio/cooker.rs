@@ -1928,6 +1928,9 @@ impl Cooker {
                         .item(item("Remove from game", removable, |this, _, cx| this.remove_from_game(cx)))
                         .separator()
                         .item(item("Publish…", can_use, |this, w, cx| this.publish_dialog(w, cx)))
+                        .item(item("Upgrade another mod to deltas…", true, |this, w, cx| {
+                            let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::UpgradeMod, w, cx));
+                        }))
                 }),
             )
             .child(

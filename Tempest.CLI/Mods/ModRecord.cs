@@ -38,6 +38,22 @@ public class ModConflictInfo
     public bool IsSameMod { get; set; } = false;
 }
 
+/// <summary>What <c>mod upgrade --json</c> prints.</summary>
+public class ModUpgradeResult
+{
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+    public string? Output { get; set; }
+    /// <summary>The mod's size and the new package's, in bytes.</summary>
+    public long Before { get; set; }
+    public long After { get; set; }
+    public bool Signed { get; set; }
+    /// <summary>Per game file: <c>file</c>, <c>from</c>, <c>result</c> (delta, kept, left out), <c>before</c>, <c>after</c>, <c>why</c> (upk's report).</summary>
+    public System.Text.Json.JsonElement? Files { get; set; }
+    /// <summary>Objects several deltas use, stored once in <c>shared/</c>.</summary>
+    public long SharedBytes { get; set; }
+}
+
 public class ModInstallResult
 {
     internal HashSet<string> DeltaTargetsToResolve { get; set; } = new(StringComparer.OrdinalIgnoreCase);

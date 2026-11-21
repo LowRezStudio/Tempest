@@ -64,6 +64,7 @@ pub enum Cmd {
     ShowAudio,
     Rewrite,
     ModFolder,
+    UpgradeMod,
     ExportSources,
     PackageInfo,
     CheckUpdates,
@@ -164,6 +165,7 @@ impl Cmd {
         Cmd::SoundNames,
         Cmd::Rewrite,
         Cmd::ModFolder,
+        Cmd::UpgradeMod,
         Cmd::ExportSources,
         Cmd::PackageInfo,
         Cmd::CheckUpdates,
@@ -256,6 +258,7 @@ impl Cmd {
             Cmd::SoundNames => i("Name sounds by what plays them, or by their ids", "View", "", "events in words with their ability, sounds by role (heard by enemies, variant 2 of 5); off: the game's names and ids"),
             Cmd::Rewrite => i("Rewrite this package compressed / uncompressed…", "Package", "", "a copy of the file on disk in the other storage"),
             Cmd::ModFolder => i("Prepare a mod folder from packages (advanced)…", "Package", "", "manifest.toml and chosen files, as deltas where a base is recorded"),
+            Cmd::UpgradeMod => i("Upgrade a mod to deltas…", "Package", "", "a .tempest (or a .upk, .pck, .dat mod) rewritten with every game file it changes as a delta of today's format: smaller, and it combines with other mods"),
             Cmd::ExportSources => i("Export the class sources of this script package…", "Package", "", "every class decompiled into <Package>/Classes/*.uc"),
             Cmd::PackageInfo => i("Package info…", "Package", "", "versions, storage, flags; its imports and names"),
             Cmd::CheckUpdates => i("Check for updates", "Help", "", ""),
@@ -322,7 +325,7 @@ impl Cmd {
             Cmd::AddObject | Cmd::AddGroup | Cmd::FindReplace | Cmd::Verify | Cmd::SaveAs | Cmd::GoToObject | Cmd::Rewrite | Cmd::PackageInfo => s.open.is_some(),
             Cmd::ExportSources => s.open.as_ref().is_some_and(|t| s.packages.iter().any(|p| p.path == t.path && p.script)),
             Cmd::ProjectFolder => s.project.is_some(),
-            Cmd::ShowAudio | Cmd::ModFolder => s.dir.is_some(),
+            Cmd::ShowAudio | Cmd::ModFolder | Cmd::UpgradeMod => s.dir.is_some(),
             Cmd::Discard => s.open.as_ref().is_some_and(|t| s.dirty.contains(&t.path)),
             Cmd::SaveAll => !s.dirty.is_empty(),
             Cmd::NewInstance => class.as_deref().is_some_and(material::is_material),
@@ -470,6 +473,7 @@ impl Studio {
             Cmd::ShowAudio => self.set_view(View::Audio, window, cx),
             Cmd::Rewrite => self.rewrite_dialog(window, cx),
             Cmd::ModFolder => self.mod_folder_dialog(window, cx),
+            Cmd::UpgradeMod => self.upgrade_mod(cx),
             Cmd::ExportSources => self.export_sources(cx),
             Cmd::PackageInfo => {
                 if let Some(p) = self.open.as_ref().map(|t| t.path.clone()) {
@@ -860,6 +864,11 @@ impl Studio {
                 let lod = arg.parse::<usize>().map_err(|_| "meshlod <n>")?;
                 let (path, i) = (self.open.as_ref().map(|t| t.path.clone()).unwrap_or_default(), self.selected_export.ok_or("nothing selected")?);
                 self.load_mesh(path, i, lod, cx);
+            }
+            // `upgrade <mod>|<out.tempest>`: Upgrade a mod to deltas without the file dialogs.
+            "upgrade" => {
+                let (input, out) = arg.split_once('|').ok_or("upgrade <mod>|<out.tempest>")?;
+                self.upgrade_mod_to(input.trim().into(), out.trim().into(), cx);
             }
             "project" => {
                 let (verb, rest) = arg.split_once(' ').unwrap_or((arg, ""));

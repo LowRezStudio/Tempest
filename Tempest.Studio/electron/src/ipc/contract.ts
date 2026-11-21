@@ -2499,6 +2499,35 @@ export interface UpkMethods {
 			shared?: { files: number; uses: number; bytes: number; saved: number };
 		};
 	};
+	"mod.upgrade": {
+		/**
+		 * The mod at `mod` (a .tempest or .zip package, a mod folder, or a .upk / .pck / .dat of the
+		 * first mod format) as a mod folder at `out` whose game files are deltas of today's format,
+		 * each checked against the mod's file; the caller packs and signs it (`tempest mod pack|sign`).
+		 * Events: `upgrade.progress {stage, done, total}`.
+		 */
+		params: { mod: string; out: string; compression?: "small" | "fast" };
+		result: {
+			dir: string;
+			/** The input was a bare file of the first mod format (a manifest was made for it). */
+			legacy: boolean;
+			/** Per game file the mod changes; `before`/`after` are zipped sizes in bytes. */
+			files: {
+				file: string;
+				from: "whole file" | "delta";
+				result: "delta" | "kept" | "left out";
+				before: number;
+				after: number;
+				version?: number;
+				shared?: number;
+				why?: string;
+			}[];
+			/** Entries carried over as they were (code, scripts, readme, icon, new files). */
+			carried: number;
+			/** Objects several deltas use, stored once in `shared/`. */
+			sharedBytes: number;
+		};
+	};
 	"batch.plan": { params: { dir: string; recursive?: boolean }; result: BatchResult };
 	"batch.run": {
 		/**

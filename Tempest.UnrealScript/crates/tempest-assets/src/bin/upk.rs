@@ -61,6 +61,8 @@ fn usage() -> ExitCode {
            upk deps <pkg> <idx|path>                           what it references, what references it\n  \
            upk mod-dir <dir> --id <id> --name <name> [--version 1.0.0] [--author <name>] <file.upk>...\n                                              \
                                                mod folder for `tempest mod pack` (files/, manifest.toml)\n  \
+           upk mod upgrade <mod.tempest|folder|file.upk> --game <dir> -o <out-dir> [--fast]\n                                              \
+                                               the mod with every game file it changes as a delta of today's format (report as JSON on stdout)\n  \
            upk replace <pkg> <query> <replacement> -o <out.upk> [--names] [--dry-run]\n                                              \
                                                find & replace in property values (strings, names, object refs) and object names\n  \
            upk batch-import <cooked-dir> <files-dir> [-o <outdir>] [--dry-run] [-r]\n                                              \
@@ -134,6 +136,7 @@ fn main() -> ExitCode {
         "deps" if args.len() >= 3 => cmd_deps(&args[1], &args[2], &args[1..]),
         "shaders" if args.len() >= 2 => cmd_shaders(&args[1..]),
         "mod-dir" if args.len() >= 2 => cmd_mod_dir(&args[1..]),
+        "mod" if args.len() >= 3 && args[1] == "upgrade" => cmd_mod_upgrade(&args[2..]),
         "delta" if args.len() >= 3 => cmd_delta(&args[1..]),
         "swf" if args.len() >= 3 && (args[1] == "verify" || args[1] == "info" || args[1] == "dump") => cmd_swf(&args[1..]),
         "swf" if args.len() >= 4 => cmd_media(&args[1..], true),
@@ -1780,6 +1783,30 @@ fn cmd_delta_batch(plan_path: &str) -> Res {
         done += sizes[i];
     }
     progress(total, jobs.len(), "done");
+    Ok(())
+}
+
+/// `upk mod upgrade <mod> --game <dir> -o <out-dir> [--fast]`: the server's
+/// `mod.upgrade` (serve.rs) over the game at `--game` (its folder or its
+/// CookedPCConsole), progress on stderr, the report as JSON on stdout.
+fn cmd_mod_upgrade(args: &[String]) -> Res {
+    let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
+    let input = args.iter().enumerate().find(|(i, a)| !a.starts_with('-') && (*i == 0 || !["--game", "-o"].contains(&args[i - 1].as_str()))).map(|(_, a)| a.clone()).ok_or("missing the mod to upgrade")?;
+    let game = PathBuf::from(get("--game").ok_or("missing --game <game folder>")?);
+    let out = get("-o").ok_or("missing -o <out-dir>")?;
+    let cooked = if game.join("ChaosGame").join("CookedPCConsole").is_dir() { game.join("ChaosGame").join("CookedPCConsole") } else { game.clone() };
+    if !cooked.join("Core.upk").exists() {
+        return Err(format!("{} is not a game folder (no ChaosGame/CookedPCConsole/Core.upk)", game.display()).into());
+    }
+    let mut server = tempest_assets::serve::Server::with_events(|e| {
+        if e["event"] == "upgrade.progress" {
+            eprintln!("[upgrade] {} {}/{}", e["stage"].as_str().unwrap_or(""), e["done"], e["total"]);
+        }
+    });
+    server.call("workspace.open", &serde_json::json!({ "dir": cooked.to_string_lossy() })).map_err(|e| e.to_string())?;
+    let compression = if args.iter().any(|a| a == "--fast") { "fast" } else { "small" };
+    let r = server.call("mod.upgrade", &serde_json::json!({ "mod": input, "out": out, "compression": compression })).map_err(|e| e.to_string())?;
+    println!("{r}");
     Ok(())
 }
 

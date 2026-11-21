@@ -1000,22 +1000,7 @@ internal class ModCommands
             }
 
             var secretKey = key == null ? null : ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key));
-
-            if (File.Exists(outputZip)) File.Delete(outputZip);
-            using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Create))
-            {
-                foreach (var file in Directory.GetFiles(fullSourceDir, "*", SearchOption.AllDirectories))
-                {
-                    var relativePath = Path.GetRelativePath(fullSourceDir, file).Replace('\\', '/');
-                    if (!ModSigning.IsSealEntry(relativePath))
-                        archive.CreateEntryFromFile(file, relativePath);
-                }
-            }
-            // Sealing reads the entries back, which a Create-mode archive cannot do.
-            using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Update))
-            {
-                ModSigning.Seal(archive, secretKey);
-            }
+            PackDirectory(fullSourceDir, outputZip, secretKey);
 
             Console.WriteLine(secretKey == null
                 ? $"Packed '{outputZip}' (unsigned)"
@@ -1028,6 +1013,125 @@ internal class ModCommands
             return 1;
         }
     }
+
+    /// <summary>Zips a mod folder into a package and seals it (CHECKSUMS, and a signature when <paramref name="secretKey"/> is given).</summary>
+    private static void PackDirectory(string sourceDir, string outputZip, PgpSecretKey? secretKey)
+    {
+        if (File.Exists(outputZip)) File.Delete(outputZip);
+        using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Create))
+        {
+            foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+                if (!ModSigning.IsSealEntry(relativePath))
+                    archive.CreateEntryFromFile(file, relativePath);
+            }
+        }
+        // Sealing reads the entries back, which a Create-mode archive cannot do.
+        using (var archive = ZipFile.Open(outputZip, ZipArchiveMode.Update))
+        {
+            ModSigning.Seal(archive, secretKey);
+        }
+    }
+
+    /// <summary>Rewrites a mod so that every game file it changes ships as a delta of today's format: whole files and older deltas are made again, smaller, and combine with other mods. The result is a new package next to the old one</summary>
+    /// <param name="package">The mod: a .tempest or .zip package, a mod folder, or a .upk, .pck or .dat file of the first mod format</param>
+    /// <param name="game">The game folder the mod was made for (the deltas are made against its files)</param>
+    /// <param name="output">The package to write (default: next to the mod, named &lt;name&gt;-upgraded.tempest)</param>
+    /// <param name="key">Private key file to sign the new package with (the original signature does not cover the new contents)</param>
+    /// <param name="fast">Compress with zstd instead of LZMA: much faster to make, about 30 % bigger</param>
+    /// <param name="json">Print the report as JSON</param>
+    public async Task<int> Upgrade([Argument] string package, string game, string? output = null, string? key = null, bool fast = false, bool json = false)
+    {
+        var work = Path.Combine(Path.GetTempPath(), "tempest-upgrade-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            if (!File.Exists(package) && !Directory.Exists(package))
+                throw new Exception($"{package} does not exist");
+            var input = Path.GetFullPath(package);
+            var resolvedGame = GameFolderResolver.Resolve(game);
+            output ??= Path.Combine(Path.GetDirectoryName(input.TrimEnd(Path.DirectorySeparatorChar)) ?? ".", Path.GetFileNameWithoutExtension(input.TrimEnd(Path.DirectorySeparatorChar)) + "-upgraded.tempest");
+            output = Path.GetFullPath(output);
+            if (string.Equals(output, input, StringComparison.OrdinalIgnoreCase))
+                throw new Exception("the upgraded package would replace the mod itself: choose another --output");
+            var secretKey = key == null ? null : ModSigning.ReadSecretKey(await File.ReadAllTextAsync(key));
+            Directory.CreateDirectory(work);
+            var modDir = Path.Combine(work, "mod");
+
+            var psi = new ProcessStartInfo(DeltaResolver.FindUpk()) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "mod", "upgrade", input, "--game", resolvedGame, "-o", modDir }) psi.ArgumentList.Add(a);
+            if (fast) psi.ArgumentList.Add("--fast");
+            using var process = Process.Start(psi) ?? throw new Exception("could not start upk");
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var errors = new List<string>();
+            while (await process.StandardError.ReadLineAsync() is { } line)
+            {
+                // Progress lines go on to the caller's stderr, as the delta resolver's do.
+                if (line.StartsWith("[upgrade]", StringComparison.Ordinal)) await Console.Error.WriteLineAsync(line);
+                else errors.Add(line);
+            }
+            await process.WaitForExitAsync();
+            var stdout = await stdoutTask;
+            if (process.ExitCode != 0)
+                throw new Exception(errors.LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))?.Trim() ?? $"upk exited {process.ExitCode}");
+            using var report = JsonDocument.Parse(stdout);
+            PackDirectory(modDir, output, secretKey);
+
+            var before = File.Exists(input) ? new FileInfo(input).Length : Directory.GetFiles(input, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+            var after = new FileInfo(output).Length;
+            if (json)
+            {
+                var root = report.RootElement;
+                var result = new ModUpgradeResult
+                {
+                    Success = true,
+                    Output = output,
+                    Before = before,
+                    After = after,
+                    Signed = secretKey != null,
+                    Files = root.GetProperty("files").Clone(),
+                    SharedBytes = root.TryGetProperty("sharedBytes", out var sb) && sb.TryGetInt64(out var n) ? n : 0,
+                };
+                Console.WriteLine(JsonSerializer.Serialize(result, ModSourceGenerationContext.Default.ModUpgradeResult));
+                return 0;
+            }
+            foreach (var f in report.RootElement.GetProperty("files").EnumerateArray())
+            {
+                var text = (string name) => f.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+                var size = (string name) => f.TryGetProperty(name, out var v) && v.TryGetInt64(out var n) ? n : 0;
+                var line = text("result") switch
+                {
+                    "delta" => $"  {text("file")}: {text("from")} → delta, {Human(size("before"))} → {Human(size("after"))}",
+                    "left out" => $"  {text("file")}: left out ({text("why")})",
+                    _ => $"  {text("file")}: {text("why")}",
+                };
+                Console.WriteLine(line);
+            }
+            Console.WriteLine($"Upgraded '{Path.GetFileName(input)}' → '{output}': {Human(before)} → {Human(after)}");
+            if (secretKey != null)
+                Console.WriteLine($"Signed by {ModSigning.Describe(secretKey.PublicKey)}");
+            else
+                Console.WriteLine("The new package is not signed: sign it with `tempest mod sign` (a package with DLLs or Lua scripts needs a signature to install).");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            if (json) Console.WriteLine(JsonSerializer.Serialize(new ModUpgradeResult { Success = false, Error = ex.Message }, ModSourceGenerationContext.Default.ModUpgradeResult));
+            else await Console.Error.WriteLineAsync($"Failed to upgrade the mod: {ex.Message}");
+            return 1;
+        }
+        finally
+        {
+            try { Directory.Delete(work, true); } catch { }
+        }
+    }
+
+    private static string Human(long bytes) => bytes switch
+    {
+        >= 1_000_000 => $"{bytes / 1_000_000.0:0.0} MB",
+        >= 1_000 => $"{bytes / 1_000.0:0.0} KB",
+        _ => $"{bytes} B",
+    };
 
     /// <summary>Signs an existing .tempest package in place, rewriting its CHECKSUMS and CHECKSUMS.asc</summary>
     /// <param name="package">Path to the .tempest package</param>

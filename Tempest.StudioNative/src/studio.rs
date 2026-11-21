@@ -191,6 +191,8 @@ pub struct Studio {
     material: Option<material::MaterialState>,
     /// The mesh preview's game shaders: sections, drawn, errors (`None` while they load).
     mesh_game: Option<serde_json::Value>,
+    /// What the last mod upgrade made (`studio_state.lastUpgrade`).
+    last_upgrade: Option<serde_json::Value>,
     /// Draw material and mesh previews with the game's shaders (when the materials have them).
     game_shaders: bool,
     slots: Option<material::Slots>,
@@ -363,6 +365,7 @@ impl Studio {
             mesh_preview: None,
             material: None,
             mesh_game: None,
+            last_upgrade: None,
             game_shaders: true,
             slots: None,
             sound: None,

@@ -195,6 +195,7 @@ pub fn set(cx: &mut App) {
                         item(Cmd::Rewrite),
                         item(Cmd::ExportSources),
                         item(Cmd::ModFolder),
+                        item(Cmd::UpgradeMod),
                         MenuItem::separator(),
                         item(Cmd::ExportObject),
                         item(Cmd::ReplaceObject),

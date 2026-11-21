@@ -137,6 +137,7 @@ impl Studio {
             "material": self.material_state_json(),
             "audio": self.audio_state_json(),
             "meshGame": self.mesh_game.clone(),
+            "lastUpgrade": self.last_upgrade.clone(),
             "meshCamera": self.mesh.as_ref().map(|m| super::mesh::camera_json(&m.borrow().view.camera)),
             "meshPreview": self.mesh_preview.as_ref().map(|p| p.slots.iter().map(|(s, m)| json!({ "slot": s, "package": m.package, "export": m.export })).collect::<Vec<_>>()),
             "unsaved": unsaved,

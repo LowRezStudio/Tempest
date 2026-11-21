@@ -792,6 +792,7 @@ impl Server {
             "twrk.save" => self.twrk_save(p),
             "mod.changes" => self.mod_changes(),
             "mod.cook" => self.mod_cook(p),
+            "mod.upgrade" => self.mod_upgrade(p),
             "mod.preview" => self.mod_preview(p),
             "mod.match" => self.mod_match(p),
             "mod.forgetCopy" => self.mod_forget_copy(p),
@@ -5559,6 +5560,198 @@ impl Server {
         }
         let shared_bytes: usize = shared_written.values().sum();
         Ok(json!({ "dir": dir.to_string_lossy(), "entries": entries, "shared": { "files": shared_written.len(), "uses": shared_uses, "bytes": shared_bytes, "saved": shared_saved } }))
+    }
+
+    /// `mod.upgrade {mod, out, compression}`: the mod at `mod` (a `.tempest`
+    /// or `.zip` package, a mod folder, or a `.upk` / `.pck` / `.dat` of the
+    /// first mod format) as a mod folder at `out` whose game files are deltas
+    /// of today's format, made by the cooker against the workspace's game
+    /// (`upgrade.rs`). Whole files and deltas of an older builder are made
+    /// again; a file the same as the game's is left out; everything else is
+    /// carried over. Every new delta is checked: rebuilt from the pristine
+    /// game file and compared with the mod's version, and the mod's own entry
+    /// is kept when that fails or when the delta is not smaller zipped. The
+    /// seal (`CHECKSUMS`, signature, signer) is dropped: the caller packs and
+    /// signs the folder. Events: `upgrade.progress {stage, done, total}`.
+    fn mod_upgrade(&mut self, p: &J) -> Res<J> {
+        use crate::upgrade::{self, Entry};
+        let input = PathBuf::from(s(p, "mod")?);
+        let out = PathBuf::from(s(p, "out")?);
+        let cooked = self.dir()?.to_path_buf();
+        let root = crate::twrk::game_root(&cooked);
+        let db = self.db()?;
+        let work = out.with_file_name(format!("{}.upgrade-work", out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "mod".into())));
+        let progress = |this: &mut Server, stage: &str, done: usize, total: usize| {
+            let mut f = Map::new();
+            f.insert("stage".into(), J::from(stage));
+            f.insert("done".into(), J::from(done));
+            f.insert("total".into(), J::from(total));
+            this.event("upgrade.progress", f);
+        };
+        progress(self, "unpack", 0, 1);
+        let src = upgrade::unpack(&input, &work.join("mod"), &root)?;
+        // The game file as it was shipped: the launcher's backup when a mod changed it.
+        let pristine = |t: &Path| crate::basestore::launcher_backup(t).unwrap_or_else(|| t.to_path_buf());
+        // (entry in the mod, the edited game file, the game's file)
+        let mut todo: Vec<(String, PathBuf, PathBuf)> = Vec::new();
+        // Entries carried over as they were, and why.
+        let mut kept: Vec<(String, String)> = Vec::new();
+        let deltas: Vec<&Entry> = src.entries.iter().filter(|e| matches!(e, Entry::Delta { .. })).collect();
+        for (k, e) in src.entries.iter().enumerate() {
+            match e {
+                Entry::Whole { rel, target } => todo.push((rel.clone(), src.dir.join(rel), target.clone())),
+                Entry::Delta { rel, target } => {
+                    progress(self, "rebuild", k, deltas.len());
+                    let game = &rel["deltas/".len()..rel.len() - ".tdelta".len()];
+                    let edited = work.join("edited").join(game);
+                    let made = crate::delta::Delta::read(src.dir.join(rel)).map_err(|e| e.to_string()).and_then(|d| upgrade::rebuild(db, &pristine(target), &[d], &edited));
+                    match made {
+                        Ok(_) => todo.push((rel.clone(), edited, target.clone())),
+                        Err(why) => kept.push((rel.clone(), format!("could not be rebuilt ({why}); kept as it was"))),
+                    }
+                }
+                Entry::Other { .. } => {}
+            }
+        }
+        let item = |edited: &Path, target: &Path| json!({ "source": edited.to_string_lossy(), "target": target.to_string_lossy(), "kind": upgrade::kind_of(target).unwrap_or("upk"), "mode": "delta" });
+        // What each file changed (no compression yet): files the cooker cannot
+        // read stay as they were, files the same as the game's are left out.
+        progress(self, "compare", 0, todo.len());
+        let items: Vec<J> = todo.iter().map(|(_, e, t)| item(e, t)).collect();
+        let looked = self.mod_items(&items, &|_| Sharing::No, true);
+        let mut cook: Vec<(String, PathBuf, PathBuf)> = Vec::new();
+        let mut left_out: Vec<String> = Vec::new();
+        for (t, r) in todo.into_iter().zip(looked) {
+            match r {
+                Err(e) => kept.push((t.0, format!("{e}; kept as it was"))),
+                Ok((_, None, _)) => left_out.push(t.0),
+                Ok(_) => cook.push(t),
+            }
+        }
+        progress(self, "cook", 0, cook.len());
+        let items: Vec<J> = cook.iter().map(|(_, e, t)| item(e, t)).collect();
+        let compression = opt_s(p, "compression").unwrap_or_else(|| "small".into());
+        self.mod_cook(&json!({ "dir": out.to_string_lossy(), "id": "upgrade", "items": items, "compression": compression }))?;
+        std::fs::write(out.join("manifest.toml"), &src.manifest)?;
+
+        // Every new delta, checked against the file it stands for (in parallel).
+        let made: Vec<(&(String, PathBuf, PathBuf), PathBuf)> = cook
+            .iter()
+            .filter_map(|c| {
+                let rel = crate::basestore::game_relative(&c.2);
+                let entry = out.join("deltas").join(format!("{rel}.tdelta"));
+                entry.exists().then_some((c, entry))
+            })
+            .collect();
+        progress(self, "check", 0, made.len());
+        let check_dir = work.join("check");
+        let checked = crate::delta::parallel_map(&made, |(c, entry)| -> Result<(u64, u64, u32, usize), String> {
+            let d = crate::delta::Delta::read(entry).map_err(|e| e.to_string())?;
+            let rebuilt = check_dir.join(&c.0);
+            upgrade::rebuild(db, &pristine(&c.2), std::slice::from_ref(&d), &rebuilt)?;
+            let diffs = upgrade::differences(db, &c.1, &rebuilt)?;
+            let _ = std::fs::remove_file(&rebuilt);
+            if let Some(first) = diffs.first() {
+                return Err(format!("the delta does not rebuild the mod's file ({} differences, first: {first})", diffs.len()));
+            }
+            let version = std::fs::read(entry).ok().and_then(|b| b.get(4..8).map(|v| u32::from_le_bytes([v[0], v[1], v[2], v[3]]))).unwrap_or(0);
+            let before = upgrade::zipped_size(&src.dir.join(&c.0)).map_err(|e| e.to_string())?;
+            // Shared object files are part of what a delta costs: compared only without them.
+            let shared = d.shared_hashes().len();
+            let after = if shared == 0 { upgrade::zipped_size(entry).map_err(|e| e.to_string())? } else { 0 };
+            Ok((before, after, version, shared))
+        });
+        let mut report: Vec<J> = Vec::new();
+        let mut restore: Vec<String> = Vec::new();
+        for ((c, entry), r) in made.iter().zip(checked) {
+            let from = if c.0.starts_with("deltas/") { "delta" } else { "whole file" };
+            match r {
+                Ok((before, after, version, shared)) if after < before => {
+                    let after = if after == 0 { upgrade::zipped_size(entry).unwrap_or(0) } else { after };
+                    report.push(json!({ "file": c.0, "from": from, "result": "delta", "version": version, "before": before, "after": after, "shared": shared }));
+                }
+                Ok((before, after, _, _)) => {
+                    let _ = std::fs::remove_file(entry);
+                    restore.push(c.0.clone());
+                    report.push(json!({ "file": c.0, "from": from, "result": "kept", "before": before, "after": before, "why": format!("a delta would not be smaller ({after} bytes zipped against {before}); kept as it was") }));
+                }
+                Err(why) => {
+                    let _ = std::fs::remove_file(entry);
+                    restore.push(c.0.clone());
+                    let size = upgrade::zipped_size(&src.dir.join(&c.0)).unwrap_or(0);
+                    report.push(json!({ "file": c.0, "from": from, "result": "kept", "before": size, "after": size, "why": format!("{why}; kept as it was") }));
+                }
+            }
+        }
+        for (rel, why) in &kept {
+            let size = upgrade::zipped_size(&src.dir.join(rel)).unwrap_or(0);
+            report.push(json!({ "file": rel, "from": if rel.starts_with("deltas/") { "delta" } else { "whole file" }, "result": "kept", "before": size, "after": size, "why": why }));
+            restore.push(rel.clone());
+        }
+        for rel in &left_out {
+            let size = upgrade::zipped_size(&src.dir.join(rel)).unwrap_or(0);
+            report.push(json!({ "file": rel, "from": if rel.starts_with("deltas/") { "delta" } else { "whole file" }, "result": "left out", "before": size, "after": 0, "why": "the same as the game's file" }));
+        }
+        // What is carried over: everything that is not a game file made again,
+        // the entries kept as they were, and the shared objects their old deltas use.
+        let copy = |rel: &str| -> Res<()> {
+            let to = out.join(rel);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(src.dir.join(rel), to)?;
+            Ok(())
+        };
+        let mut old_shared: HashSet<String> = HashSet::new();
+        for rel in &restore {
+            copy(rel)?;
+            if rel.starts_with("deltas/") {
+                if let Ok(b) = std::fs::read(src.dir.join(rel)) {
+                    if let Ok(d) = crate::delta::Delta::from_bytes(&b) {
+                        old_shared.extend(d.shared_hashes());
+                    }
+                }
+            }
+        }
+        for e in &src.entries {
+            if let Entry::Other { rel } = e {
+                let shared = rel.to_ascii_lowercase().starts_with("shared/");
+                if !shared || old_shared.iter().any(|h| rel.contains(h.as_str())) {
+                    copy(rel)?;
+                }
+            }
+        }
+        // Shared object files no delta uses any more (their delta was kept as it was).
+        let mut used: HashSet<String> = HashSet::new();
+        let mut deltas_out = Vec::new();
+        let mut stack = vec![out.join("deltas")];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().filter_map(|e| e.ok()) {
+                if e.path().is_dir() {
+                    stack.push(e.path());
+                } else {
+                    deltas_out.push(e.path());
+                }
+            }
+        }
+        for d in &deltas_out {
+            if let Ok(delta) = std::fs::read(d).map_err(|e| e.to_string()).and_then(|b| crate::delta::Delta::from_bytes(&b).map_err(|e| e.to_string())) {
+                used.extend(delta.shared_hashes());
+            }
+        }
+        for e in std::fs::read_dir(out.join("shared")).into_iter().flatten().filter_map(|e| e.ok()) {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !used.iter().any(|h| name.starts_with(h.as_str())) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+        let _ = std::fs::remove_dir(out.join("shared"));
+        // Objects several deltas use, stored once (not in any one file's "after").
+        let shared_bytes: u64 = std::fs::read_dir(out.join("shared")).into_iter().flatten().filter_map(|e| e.ok()).filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum();
+        let _ = std::fs::remove_dir_all(&work);
+        report.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+        let carried = src.entries.iter().filter(|e| matches!(e, Entry::Other { .. })).count();
+        Ok(json!({ "dir": out.to_string_lossy(), "legacy": src.legacy, "files": report, "carried": carried, "sharedBytes": shared_bytes }))
     }
 
     /// `mod.match {path}`: the game file a package or `.dat` from anywhere is

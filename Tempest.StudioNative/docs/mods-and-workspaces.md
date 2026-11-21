@@ -20,6 +20,11 @@ file and keeps it unfolded across refreshes; errors shown in the file's row; wit
 more, a bar above them ticks or unticks every file and removes the unticked ones from the list or
 project in one go (`remove_left_out`, after a confirm; a file with unsaved edits always stays
 listed, so it is neither counted nor offered in its ⋯ menu); other files),
+**Upgrade a mod to deltas…** (`Cmd::UpgradeMod`, Package menu, palette, the Mod view's ⋯ menu;
+`Studio::upgrade_mod` → `upgrade_mod_to`, driver `upgrade <mod>|<out.tempest>`,
+`studio_state.lastUpgrade`): picks a mod and where the new package goes, runs `mod.upgrade` into a
+temporary folder, packs it with `tempest-cli mod pack` and signs it when the signing key exists,
+like a build; the toast gives the sizes, kept files come as warnings with their reason,
 Details (name, version, author, icon, readme; Advanced: id, dependencies, Build only's compression)
 and Publish (listing, game patches, changelog, a pointer to the website for images and visibility,
 where the game patches are picked like on the website's upload form: Every patch (from the first
