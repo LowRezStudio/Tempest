@@ -7607,7 +7607,7 @@ dependencies = [
 
 [[package]]
 name = "tempest-studio-native"
-version = "1.0.0-alpha.6"
+version = "1.0.0-alpha.7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
