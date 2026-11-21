@@ -823,6 +823,12 @@ impl Studio {
             .children(portrait)
             .child(v_flex().flex_1().min_w_0().child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(ch.name.clone())).child(subtitle))
             .child(Button::new("champ-row").small().ghost().icon(Icon::new(IconName::Database)).label("Open in game data").tooltip("The champion's row: health, speed, role and every other field").on_click(cx.listener(move |this, _, window, cx| this.open_row("DATA_SET_BOTS", "BOT_ID", id, window, cx))))
+            .when(!is_other_entry(&ch), |d| {
+                d.child(Button::new("champ-sounds").small().ghost().icon(Icon::new(IconName::AudioLines)).label("Sounds").tooltip("Every voice line, ability, weapon and skin sound of this champion").on_click(cx.listener(move |this, _, window, cx| {
+                    this.set_view(super::View::Audio, window, cx);
+                    this.user_audio_open(format!("champion:{id}"), true, cx);
+                })))
+            })
             .child(Button::new("champ-new-skin").small().icon(Icon::new(IconName::Shirt)).label("New skin…").tooltip("Create a new skin for this champion, step by step").on_click(cx.listener(move |this, _, window, cx| this.open_wizard_for_champion(super::wizard::Kind::Skin, id, champ_name.clone(), window, cx))));
         div()
             .id("champion")

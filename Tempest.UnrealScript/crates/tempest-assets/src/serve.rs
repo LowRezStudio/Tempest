@@ -33,7 +33,7 @@ use crate::texcache::{MipLocation, TextureSource};
 use crate::texture_ops::{self, ImportOptions, ImportSource};
 use crate::verify::verify_package;
 use crate::visit::references;
-use crate::wwise::{akpk, bnk, fnv, vorbis};
+use crate::wwise::{self, akpk, bnk, fnv, vorbis};
 use crate::audio;
 use crate::mcts;
 
@@ -152,6 +152,10 @@ pub struct Server {
     /// Wwise object names from the AkEvent / AkBank exports of the workspace,
     /// by FNV id (built from the search index on first use).
     ak_names: Option<HashMap<u32, String>>,
+    /// `wwise.owners`: champions and items with the `.pck` files and events
+    /// of their sounds, and every event's label by lower-case name (built
+    /// from the assembly on first use).
+    sound_owners: Option<SoundIndex>,
     /// The assembly and language marshals of the workspace (`mcts.open`).
     mcts: Option<mcts::workspace::Workspace>,
     /// Binary payloads of the response being built.
@@ -295,7 +299,7 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
@@ -659,6 +663,7 @@ impl Server {
             "wwise.export" => self.wwise_export(p),
             "wwise.import" => self.wwise_import(p),
             "wwise.forObject" => self.wwise_for_object(p),
+            "wwise.owners" => Ok(self.sound_index()?.owners.clone()),
             "wwise.replacePcm" => self.wwise_replace_pcm(p),
             "sound.replacePcm" => self.sound_replace_pcm(p),
             "particle.system" => self.particle_system(p),
@@ -857,6 +862,7 @@ impl Server {
         self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
+        self.sound_owners = None;
         self.order = None;
         self.db = Some(db);
         self.src = Some(std::sync::Arc::new(TextureSource::open(&dir)?));
@@ -4516,41 +4522,186 @@ impl Server {
         }
     }
 
-    /// `wwise.open`: banks, media, events and streams of a `.pck`.
+    /// `wwise.owners`' index, built once per workspace: the assembly's
+    /// champions and items ([`mcts::workspace::Workspace::sound_owners`]) with
+    /// the `.pck` files their events are in (an event `WW_PC_Nyx.X` is in
+    /// bank `WWB_PC_Nyx`). A champion gets every file named after it (its
+    /// voice lines, quick chat, abilities, weapon, skins: the names its
+    /// ability and weapon banks use, Pip's are `Alchemist`), and only its
+    /// events of shared files.
+    fn sound_index(&mut self) -> Res<&SoundIndex> {
+        if self.sound_owners.is_none() {
+            let dir = self.dir()?.to_path_buf();
+            if self.mcts.is_none() {
+                self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
+            }
+            let raw = self.mcts.as_mut().unwrap().sound_owners()?;
+            self.sound_owners = Some(owners_with_banks(&raw, &dir));
+        }
+        Ok(self.sound_owners.as_ref().unwrap())
+    }
+
+    /// `wwise.open {path}` or `{banks: [{path, only?}], labels?, owner?, title?}`: banks,
+    /// media, events and streams of one `.pck` or several (a champion's), each
+    /// bank and medium naming its file (`pck`). `only` keeps those events (by
+    /// name) of a shared file. Every event lists its sounds with why they
+    /// play (`when`: variant, crossfade such as heard by allies or enemies,
+    /// switch state); every medium its first event and why. `labels` adds
+    /// what the assembly says of an event (`fx`, `part`, `owner`, `skin`),
+    /// `owner` (`{kind: "champion"|"item", id}`) as that owner's. Each event
+    /// has a `title` in words.
     fn wwise_open(&mut self, p: &J) -> Res<J> {
-        let path = s(p, "path")?.to_string();
+        let wanted: Vec<(String, Option<HashSet<u32>>)> =
+            match p.get("banks").and_then(|b| b.as_array()) {
+                Some(list) => list
+                    .iter()
+                    .filter_map(|b| {
+                        let path = b["path"].as_str()?.to_string();
+                        let only = b["only"].as_array().map(|a| {
+                            a.iter()
+                                .filter_map(|n| n.as_str().map(fnv::name_id))
+                                .collect()
+                        });
+                        Some((path, only))
+                    })
+                    .collect(),
+                None => vec![(s(p, "path")?.to_string(), None)],
+            };
+        let owner_key = p
+            .get("owner")
+            .and_then(|o| Some((o["kind"].as_str()?.to_string(), o["id"].as_u64()?)));
+        let labels = if opt_b(p, "labels").unwrap_or(false) {
+            match self.sound_index() {
+                Ok(ix) => {
+                    // An owner's own labels first: a shared sound is named after its part.
+                    let mut l = ix.labels.clone();
+                    if let Some((kind, id)) = &owner_key {
+                        let list = if kind == "item" {
+                            &ix.owners["items"]
+                        } else {
+                            &ix.owners["champions"]
+                        };
+                        if let Some(o) = list
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|o| o["id"].as_u64() == Some(*id))
+                        {
+                            for (k, v) in o["events"].as_object().into_iter().flatten() {
+                                l.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                    Some((l, ix.words.clone()))
+                }
+                Err(e) => {
+                    eprintln!("wwise.open: no sound labels: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (labels, words) = match labels {
+            Some((l, w)) => (Some(l), w),
+            None => (None, wwise::names::Words::builtin()),
+        };
         let names = self.ak_names().clone();
-        let pkg = self.wwise_package(&path)?;
         let mut banks = Vec::new();
-        for e in &pkg.banks {
-            let b = match bnk::Bank::parse(&e.data) {
-                Ok(b) => b,
-                Err(err) => {
-                    banks.push(json!({ "id": e.id, "error": err.to_string(), "media": [], "events": [] }));
-                    continue;
+        let mut streams = Vec::new();
+        let mut languages = Vec::new();
+        for (path, only) in &wanted {
+            let pkg = self.wwise_package(path)?;
+            let file = Path::new(path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            // The tokens an event of this file starts with (`nyx`, `skin02`).
+            let owner: Vec<String> = bank_name_parts(&file).map(|(_, o, rest)| std::iter::once(o).chain(rest.split('_').map(str::to_string)).filter(|t| !t.is_empty()).collect()).unwrap_or_default();
+            for (_, l) in &pkg.languages {
+                if !languages.contains(l) {
+                    languages.push(l.clone());
+                }
+            }
+            // The first event of the file playing each medium, and why.
+            let mut first: HashMap<u32, (String, J)> = HashMap::new();
+            for e in &pkg.banks {
+                let b = match bnk::Bank::parse(&e.data) {
+                    Ok(b) => b,
+                    Err(err) => {
+                        banks.push(json!({ "id": e.id, "pck": path, "file": file, "error": err.to_string(), "media": [], "events": [] }));
+                        continue;
+                    }
+                };
+                let objects = b.objects();
+                let tree = bnk::Hierarchy::new(&objects);
+                let mut events: Vec<J> = objects
+                    .iter()
+                    .filter(|o| o.kind == bnk::EVENT && only.as_ref().is_none_or(|ids| ids.contains(&o.id)))
+                    .map(|o| {
+                        let played = tree.event_sounds(o.id);
+                        let name = names.get(&o.id);
+                        let mut ev = json!({
+                            "id": o.id,
+                            "name": name,
+                            "title": name.map(|n| wwise::names::event_title(n, &owner, &words)),
+                            "media": played.iter().map(|s| s.source.id).collect::<Vec<_>>(),
+                            "sounds": played.iter().map(|s| json!({ "id": s.source.id, "when": s.when.iter().map(condition_json).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+                        });
+                        // A first-person event shares the label of the event everyone hears.
+                        let label = name.and_then(|n| {
+                            let l = labels.as_ref()?;
+                            let n = n.to_ascii_lowercase();
+                            l.get(&n).or_else(|| l.get(&n.replacen("_1p_", "_", 1)))
+                        });
+                        if let Some(l) = label {
+                            if let (Some(m), Some(x)) = (ev.as_object_mut(), l.as_object()) {
+                                m.extend(x.clone());
+                            }
+                        }
+                        ev
+                    })
+                    .collect();
+                events.sort_by(|a, b| a["name"].as_str().unwrap_or("~").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("~").to_ascii_lowercase()));
+                for ev in &events {
+                    let name = ev["name"].as_str().map(str::to_string).unwrap_or_else(|| format!("event {}", ev["id"]));
+                    for snd in ev["sounds"].as_array().into_iter().flatten() {
+                        if let Some(id) = snd["id"].as_u64() {
+                            first.entry(id as u32).or_insert_with(|| (name.clone(), snd["when"].clone()));
+                        }
+                    }
+                }
+                let media: Vec<J> = b.media().into_iter().map(|(id, d)| Self::media_json(id, d, Some(e.id), false)).collect();
+                banks.push(json!({ "id": e.id, "pck": path, "file": file, "name": names.get(&(e.id as u32)), "version": b.version, "objects": objects.len(), "media": media, "events": events, "only": only.is_some() }));
+            }
+            for st in &pkg.streams {
+                streams.push(Self::media_json(st.id as u32, &st.data, None, true));
+            }
+            // Media of this file: its path, and the event that plays them; a
+            // shared file shows only the media of the events kept.
+            let tag = |m: &mut J| {
+                let id = m["id"].as_u64().unwrap_or(0) as u32;
+                m["pck"] = J::from(path.as_str());
+                if let Some((ev, when)) = first.get(&id) {
+                    m["event"] = J::from(ev.as_str());
+                    m["when"] = when.clone();
                 }
             };
-            let objects = b.objects();
-            let media: Vec<J> = b.media().into_iter().map(|(id, d)| Self::media_json(id, d, Some(e.id), false)).collect();
-            let mut events: Vec<J> = objects
-                .iter()
-                .filter(|o| o.kind == bnk::EVENT)
-                .map(|o| {
-                    let (sources, _) = bnk::event_media(&objects, o.id);
-                    json!({ "id": o.id, "name": names.get(&o.id), "media": sources.iter().map(|s| s.id).collect::<Vec<_>>() })
-                })
-                .collect();
-            events.sort_by(|a, b| a["name"].as_str().unwrap_or("~").to_ascii_lowercase().cmp(&b["name"].as_str().unwrap_or("~").to_ascii_lowercase()));
-            banks.push(json!({ "id": e.id, "name": names.get(&(e.id as u32)), "version": b.version, "objects": objects.len(), "media": media, "events": events }));
+            for b in banks.iter_mut().filter(|b| b["pck"] == path.as_str()) {
+                if let Some(list) = b["media"].as_array_mut() {
+                    list.iter_mut().for_each(tag);
+                    if only.is_some() {
+                        list.retain(|m| m.get("event").is_some());
+                    }
+                }
+            }
+            for m in streams.iter_mut().filter(|m| m.get("pck").is_none()) {
+                tag(m);
+            }
+            if only.is_some() {
+                streams.retain(|m| m["pck"] != path.as_str() || m.get("event").is_some());
+            }
         }
-        let streams: Vec<J> = pkg.streams.iter().map(|st| Self::media_json(st.id as u32, &st.data, None, true)).collect();
-        Ok(json!({
-            "path": path,
-            "name": Path::new(&path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
-            "languages": pkg.languages.iter().map(|(_, n)| n.clone()).collect::<Vec<_>>(),
-            "banks": banks,
-            "streams": streams,
-        }))
+        let first_path = wanted.first().map(|(p, _)| p.clone()).unwrap_or_default();
+        let name = opt_s(p, "title").unwrap_or_else(|| Path::new(&first_path).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default());
+        Ok(json!({ "path": first_path, "paths": wanted.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>(), "name": name, "languages": languages, "banks": banks, "streams": streams }))
     }
 
     /// `wwise.preview`: a media file as Ogg Vorbis.
@@ -4727,13 +4878,16 @@ impl Server {
                         continue;
                     }
                     found = true;
-                    let (sources, t) = bnk::event_media(&objects, ev);
+                    let (_, t) = bnk::event_media(&objects, ev);
                     trail = t.into_iter().map(|(k, id)| json!({ "kind": bnk::kind_name(k), "id": id })).collect();
-                    for src in sources {
-                        match Self::wwise_media(pkg, src.id) {
-                            Some((bytes, bank)) => media.push(Self::media_json(src.id, &bytes, bank, src.stream_type == 2)),
-                            None => media.push(json!({ "id": src.id, "bytes": 0, "codec": "missing", "channels": 0, "sampleRate": 0, "duration": 0.0, "streamed": src.stream_type == 2, "bank": null, "error": "not in this package" })),
-                        }
+                    for played in bnk::event_sounds(&objects, ev) {
+                        let src = played.source;
+                        let mut m = match Self::wwise_media(pkg, src.id) {
+                            Some((bytes, bank)) => Self::media_json(src.id, &bytes, bank, src.stream_type == 2),
+                            None => json!({ "id": src.id, "bytes": 0, "codec": "missing", "channels": 0, "sampleRate": 0, "duration": 0.0, "streamed": src.stream_type == 2, "bank": null, "error": "not in this package" }),
+                        };
+                        m["when"] = played.when.iter().map(condition_json).collect();
+                        media.push(m);
                     }
                 }
                 None => {
@@ -4749,7 +4903,8 @@ impl Server {
                 media.push(Self::media_json(st.id as u32, &st.data, None, true));
             }
         }
-        Ok(json!({ "pck": pck_path, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "found": found, "media": media, "trail": trail }))
+        let label = self.sound_index().ok().and_then(|ix| ix.labels.get(&name.to_ascii_lowercase()).cloned());
+        Ok(json!({ "pck": pck_path, "bank": bank_name, "bankId": bank_id, "eventId": event_id, "name": name, "found": found, "media": media, "trail": trail, "label": label }))
     }
 
     // ----- mods -------------------------------------------------------------
@@ -6603,6 +6758,226 @@ fn pck_files(dir: &Path) -> Vec<PckFile> {
 /// Whether a `.pck` holds nothing (read only when small).
 fn is_empty_pck(path: &Path, size: u64) -> bool {
     size < 4096 && std::fs::read(path).ok().and_then(|b| akpk::Package::parse(&b).ok()).is_some_and(|p| p.banks.is_empty() && p.streams.is_empty() && p.externals.is_empty())
+}
+
+/// A condition of [`bnk::event_sounds`] as JSON, with the names of its ids
+/// when known.
+fn condition_json(c: &bnk::Condition) -> J {
+    use crate::wwise::names::name;
+    match c {
+        bnk::Condition::Variant { index, count } => {
+            json!({ "kind": "variant", "index": index, "count": count })
+        }
+        bnk::Condition::Crossfade { param, from, to } => {
+            json!({ "kind": "crossfade", "param": param, "paramName": name(*param), "from": from, "to": to })
+        }
+        bnk::Condition::Switch {
+            group,
+            states,
+            state,
+        } => {
+            json!({ "kind": if *state { "state" } else { "switch" }, "group": group, "groupName": name(*group), "states": states, "stateNames": states.iter().map(|s| name(*s)).collect::<Vec<_>>() })
+        }
+    }
+}
+
+/// `(category, owner, rest)` of a bank file name: `WWB_PC_Nyx_Skin02` →
+/// `("PC", "Nyx", "Skin02")`.
+fn bank_name_parts(stem: &str) -> Option<(String, String, String)> {
+    let lower = stem.to_ascii_lowercase();
+    let rest = if lower.starts_with("wwb_") {
+        &stem[4..]
+    } else if lower.starts_with("ww_") {
+        &stem[3..]
+    } else {
+        return None;
+    };
+    let mut it = rest.splitn(3, '_');
+    let cat = it.next()?.to_string();
+    let owner = it.next()?.to_string();
+    Some((cat, owner, it.next().unwrap_or("").to_string()))
+}
+
+/// [`mcts::workspace::Workspace::sound_owners`] with each owner's `.pck`
+/// files (`banks: [{path, file, folder, category, skin, only}]`, `only`
+/// null for every event of the file, else the names of the owner's events in
+/// it), and every event's label by lower-case name (`fx`, `part`, `owner`,
+/// `skin`; a champion's first).
+fn owners_with_banks(raw: &J, dir: &Path) -> SoundIndex {
+    let files = pck_files(dir);
+    let localized: HashSet<String> = files
+        .iter()
+        .filter(|f| f.folder.is_some())
+        .map(|f| f.name.to_ascii_lowercase())
+        .collect();
+    // By lower-case name: the language folder's file first (voice banks), as forObject.
+    let mut by_name: HashMap<String, &PckFile> = HashMap::new();
+    for f in &files {
+        let k = f.name.to_ascii_lowercase();
+        if f.folder.is_none() && localized.contains(&k) {
+            continue;
+        }
+        by_name.entry(k).or_insert(f);
+    }
+    let bank_of = |event: &str| -> Option<&PckFile> {
+        let group = event.split('.').next()?.to_ascii_lowercase();
+        let stem = group
+            .strip_prefix("ww_")
+            .map(|r| format!("wwb_{r}"))
+            .unwrap_or(group);
+        by_name.get(&stem).copied()
+    };
+    let mut labels: HashMap<String, J> = HashMap::new();
+    let owners = |list: &J, champion: bool, labels: &mut HashMap<String, J>| -> Vec<J> {
+        let mut out = Vec::new();
+        for o in list.as_array().into_iter().flatten() {
+            let events: Vec<&J> = o["events"].as_array().into_iter().flatten().collect();
+            // A champion's own names: those of its ability and weapon banks.
+            let mut tokens: HashSet<String> = HashSet::new();
+            if champion {
+                if let Some(r) = o["reference"].as_str().filter(|r| !r.is_empty()) {
+                    tokens.insert(r.to_ascii_lowercase());
+                }
+                // Abilities: what its own meshes play (a card may borrow another
+                // champion's FX); weapon: the weapon bank its events use most.
+                let mut weapons: HashMap<String, usize> = HashMap::new();
+                for e in &events {
+                    let Some((cat, owner, _)) = e["event"]
+                        .as_str()
+                        .and_then(|ev| bank_name_parts(ev.split('.').next().unwrap_or("")))
+                    else {
+                        continue;
+                    };
+                    if owner.eq_ignore_ascii_case("shared") {
+                        continue;
+                    }
+                    if cat.eq_ignore_ascii_case("pc") && e["part"] == "Champion" {
+                        tokens.insert(owner.to_ascii_lowercase());
+                    } else if cat.eq_ignore_ascii_case("wep") {
+                        *weapons.entry(owner.to_ascii_lowercase()).or_default() += 1;
+                    }
+                }
+                if let Some((w, _)) = weapons
+                    .into_iter()
+                    .max_by_key(|(w, n)| (*n, std::cmp::Reverse(w.clone())))
+                {
+                    tokens.insert(w);
+                }
+            }
+            // path → (file, only, skin).
+            let mut banks: std::collections::BTreeMap<
+                String,
+                (&PckFile, Option<Vec<String>>, Option<String>),
+            > = Default::default();
+            for f in by_name.values() {
+                if bank_name_parts(&f.name)
+                    .is_some_and(|(_, owner, _)| tokens.contains(&owner.to_ascii_lowercase()))
+                {
+                    banks.insert(f.path.to_string_lossy().to_string(), (f, None, None));
+                }
+            }
+            let mut by_event = Map::new();
+            for e in &events {
+                let Some(ev) = e["event"].as_str() else {
+                    continue;
+                };
+                let leaf = ev.rsplit('.').next().unwrap_or(ev).to_ascii_lowercase();
+                let f = bank_of(ev);
+                // A skin's swap reaching a sound of the base files: the skin keeps the default sound.
+                let base = f.is_some_and(|f| {
+                    bank_name_parts(&f.name).is_some_and(|(_, _, rest)| rest.is_empty())
+                });
+                let label = if base && !e["skin"].is_null() {
+                    json!({ "fx": e["fx"], "part": null, "skin": null, "owner": o["name"] })
+                } else {
+                    json!({ "fx": e["fx"], "part": e["part"], "skin": e["skin"], "owner": o["name"] })
+                };
+                labels.entry(leaf.clone()).or_insert_with(|| label.clone());
+                by_event.entry(leaf.clone()).or_insert(label);
+                let Some(f) = f else { continue };
+                let entry = banks
+                    .entry(f.path.to_string_lossy().to_string())
+                    .or_insert((f, Some(Vec::new()), None));
+                if let Some(only) = entry.1.as_mut() {
+                    if !only.contains(&leaf) {
+                        only.push(leaf.clone());
+                    }
+                }
+                if let Some(skin) = e["skin"].as_str().filter(|s| !s.is_empty()) {
+                    entry.2.get_or_insert_with(|| skin.to_string());
+                }
+            }
+            // A skin's voice banks share its ability banks' suffix (`_Skin04`).
+            let mut skin_of: HashMap<(String, String), String> = HashMap::new();
+            for (f, _, skin) in banks.values() {
+                if let (Some((_, owner, rest)), Some(skin)) = (bank_name_parts(&f.name), skin) {
+                    if !rest.is_empty() {
+                        skin_of
+                            .entry((owner.to_ascii_lowercase(), rest.to_ascii_lowercase()))
+                            .or_insert_with(|| skin.clone());
+                    }
+                }
+            }
+            // Voice lines, abilities, weapon, quick chat, then the rest; a skin's after the base, shared files last.
+            let mut banks: Vec<(String, (&PckFile, Option<Vec<String>>, Option<String>))> =
+                banks.into_iter().collect();
+            banks.sort_by_key(|(_, (f, only, _))| {
+                let (cat, owner, rest) = bank_name_parts(&f.name).unwrap_or_default();
+                let order = ["vox", "pc", "wep", "vgs", "mt"]
+                    .iter()
+                    .position(|c| cat.eq_ignore_ascii_case(c))
+                    .unwrap_or(9);
+                (
+                    only.is_some(),
+                    order,
+                    owner.to_ascii_lowercase(),
+                    !rest.is_empty(),
+                    rest.to_ascii_lowercase(),
+                )
+            });
+            let banks: Vec<J> = banks
+                .into_iter()
+                .map(|(path, (f, only, skin))| {
+                    let (cat, owner, rest) = bank_name_parts(&f.name).unwrap_or_default();
+                    // The base files are the default skin's, whatever a skin's swap reaches.
+                    let skin = if rest.is_empty() { None } else { skin.or_else(|| skin_of.get(&(owner.to_ascii_lowercase(), rest.to_ascii_lowercase())).cloned()) };
+                    json!({ "path": path, "file": f.name, "folder": f.folder, "category": cat, "variant": rest, "skin": skin, "only": only })
+                })
+                .collect();
+            let mut o = o.clone();
+            if let Some(m) = o.as_object_mut() {
+                m.remove("events");
+                m.insert("banks".into(), J::from(banks));
+                m.insert("events".into(), J::Object(by_event));
+            }
+            out.push(o);
+        }
+        out
+    };
+    let champions = owners(&raw["champions"], true, &mut labels);
+    let items = owners(&raw["items"], false, &mut labels);
+    let mut words = wwise::names::Words::builtin();
+    for l in labels.values() {
+        for k in ["fx", "part", "skin"] {
+            if let Some(t) = l[k].as_str() {
+                words.add_text(t);
+            }
+        }
+    }
+    SoundIndex {
+        owners: json!({ "champions": champions, "items": items }),
+        labels,
+        words,
+    }
+}
+
+/// `wwise.owners`' index ([`owners_with_banks`]).
+struct SoundIndex {
+    owners: J,
+    /// Every event's label by lower-case name: `fx`, `part`, `owner`, `skin`.
+    labels: HashMap<String, J>,
+    /// The words of those labels, to split event names into ([`wwise::names::event_title`]).
+    words: wwise::names::Words,
 }
 
 /// A Wwise `.pck` with replaced media, kept in memory until saved.

@@ -41,6 +41,11 @@ pub struct WwiseState {
     info: J,
 }
 
+/// The event's name, for file names.
+fn w_name(info: &J) -> String {
+    info["name"].as_str().unwrap_or("sound").to_string()
+}
+
 pub fn is_wwise(class: &str) -> bool {
     matches!(class.to_ascii_lowercase().as_str(), "akevent" | "akbank")
 }
@@ -117,14 +122,15 @@ impl Studio {
         .detach();
     }
 
-    fn wwise_export(&mut self, id: u64, cx: &mut Context<Self>) {
+    fn wwise_export(&mut self, id: u64, stem: String, cx: &mut Context<Self>) {
         let Some(pck) = self.wwise.as_ref().and_then(|w| w.info["pck"].as_str().map(|s| s.to_string())) else { return };
-        self.wwise_export_in(pck, id, cx);
+        self.wwise_export_in(pck, id, stem, cx);
     }
 
-    pub(super) fn wwise_export_in(&mut self, pck: String, id: u64, cx: &mut Context<Self>) {
+    /// Export medium `id` of `pck` to a file picked, named `stem` by default.
+    pub(super) fn wwise_export_in(&mut self, pck: String, id: u64, stem: String, cx: &mut Context<Self>) {
         let docs = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join("Documents")).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
-        let target = cx.prompt_for_new_path(&docs, Some(&format!("{id}.ogg")));
+        let target = cx.prompt_for_new_path(&docs, Some(&format!("{stem}.ogg")));
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(out))) = target.await else { return };
             let Ok(call) = this.update(cx, |this, _| this.backend.call("wwise.export", json!({ "path": pck, "id": id, "out": out.to_string_lossy() }))) else { return };
@@ -137,14 +143,15 @@ impl Studio {
         .detach();
     }
 
-    /// Batch-export every medium in `ids` from `pck` to a chosen folder as `.wav`, `.ogg`, or `.wem`.
-    pub(super) fn wwise_export_all(&mut self, pck: String, mut ids: Vec<u64>, ext: &'static str, cx: &mut Context<Self>) {
+    /// Batch-export `rows` (`.pck`, medium, file name) of `title` (a file,
+    /// champion or item) to a chosen folder as `.wav`, `.ogg`, or `.wem`.
+    pub(super) fn wwise_export_all(&mut self, title: String, mut rows: Vec<(String, u64, String)>, ext: &'static str, cx: &mut Context<Self>) {
         let mut seen = HashSet::new();
-        ids.retain(|id| seen.insert(*id));
-        if pck.is_empty() || ids.is_empty() {
+        rows.retain(|(pck, id, _)| seen.insert((pck.clone(), *id)));
+        if rows.is_empty() {
             return;
         }
-        let total = ids.len();
+        let total = rows.len();
         let sound_noun = if total == 1 { "sound" } else { "sounds" };
         let pick = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -157,13 +164,13 @@ impl Studio {
             let Ok(Ok(Some(mut dirs))) = pick.await else { return };
             let Some(dir) = dirs.pop() else { return };
             let busy = crate::backend::Busy::new();
-            let bank_name = file_name(&pck);
+            let bank_name = title;
             let _ = this.update(cx, |this, cx| this.set_status(format!("Exporting {total} {sound_noun} from {bank_name}…"), cx));
             let mut ok = 0usize;
             let mut failed = 0usize;
             let mut first_err: Option<String> = None;
-            for (idx, id) in ids.iter().copied().enumerate() {
-                let out = dir.join(format!("{id}.{ext}"));
+            for (idx, (pck, id, stem)) in rows.iter().enumerate() {
+                let out = dir.join(format!("{stem}.{ext}"));
                 match backend.call("wwise.export", json!({ "path": pck, "id": id, "out": out.to_string_lossy() })).await {
                     Ok(_) => ok += 1,
                     Err(e) => {
@@ -218,6 +225,15 @@ impl Studio {
     }
 
     pub(super) fn wwise_replace_with_file(&mut self, pck: String, id: u64, file: String, cx: &mut Context<Self>) {
+        let what = format!("Replaced sound {id} with {}", file_name(&file));
+        let params = json!({ "path": pck, "id": id, "file": file });
+        self.wwise_write(pck, id, "wwise.import", params, what, cx);
+    }
+
+    /// Replace medium `id` of `pck` through `method` (`wwise.import` from a
+    /// file, `wwise.replacePcm` from the editor): an undoable unsaved edit of
+    /// the `.pck`, kept as the medium before and after.
+    pub(super) fn wwise_write(&mut self, pck: String, id: u64, method: &'static str, params: J, what: String, cx: &mut Context<Self>) {
         if self.player.playing() && self.ww_playing == Some(id) {
             self.player.stop();
         }
@@ -230,7 +246,7 @@ impl Studio {
                 .call("wwise.export", json!({ "path": pck, "id": id, "format": "wem", "out": before_wem.to_string_lossy() }))
                 .await
                 .is_ok();
-            let r = backend.call("wwise.import", json!({ "path": pck, "id": id, "file": file })).await;
+            let r = backend.call(method, params).await;
             let after_ok = if r.is_ok() && before_ok {
                 backend
                     .call("wwise.export", json!({ "path": pck, "id": id, "format": "wem", "out": after_wem.to_string_lossy() }))
@@ -250,11 +266,7 @@ impl Studio {
                         this.last_undo_was_assembly = false;
                     }
                     this.refresh_wwise_views(&pck, cx);
-                    this.toast(
-                        Tone::Success,
-                        format!("Replaced medium {id} with {} ({}); {} is edited", file_name(&file), crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), file_name(&pck)),
-                        cx,
-                    );
+                    this.toast(Tone::Success, format!("{what} ({}); {} is edited", crate::model::human_size(r.json["bytes"].as_u64().unwrap_or(0)), file_name(&pck)), cx);
                 }
                 Err(e) => {
                     let _ = std::fs::remove_file(&before_wem);
@@ -270,12 +282,10 @@ impl Studio {
     }
 
     pub(super) fn step_wwise(&mut self, redo: bool, cx: &mut Context<Self>) -> bool {
-        let prefer = if self.view == super::View::Audio { self.open_audio_path().map(str::to_string) } else { None };
+        let prefer = if self.view == super::View::Audio { self.open_audio_paths() } else { Vec::new() };
         let pop_from = |stack: &mut Vec<WwiseStep>| -> Option<WwiseStep> {
-            if let Some(cur) = prefer.as_deref() {
-                if let Some(pos) = stack.iter().rposition(|s| super::project::same_path(&s.pck, cur)) {
-                    return Some(stack.remove(pos));
-                }
+            if let Some(pos) = stack.iter().rposition(|s| prefer.iter().any(|cur| super::project::same_path(&s.pck, cur))) {
+                return Some(stack.remove(pos));
             }
             stack.pop()
         };
@@ -324,6 +334,10 @@ impl Studio {
 
     pub(super) fn refresh_wwise_views(&mut self, pck: &str, cx: &mut Context<Self>) {
         self.refresh_audio_open(pck, cx);
+        if let Some((p, id)) = self.ww_sound.as_ref().and_then(|s| s.wwise.clone()).filter(|(p, _)| super::project::same_path(p, pck)) {
+            self.ww_sound = None;
+            self.edit_wwise_sound(p, id, cx);
+        }
         if self.wwise.as_ref().and_then(|w| w.info["pck"].as_str()).is_some_and(|wp| super::project::same_path(wp, pck)) {
             if let (Some(pkg_path), Some(exp)) = (self.open.as_ref().map(|t| t.path.clone()), self.selected_export) {
                 self.load_wwise(pkg_path, exp, cx);
@@ -361,9 +375,21 @@ impl Studio {
         if media.is_empty() && pck.is_some() {
             body = body.child(div().text_xs().text_color(theme.muted_foreground).child("It plays no sound file (a stop, a state change, or media of another bank)"));
         }
+        let names = self.prefs.sound_names;
+        // What the assembly says the event belongs to.
+        if let Some(part) = info["label"]["part"].as_str().filter(|p| names && !p.is_empty() && *p != "Champion") {
+            let owner = info["label"]["owner"].as_str().unwrap_or("");
+            body = body.child(div().text_xs().text_color(theme.muted_foreground).child(if owner.is_empty() { part.to_string() } else { format!("{owner} · {part}") }));
+        }
+        let pck_path = info["pck"].as_str().unwrap_or("").to_string();
         for (k, m) in media.into_iter().enumerate() {
             let id = m["id"].as_u64().unwrap_or(0);
             let now = playing && self.ww_playing == Some(id);
+            let role = super::sound_names::when_text(&m["when"]);
+            let title = if names && !role.is_empty() { role.clone() } else { id.to_string() };
+            let stem = if names && !role.is_empty() { format!("{} {} ({id})", super::sound_names::file_stem(&w_name(info)), super::sound_names::file_stem(&role)) } else { id.to_string() };
+            let editing = self.wwise_editing(&pck_path, id);
+            let pe = pck_path.clone();
             body = body.child(
                 h_flex()
                     .min_h(px(super::ui::ROW))
@@ -372,9 +398,10 @@ impl Studio {
                     .flex_wrap()
                     .text_sm()
                     .child(Button::new(("ww-play", k)).xsmall().selected(now).icon(Icon::new(if now { IconName::Square } else { IconName::Play })).label(if now { "Stop" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.wwise_play(id, cx))))
-                    .child(div().font_family(crate::studio::ui::mono()).text_xs().child(id.to_string()))
+                    .child(div().when(!names || role.is_empty(), |d| d.font_family(crate::studio::ui::mono())).text_xs().child(title))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!(
-                        "{} · {} ch · {} Hz · {:.2} s · {}{}",
+                        "{}{} · {} ch · {} Hz · {:.2} s · {}{}",
+                        if names && !role.is_empty() { format!("id {id} · ") } else { String::new() },
                         m["codec"].as_str().unwrap_or_default(),
                         m["channels"],
                         m["sampleRate"],
@@ -382,9 +409,31 @@ impl Studio {
                         crate::model::human_size(m["bytes"].as_u64().unwrap_or(0)),
                         if m["streamed"].as_bool().unwrap_or(false) { " · streamed" } else { "" }
                     )))
-                    .child(Button::new(("ww-exp", k)).xsmall().ghost().label("Export…").on_click(cx.listener(move |this, _, _, cx| this.wwise_export(id, cx))))
+                    .child(Button::new(("ww-edit", k)).xsmall().ghost().selected(editing).label("Edit").tooltip("Trim, fade, gain, normalise, then re-encode into the sound bank").on_click(cx.listener(move |this, _, _, cx| this.edit_wwise_sound(pe.clone(), id, cx))))
+                    .child(Button::new(("ww-exp", k)).xsmall().ghost().label("Export…").on_click(cx.listener(move |this, _, _, cx| this.wwise_export(id, stem.clone(), cx))))
                     .child(Button::new(("ww-rep", k)).xsmall().ghost().label("Replace…").tooltip("An .ogg, .wav or .wem file, re-encoded to Wwise Vorbis").on_click(cx.listener(move |this, _, _, cx| this.wwise_replace(id, cx)))),
             );
+        }
+        // The editor, on one of these sounds.
+        if self.ww_sound.as_ref().and_then(|s| s.wwise.as_ref()).is_some_and(|(p, _)| super::project::same_path(p, &pck_path)) {
+            if let Some(editor) = self.render_sound_slot(super::sound::Slot::Wwise, cx) {
+                body = body.child(
+                    v_flex()
+                        .gap_1()
+                        .pt_2()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(div().flex_1().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child("Editing"))
+                                .child(Button::new("ww-edit-close").xsmall().ghost().icon(Icon::new(IconName::Close)).tooltip("Close the editor").on_click(cx.listener(|this, _, _, cx| {
+                                    this.player.stop();
+                                    this.ww_sound = None;
+                                    cx.notify();
+                                }))),
+                        )
+                        .child(editor),
+                );
+            }
         }
         Some(body.into_any_element())
     }

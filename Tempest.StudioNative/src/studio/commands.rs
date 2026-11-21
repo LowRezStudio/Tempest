@@ -60,6 +60,7 @@ pub enum Cmd {
     GameShaders,
     StopMaterialPreview,
     ShaderModel,
+    SoundNames,
     ShowAudio,
     Rewrite,
     ModFolder,
@@ -160,6 +161,7 @@ impl Cmd {
         Cmd::ShaderModel,
         Cmd::StopMaterialPreview,
         Cmd::ShowAudio,
+        Cmd::SoundNames,
         Cmd::Rewrite,
         Cmd::ModFolder,
         Cmd::ExportSources,
@@ -250,7 +252,8 @@ impl Cmd {
             Cmd::GameShaders => i("Toggle game shaders in previews", "View", "", "materials and meshes drawn by their compiled game shaders, or with their base colour"),
             Cmd::StopMaterialPreview => i("Stop previewing other materials on the mesh", "View", "", "draw every slot with its own material again"),
             Cmd::ShaderModel => i("Switch game shaders between shader model 5 and 3", "View", "", "the Direct3D 11 shaders the game runs by default, or its Direct3D 9 ones"),
-            Cmd::ShowAudio => i("Show the sounds", "View", "⌘4", "every sound bank (.pck): listen, export, replace voice lines, music and effects"),
+            Cmd::ShowAudio => i("Show the sounds", "View", "⌘4", "every sound bank (.pck), or a champion's or item's sounds: listen, edit, export, replace voice lines, music and effects"),
+            Cmd::SoundNames => i("Name sounds by what plays them, or by their ids", "View", "", "events in words with their ability, sounds by role (heard by enemies, variant 2 of 5); off: the game's names and ids"),
             Cmd::Rewrite => i("Rewrite this package compressed / uncompressed…", "Package", "", "a copy of the file on disk in the other storage"),
             Cmd::ModFolder => i("Prepare a mod folder from packages (advanced)…", "Package", "", "manifest.toml and chosen files, as deltas where a base is recorded"),
             Cmd::ExportSources => i("Export the class sources of this script package…", "Package", "", "every class decompiled into <Package>/Classes/*.uc"),
@@ -456,6 +459,13 @@ impl Studio {
             Cmd::ToggleTheme => self.toggle_theme(window, cx),
             Cmd::GameShaders => self.toggle_game_shaders(cx),
             Cmd::ShaderModel => self.toggle_shader_model(cx),
+            Cmd::SoundNames => {
+                self.prefs.sound_names = !self.prefs.sound_names;
+                self.prefs.save();
+                self.sound_names_changed(cx);
+                let on = if self.prefs.sound_names { "by what plays them" } else { "by their ids" };
+                self.toast(Tone::Info, format!("Sounds are named {on}"), cx);
+            }
             Cmd::StopMaterialPreview => self.stop_material_preview(None, cx),
             Cmd::ShowAudio => self.set_view(View::Audio, window, cx),
             Cmd::Rewrite => self.rewrite_dialog(window, cx),
@@ -875,8 +885,7 @@ impl Studio {
             }
             "audio" => {
                 self.set_view(View::Audio, window, cx);
-                let path = self.audio.as_ref().and_then(|a| a.package_path(arg)).ok_or_else(|| format!("no sound file {arg} (yet)"))?;
-                self.user_audio_open(path, true, cx);
+                return self.drive_audio(arg, cx);
             }
             "twrk-save" => self.save_workspace_to(false, Some(arg.to_string()), cx),
             "twrk-open" => self.open_workspace_file(arg.to_string(), cx),

@@ -33,7 +33,13 @@ impl Studio {
                 .as_deref()
                 .map(|t| super::assembly::friendly_table(t).map(str::to_string).unwrap_or_else(|| t.to_string()))
                 .unwrap_or_else(|| file_name(file)),
-            Place::Audio(pck) => pck.as_deref().map(|p| file_name(p).trim_end_matches(".pck").to_string()).unwrap_or_else(|| "Sounds".into()),
+            Place::Audio(pck) => match pck.as_deref() {
+                // A champion's or item's set is named as the list names it.
+                Some(p) if self.open_audio_path() == Some(p) => self.audio.as_ref().and_then(|a| a.title()).unwrap_or_else(|| "Sounds".into()),
+                Some(p) if !p.to_ascii_lowercase().ends_with(".pck") => "Sounds".into(),
+                Some(p) => file_name(p).trim_end_matches(".pck").to_string(),
+                None => "Sounds".into(),
+            },
             Place::Mod => "Mod".into(),
             Place::Map { path, view, .. } => format!("{}{}", file_name(path).trim_end_matches(".upk"), if view == "scene" { String::new() } else { format!(" · {view}") }),
         }

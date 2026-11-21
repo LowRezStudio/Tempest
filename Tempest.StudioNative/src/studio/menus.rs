@@ -153,6 +153,7 @@ pub fn set(cx: &mut App) {
                 item(Cmd::ToggleTheme),
                 item(Cmd::GameShaders),
                 item(Cmd::ShaderModel),
+                item(Cmd::SoundNames),
             ],
             disabled: false,
         },

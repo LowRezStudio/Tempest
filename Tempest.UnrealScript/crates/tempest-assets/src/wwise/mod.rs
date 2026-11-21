@@ -9,9 +9,11 @@
 //!   bank objects and embedded media only.
 //! * [`vorbis`]: Wwise Vorbis `.wem` ⇄ standard Ogg Vorbis.
 //! * [`fnv`]: the FNV-1 hash Wwise names everything by.
+//! * [`names`]: the names of the parameters, switches and states banks decide with.
 
 pub mod akpk;
 pub mod bnk;
 pub mod delta;
 pub mod fnv;
+pub mod names;
 pub mod vorbis;

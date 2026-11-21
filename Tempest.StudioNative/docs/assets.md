@@ -33,8 +33,10 @@ sign flips) and the same camera through `to_gltf_matrix`; sections without a com
 colour, and the button's tooltip says why. `Params::runtime` pins what the game drives at run time
 (the lobby selection glow off). Shader model 5 by default (`Cmd::ShaderModel` switches to 3, kept in
 `prefs.sm3`, read through `game_material::platform()`); constants are written by byte offset. Sound (`sound.rs`: waveform, rodio playback via
-`src/audio.rs`, editor trim/fades/gain/normalise/channels/quality → `sound.replacePcm`), Wwise
-(`wwise.rs`: AkEvent/AkBank media, play/export/replace), animation (`anim.rs`: `anim.preview` GLB
+`src/audio.rs`, editor trim/fades/gain/normalise/channels/quality → `sound.replacePcm`; the same
+editor on a Wwise medium, `sound::Slot::Wwise` in `Studio::ww_sound` → `wwise.replacePcm`, undoable
+as a `WwiseStep` like a replacement from a file), Wwise (`wwise.rs`: AkEvent/AkBank media named by
+role, the ability the event belongs to, play/edit/export/replace), animation (`anim.rs`: `anim.preview` GLB
 skinned on the CPU in `MeshView::set_time`, play/scrub/speed/loop, notifies, mesh and sequence
 pickers).
 
@@ -63,9 +65,16 @@ details; empty `None` placeholder exports are left out of the tree; export rows 
 readable class names (`pretty_class`, `class_icon`). Texture preview (`texture.rs`): Fit / 1:1 / 2×,
 any stored mip, dark / grey / light background, size, format and where the mip lives. Mesh viewport:
 the wheel zooms without scrolling the pane, the background follows the theme. **Audio** view (⌘4,
-`audio_view.rs`): every `.pck` of the folder and its subfolders (`ui::folder_mark`, as in the
-package list; the empty packages the folder keeps for `English(US)/` are hidden), its events by name, the media of one event or all,
-Play / Export / Replace. Package info (package context menu). A linked recovery workspace file every
+`audio_view.rs`): Files / Champions / Items. Files: every `.pck` of the folder and its subfolders
+(`ui::folder_mark`, as in the package list; the empty packages the folder keeps for `English(US)/`
+are hidden). Champions and Items (`wwise.owners`, read once): a champion's voice lines, abilities,
+weapon, quick chat and skins (the Champions view's Sounds button opens it), or an item's sounds,
+opened together (`wwise.open {banks}`) with a section per file (`sound_names::bank_label`: kind and
+skin name). Events by name, the media of one event or all, Play / Edit / Export / Replace; the editor
+sits above the sounds. **Settings ▸ Name sounds by what plays them** (`prefs.sound_names`, on by
+default, `Cmd::SoundNames`): events in words (`title`) with their ability, card or skin, sounds by
+role (`sound_names::when_text`: heard by enemies / by you and your team, `2 of 5`, `on grass`),
+exports named after them; off: the game's event names and ids. Package info (package context menu). A linked recovery workspace file every
 2 minutes with unsaved edits outside a project (`recovery/<hash>.twrk`, offered in a banner when the
 folder opens). A `.upk` argument opens its folder and the package. Assembly toolbar: New content,
 row add/duplicate/delete icons, ⋯ (Skins, Champion vendor, Export mod folder, Undo, Discard).

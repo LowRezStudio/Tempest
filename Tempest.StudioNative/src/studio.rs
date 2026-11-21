@@ -45,6 +45,7 @@ mod prefs;
 mod project;
 mod settings;
 mod sound;
+mod sound_names;
 mod tabs;
 mod texture;
 pub(crate) mod ui;
@@ -194,6 +195,8 @@ pub struct Studio {
     game_shaders: bool,
     slots: Option<material::Slots>,
     sound: Option<sound::SoundState>,
+    /// The sound editor on a Wwise medium (Audio view, AkEvent sounds).
+    ww_sound: Option<sound::SoundState>,
     wwise: Option<wwise::WwiseState>,
     anim: Option<anim::AnimState>,
     player: crate::audio::Player,
@@ -363,6 +366,7 @@ impl Studio {
             game_shaders: true,
             slots: None,
             sound: None,
+            ww_sound: None,
             wwise: None,
             anim: None,
             player: crate::audio::Player::default(),
@@ -622,9 +626,9 @@ impl Studio {
                 None => "Pick a game file (.upk) to inspect textures, meshes, materials and UI".into(),
             },
             View::Assembly => "Pick a game data table to edit stats, abilities, cards, skins or texts".into(),
-            View::Audio => match self.open_audio_path() {
-                Some(p) => file_name(p).into(),
-                None => "Select a sound bank (.pck) to listen or swap audio".into(),
+            View::Audio => match self.audio.as_ref().and_then(|a| a.title()) {
+                Some(t) => t.into(),
+                None => "Select a sound bank (.pck), champion or item to listen or swap audio".into(),
             },
             View::Map => "Pick a map to inspect levels, 3D actors, Kismet scripts and Matinees".into(),
             View::Mod => "Review your changes, fill in mod details, and build or install your mod".into(),
@@ -827,7 +831,7 @@ impl Studio {
                         if self.open_audio_path() != Some(resolved.as_str()) {
                             self.audio_open(resolved, cx);
                         } else {
-                            self.status = file_name(&resolved).into();
+                            self.status = self.audio.as_ref().and_then(|a| a.title()).unwrap_or_default().into();
                         }
                     }
                     None => {

@@ -69,7 +69,8 @@ fn usage() -> ExitCode {
            upk wwise ls <pck>                          banks, embedded and streamed media, events of a Wwise package\n  \
            upk wwise export <pck> <id|name> <out.ogg|out.wav|out.wem>   one media file (by id, or every media of a named event)\n  \
            upk wwise import <pck> <id> <in.ogg|in.wav|in.wem> -o <out.pck> [--quality 0.4]   replace a media file\n  \
-           upk wwise event <pck> <id|name>             what an event plays\n  \
+           upk wwise event <pck> <id|name>             what an event plays, and when (variant, ally/enemy crossfade, switch state)\n  \
+           upk wwise names <dir>                       game parameters, switches and states the banks under <dir> decide with\n  \
            upk wwise convert <in.wem|in.ogg|in.wav> <out.ogg|out.wem|out.wav> [--quality 0.4]   Wwise Vorbis <-> Ogg/WAV\n  \
            upk mcts ls <file.dat>                         tables and header of an assembly / Lang_*.dat marshal\n  \
            upk mcts dump <file.dat> <table> [--limit N] [--find <field>=<value>]   rows of a table as JSON lines\n  \
@@ -1805,11 +1806,98 @@ fn cmd_mod_dir(args: &[String]) -> Res {
     Ok(())
 }
 
+/// `upk wwise names <dir>`: the game parameters, switch groups and states the
+/// banks of every `.pck` under `dir` decide with, each with its name when
+/// known, how often it is used, and an example event.
+fn wwise_names(dir: &str) -> Res {
+    use std::collections::BTreeMap;
+    use tempest_assets::wwise::{akpk, bnk, names};
+    let mut files = Vec::new();
+    let mut todo = vec![PathBuf::from(dir)];
+    while let Some(d) = todo.pop() {
+        for e in std::fs::read_dir(&d)?.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                todo.push(p);
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pck")) {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+    // id → (what, uses, an example bank).
+    let mut seen: BTreeMap<u32, (&'static str, usize, String)> = BTreeMap::new();
+    let mut note = |id: u32, what: &'static str, file: &Path| {
+        let e = seen.entry(id).or_insert_with(|| {
+            (
+                what,
+                0,
+                file.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        });
+        e.1 += 1;
+    };
+    for f in &files {
+        let Ok(pck) = akpk::Package::parse(&std::fs::read(f)?) else {
+            continue;
+        };
+        for e in &pck.banks {
+            let Ok(b) = bnk::Bank::parse(&e.data) else {
+                continue;
+            };
+            let objects = b.objects();
+            for ev in objects.iter().filter(|o| o.kind == bnk::EVENT) {
+                for p in bnk::event_sounds(&objects, ev.id) {
+                    for c in &p.when {
+                        match c {
+                            bnk::Condition::Crossfade { param, .. } => {
+                                note(*param, "game parameter", f)
+                            }
+                            bnk::Condition::Switch {
+                                group,
+                                states,
+                                state,
+                            } => {
+                                note(
+                                    *group,
+                                    if *state {
+                                        "state group"
+                                    } else {
+                                        "switch group"
+                                    },
+                                    f,
+                                );
+                                for s in states {
+                                    note(*s, "state", f);
+                                }
+                            }
+                            bnk::Condition::Variant { .. } => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (id, (what, uses, bank)) in seen {
+        println!(
+            "{id:>10}  {what:<14}  {:<32}  {uses:>6} uses  e.g. {bank}",
+            names::name(id).unwrap_or("?")
+        );
+    }
+    Ok(())
+}
+
 /// `upk wwise …`: Wwise packages, banks and media.
 fn cmd_wwise(args: &[String]) -> Res {
     use tempest_assets::audio;
-    use tempest_assets::wwise::{akpk, bnk, fnv, vorbis};
+    use tempest_assets::wwise::{akpk, bnk, fnv, names, vorbis};
     let sub = args[0].as_str();
+    if sub == "names" {
+        return wwise_names(args.get(1).ok_or("missing folder")?);
+    }
     let quality = args.iter().position(|a| a == "--quality").and_then(|p| args.get(p + 1)).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.4);
     if sub == "convert" {
         let input = args.get(1).ok_or("missing input")?;
@@ -1878,13 +1966,15 @@ fn cmd_wwise(args: &[String]) -> Res {
                 if !objects.iter().any(|o| o.id == id && o.kind == bnk::EVENT) {
                     continue;
                 }
-                let (sources, trail) = bnk::event_media(&objects, id);
+                let (_, trail) = bnk::event_media(&objects, id);
                 println!("event {id} ({what}) in bank {bid:08x}:");
                 for (k, oid) in trail {
                     println!("  {} {oid}", bnk::kind_name(k));
                 }
-                for s in sources {
-                    println!("  media {} plugin {:#x} {} ({} bytes in memory)", s.id, s.plugin, match s.stream_type { 0 => "in bank", 1 => "prefetch", _ => "streamed" }, s.in_memory_size);
+                for p in bnk::event_sounds(&objects, id) {
+                    let s = &p.source;
+                    let when: Vec<String> = p.when.iter().map(names::describe).collect();
+                    println!("  media {} plugin {:#x} {} ({} bytes in memory){}", s.id, s.plugin, match s.stream_type { 0 => "in bank", 1 => "prefetch", _ => "streamed" }, s.in_memory_size, if when.is_empty() { String::new() } else { format!(": {}", when.join(", ")) });
                 }
                 return Ok(());
             }

@@ -135,6 +135,7 @@ impl Studio {
             "open": open,
             "assembly": self.assembly.as_ref().map(|a| a.read(cx).state_json()),
             "material": self.material_state_json(),
+            "audio": self.audio_state_json(),
             "meshGame": self.mesh_game.clone(),
             "meshPreview": self.mesh_preview.as_ref().map(|p| p.slots.iter().map(|(s, m)| json!({ "slot": s, "package": m.package, "export": m.export })).collect::<Vec<_>>()),
             "unsaved": unsaved,

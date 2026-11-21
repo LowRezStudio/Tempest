@@ -31,6 +31,7 @@
 pub mod choices;
 pub mod create;
 pub mod skins;
+pub mod sounds;
 pub mod delta;
 pub mod doc;
 pub mod workspace;

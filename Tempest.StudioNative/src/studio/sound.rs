@@ -1,8 +1,9 @@
-//! Sounds (SoundNodeWave): the stored Ogg Vorbis decoded, drawn as a
-//! waveform, played from the start or the selection; and the editor: trim
-//! to the selection, fades, gain, normalise, mono/stereo, quality, heard
-//! before it is applied, then re-encoded into the package
-//! (`sound.replacePcm`, undoable, saved with the package).
+//! Sounds (SoundNodeWave, and Wwise media): the stored Ogg Vorbis decoded,
+//! drawn as a waveform, played from the start or the selection; and the
+//! editor: trim to the selection, fades, gain, normalise, mono/stereo,
+//! quality, heard before it is applied, then re-encoded into the package
+//! (`sound.replacePcm`, undoable, saved with the package) or the `.pck`
+//! (`wwise.replacePcm`, undoable like a replacement from a file).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -17,8 +18,18 @@ use tempest_assets::audio::{apply_edits, decode_ogg, Edits, Pcm};
 
 use super::{Studio, Tone};
 
+/// Which sound the editor holds: the selected SoundNodeWave export, or a
+/// Wwise medium (opened from the Audio view or an AkEvent's sounds).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    Package,
+    Wwise,
+}
+
 pub struct SoundState {
     pub export: usize,
+    /// The `.pck` and medium of a Wwise sound.
+    pub wwise: Option<(String, u64)>,
     original: Arc<Pcm>,
     /// The original with the edits applied (`None` while nothing is edited).
     edited: Option<Arc<Pcm>>,
@@ -120,7 +131,7 @@ impl Studio {
                 match decoded {
                     Ok(pcm) => {
                         let p = peaks(&pcm);
-                        this.sound = Some(SoundState { export: i, original: Arc::new(pcm), edited: None, peaks: p, bytes, selection: None, cursor: 0.0, drag: None, editing: false, edits: Edits { gain: 1.0, ..Default::default() }, quality: 0.7, bounds: Rc::new(Cell::new(Bounds::default())) });
+                        this.sound = Some(SoundState { export: i, wwise: None, original: Arc::new(pcm), edited: None, peaks: p, bytes, selection: None, cursor: 0.0, drag: None, editing: false, edits: Edits { gain: 1.0, ..Default::default() }, quality: 0.7, bounds: Rc::new(Cell::new(Bounds::default())) });
                     }
                     Err(e) => this.toast(Tone::Error, super::ui::explain_error(&format!("Could not decode sound: {e}")), cx),
                 }
@@ -130,10 +141,63 @@ impl Studio {
         .detach();
     }
 
-    fn play_sound(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn slot(&self, slot: Slot) -> Option<&SoundState> {
+        match slot {
+            Slot::Package => self.sound.as_ref(),
+            Slot::Wwise => self.ww_sound.as_ref(),
+        }
+    }
+
+    pub(super) fn slot_mut(&mut self, slot: Slot) -> Option<&mut SoundState> {
+        match slot {
+            Slot::Package => self.sound.as_mut(),
+            Slot::Wwise => self.ww_sound.as_mut(),
+        }
+    }
+
+    /// Open Wwise medium `id` of `pck` in the editor.
+    pub(super) fn edit_wwise_sound(&mut self, pck: String, id: u64, cx: &mut Context<Self>) {
+        if self.ww_sound.as_ref().and_then(|s| s.wwise.as_ref()).is_some_and(|(p, i)| p == &pck && *i == id) {
+            return;
+        }
+        self.player.stop();
+        let call = self.backend.call("wwise.preview", json!({ "path": pck, "id": id }));
+        cx.spawn(async move |this, cx| {
+            let r = match call.await {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = this.update(cx, |this, cx| this.toast(Tone::Error, super::ui::explain_error(&format!("Could not read sound: {e}")), cx));
+                    return;
+                }
+            };
+            let Some(ogg) = r.bin(&r.json["ogg"]).map(|b| b.to_vec()) else { return };
+            let bytes = r.json["bytes"].as_u64().unwrap_or(0);
+            let busy = crate::backend::Busy::new();
+            let decoded = cx.background_executor().spawn(async move { decode_ogg(&ogg).map_err(|e| e.to_string()) }).await;
+            let _ = this.update(cx, |this, cx| {
+                drop(busy);
+                match decoded {
+                    Ok(pcm) => {
+                        let p = peaks(&pcm);
+                        this.ww_sound = Some(SoundState { export: 0, wwise: Some((pck, id)), original: Arc::new(pcm), edited: None, peaks: p, bytes, selection: None, cursor: 0.0, drag: None, editing: true, edits: Edits { gain: 1.0, ..Default::default() }, quality: 0.7, bounds: Rc::new(Cell::new(Bounds::default())) });
+                    }
+                    Err(e) => this.toast(Tone::Error, super::ui::explain_error(&format!("Could not decode sound: {e}")), cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The Wwise medium in the editor, if it is `id` of `pck`.
+    pub(super) fn wwise_editing(&self, pck: &str, id: u64) -> bool {
+        self.ww_sound.as_ref().and_then(|s| s.wwise.as_ref()).is_some_and(|(p, i)| super::project::same_path(p, pck) && *i == id)
+    }
+
+    fn play_sound(&mut self, slot: Slot, cx: &mut Context<Self>) {
         if self.player.playing() {
             if let Some(pos) = self.player.position() {
-                if let Some(s) = &mut self.sound {
+                if let Some(s) = self.slot_mut(slot) {
                     s.cursor = pos;
                 }
             }
@@ -141,7 +205,8 @@ impl Studio {
             cx.notify();
             return;
         }
-        let Some(s) = &self.sound else { return };
+        self.ww_playing = None;
+        let Some(s) = self.slot(slot) else { return };
         let pcm = s.shown().clone();
         let (from, to) = match s.selection {
             Some((a, b)) if b - a > 0.01 && s.edited.is_none() => (a, Some(b)),
@@ -166,16 +231,28 @@ impl Studio {
         cx.notify();
     }
 
-    fn edit_sound(&mut self, f: impl FnOnce(&mut SoundState), cx: &mut Context<Self>) {
+    fn edit_sound(&mut self, slot: Slot, f: impl FnOnce(&mut SoundState), cx: &mut Context<Self>) {
         self.player.stop();
-        if let Some(s) = &mut self.sound {
+        if let Some(s) = self.slot_mut(slot) {
             f(s);
             s.reedit();
         }
         cx.notify();
     }
 
-    fn apply_sound(&mut self, cx: &mut Context<Self>) {
+    fn apply_sound(&mut self, slot: Slot, cx: &mut Context<Self>) {
+        if slot == Slot::Wwise {
+            let Some(s) = &self.ww_sound else { return };
+            let (Some((pck, id)), Some(pcm)) = (s.wwise.clone(), s.edited.clone()) else {
+                self.toast(Tone::Info, "Nothing is edited yet", cx);
+                return;
+            };
+            let params = json!({ "path": pck, "id": id, "pcm": base64::engine::general_purpose::STANDARD.encode(pcm.to_interleaved_i16()), "channels": pcm.channels.len(), "sampleRate": pcm.sample_rate, "quality": s.quality });
+            self.player.stop();
+            // Reread into the editor once written (`refresh_wwise_views`).
+            self.wwise_write(pck, id, "wwise.replacePcm", params, format!("Sound {id} edited ({:.2} s)", pcm.duration()), cx);
+            return;
+        }
         let (Some(path), Some(s)) = (self.open.as_ref().map(|t| t.path.clone()), &self.sound) else { return };
         let Some(pcm) = s.edited.clone() else {
             self.toast(Tone::Info, "Nothing is edited yet", cx);
@@ -206,35 +283,43 @@ impl Studio {
     /// Dev: `sound <step>` of the test driver.
     pub(super) fn drive_sound(&mut self, arg: &str, cx: &mut Context<Self>) -> Result<(), String> {
         let (verb, rest) = arg.split_once(' ').unwrap_or((arg, ""));
+        // The Audio view's editor when one is open there, else the inspector's.
+        let slot = if self.ww_sound.is_some() && (self.view == super::View::Audio || self.sound.is_none()) { Slot::Wwise } else { Slot::Package };
         let n = |s: &str| s.trim().parse::<f64>().map_err(|_| format!("{verb} <number>"));
         match verb {
-            "edit" => self.edit_sound(|s| s.editing = true, cx),
+            "edit" => self.edit_sound(slot, |s| s.editing = true, cx),
             "select" => {
                 let (a, b) = rest.trim().split_once(' ').ok_or("select <from> <to>")?;
                 let (a, b) = (n(a)?, n(b)?);
-                self.edit_sound(|s| s.selection = Some((a, b)), cx);
+                self.edit_sound(slot, |s| s.selection = Some((a, b)), cx);
             }
-            "trim" => self.edit_sound(|s| s.edits.trim = s.selection, cx),
+            "trim" => self.edit_sound(slot, |s| s.edits.trim = s.selection, cx),
             "fade-in" => {
                 let v = n(rest)?;
-                self.edit_sound(|s| s.edits.fade_in = v, cx);
+                self.edit_sound(slot, |s| s.edits.fade_in = v, cx);
             }
             "gain" => {
                 let v = n(rest)?;
-                self.edit_sound(|s| s.edits.gain = 10f32.powf(v as f32 / 20.0), cx);
+                self.edit_sound(slot, |s| s.edits.gain = 10f32.powf(v as f32 / 20.0), cx);
             }
-            "play" => self.play_sound(cx),
-            "apply" => self.apply_sound(cx),
+            "play" => self.play_sound(slot, cx),
+            "apply" => self.apply_sound(slot, cx),
             _ => return Err(format!("unknown sound step {verb}")),
         }
         Ok(())
     }
 
     pub(super) fn render_sound(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        self.render_sound_slot(Slot::Package, cx)
+    }
+
+    pub(super) fn render_sound_slot(&mut self, slot: Slot, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme().clone();
-        let playhead = self.player.position();
-        let playing = self.player.playing();
-        let s = self.sound.as_ref()?;
+        // The player may be playing a Wwise row, not this sound.
+        let mine = self.ww_playing.is_none();
+        let playhead = self.player.position().filter(|_| mine);
+        let playing = self.player.playing() && mine;
+        let s = self.slot(slot)?;
         let shown = s.shown().clone();
         let duration = shown.duration();
         let info = format!(
@@ -317,7 +402,7 @@ impl Studio {
                     "left" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             s.cursor = (head.unwrap_or(s.cursor) - step).clamp(0.0, duration);
                         }
                         cx.notify();
@@ -325,7 +410,7 @@ impl Studio {
                     "right" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             s.cursor = (head.unwrap_or(s.cursor) + step).clamp(0.0, duration);
                         }
                         cx.notify();
@@ -333,7 +418,7 @@ impl Studio {
                     "home" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             s.cursor = 0.0;
                         }
                         cx.notify();
@@ -341,7 +426,7 @@ impl Studio {
                     "end" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             s.cursor = duration;
                         }
                         cx.notify();
@@ -349,7 +434,7 @@ impl Studio {
                     "[" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             if s.edited.is_none() {
                                 s.set_sel_start(head.unwrap_or(s.cursor));
                             }
@@ -359,7 +444,7 @@ impl Studio {
                     "]" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             if s.edited.is_none() {
                                 s.set_sel_end(head.unwrap_or(s.cursor));
                             }
@@ -369,12 +454,12 @@ impl Studio {
                     "space" => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        this.play_sound(cx);
+                        this.play_sound(slot, cx);
                     }
-                    "escape" if this.sound.as_ref().is_some_and(|s| s.selection.is_some()) => {
+                    "escape" if this.slot(slot).is_some_and(|s| s.selection.is_some()) => {
                         window.prevent_default();
                         cx.stop_propagation();
-                        if let Some(s) = &mut this.sound {
+                        if let Some(s) = this.slot_mut(slot) {
                             s.selection = None;
                         }
                         cx.notify();
@@ -384,7 +469,7 @@ impl Studio {
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
                 let t = time_at(&b1, e.position.x);
-                if let Some(s) = &mut this.sound {
+                if let Some(s) = this.slot_mut(slot) {
                     s.cursor = t;
                     s.drag = Some(t);
                     s.selection = None;
@@ -393,7 +478,7 @@ impl Studio {
             }))
             .on_mouse_move(cx.listener(move |this, e: &gpui::MouseMoveEvent, _, cx| {
                 let t = time_at(&b2, e.position.x);
-                let Some(s) = &mut this.sound else { return };
+                let Some(s) = this.slot_mut(slot) else { return };
                 let Some(a) = s.drag else { return };
                 if !e.dragging() {
                     s.drag = None;
@@ -403,8 +488,8 @@ impl Studio {
                 s.selection = Some((a.min(t), a.max(t)));
                 cx.notify();
             }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if let Some(s) = &mut this.sound {
+            .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                if let Some(s) = this.slot_mut(slot) {
                     s.drag = None;
                 }
                 cx.notify();
@@ -419,9 +504,9 @@ impl Studio {
             h_flex()
                 .gap_2()
                 .flex_wrap()
-                .child(Button::new("play").small().label(if playing { "Stop" } else if has_sel && s.edited.is_none() { "Play the selection" } else if s.edited.is_some() { "Play the edit" } else { "Play" }).on_click(cx.listener(|this, _, _, cx| this.play_sound(cx))))
+                .child(Button::new("play").small().label(if playing { "Stop" } else if has_sel && s.edited.is_none() { "Play the selection" } else if s.edited.is_some() { "Play the edit" } else { "Play" }).on_click(cx.listener(move |this, _, _, cx| this.play_sound(slot, cx))))
                 .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_xs().text_color(theme.muted_foreground).child(format!("{info} · {sel_text}")))
-                .when(!editing, |d| d.child(Button::new("edit-sound").small().label("Edit").tooltip("Trim, fade, gain, normalise, then re-encode").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.editing = true, cx))))),
+                .when(!editing, |d| d.child(Button::new("edit-sound").small().label("Edit").tooltip("Trim, fade, gain, normalise, then re-encode").on_click(cx.listener(move |this, _, _, cx| this.edit_sound(slot, |s| s.editing = true, cx))))),
         );
         if editing {
             let e = s.edits.clone();
@@ -434,16 +519,16 @@ impl Studio {
                     .gap_1()
                     .child(Button::new((id, 0usize)).xsmall().ghost().label("−").on_click(cx.listener(move |this, _, _, cx| {
                         let m = m.clone();
-                        this.edit_sound(move |s| m(s), cx)
+                        this.edit_sound(slot, move |s| m(s), cx)
                     })))
                     .child(div().min_w(px(110.0)).text_xs().text_center().child(label))
                     .child(Button::new((id, 1usize)).xsmall().ghost().label("+").on_click(cx.listener(move |this, _, _, cx| {
                         let p = p.clone();
-                        this.edit_sound(move |s| p(s), cx)
+                        this.edit_sound(slot, move |s| p(s), cx)
                     })))
             };
             let channels = |label: &'static str, n: usize, cx: &mut Context<Self>| {
-                let b = Button::new(label).xsmall().label(label).on_click(cx.listener(move |this, _, _, cx| this.edit_sound(move |s| s.edits.channels = n, cx)));
+                let b = Button::new(label).xsmall().label(label).on_click(cx.listener(move |this, _, _, cx| this.edit_sound(slot, move |s| s.edits.channels = n, cx)));
                 b.ghost().selected(e.channels == n)
             };
             let trimmed = e.trim.map(|(a, b)| format!("kept {a:.2}–{b:.2} s")).unwrap_or_else(|| "whole sound".into());
@@ -470,9 +555,9 @@ impl Studio {
                                             .label("[ Set start")
                                             .disabled(has_edited)
                                             .tooltip(if has_edited { "Reset edits first before marking a new selection" } else { "Set selection start at the playhead or cursor ([)" })
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                            .on_click(cx.listener(move |this, _, _, cx| {
                                                 let head = this.player.position();
-                                                if let Some(s) = &mut this.sound {
+                                                if let Some(s) = this.slot_mut(slot) {
                                                     s.set_sel_start(head.unwrap_or(s.cursor));
                                                 }
                                                 cx.notify();
@@ -485,9 +570,9 @@ impl Studio {
                                             .label("] Set end")
                                             .disabled(has_edited)
                                             .tooltip(if has_edited { "Reset edits first before marking a new selection" } else { "Set selection end at the playhead or cursor (])" })
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                            .on_click(cx.listener(move |this, _, _, cx| {
                                                 let head = this.player.position();
-                                                if let Some(s) = &mut this.sound {
+                                                if let Some(s) = this.slot_mut(slot) {
                                                     s.set_sel_end(head.unwrap_or(s.cursor));
                                                 }
                                                 cx.notify();
@@ -501,7 +586,7 @@ impl Studio {
                                             .disabled(has_edited)
                                             .tooltip(if has_edited { "Reset edits first before changing the selection" } else if has_sel { "Clear the selection (Escape)" } else { "Select the whole sound" })
                                             .on_click(cx.listener(move |this, _, _, cx| {
-                                                if let Some(s) = &mut this.sound {
+                                                if let Some(s) = this.slot_mut(slot) {
                                                     s.selection = if has_sel { None } else { (duration > 0.01).then_some((0.0, duration)) };
                                                 }
                                                 cx.notify();
@@ -520,8 +605,9 @@ impl Studio {
                                     } else {
                                         "Keep only the selected time range"
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         this.edit_sound(
+                                            slot,
                                             |s| {
                                                 s.edits.trim = s.selection;
                                                 s.cursor = 0.0;
@@ -538,7 +624,7 @@ impl Studio {
                             .gap_2()
                             .flex_wrap()
                             .child({
-                                let b = Button::new("normalize").xsmall().label("Normalise").tooltip("Scale the loudest peak to 98%").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.edits.normalize = if s.edits.normalize > 0.0 { 0.0 } else { 0.98 }, cx)));
+                                let b = Button::new("normalize").xsmall().label("Normalise").tooltip("Scale the loudest peak to 98%").on_click(cx.listener(move |this, _, _, cx| this.edit_sound(slot, |s| s.edits.normalize = if s.edits.normalize > 0.0 { 0.0 } else { 0.98 }, cx)));
                                 b.ghost().selected(e.normalize > 0.0)
                             })
                             .child(div().text_xs().text_color(theme.muted_foreground).child("channels"))
@@ -552,8 +638,8 @@ impl Studio {
                             .gap_2()
                             .flex_wrap()
                             .justify_end()
-                            .child(Button::new("reset-sound").small().ghost().label("Reset").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.edits = Edits { gain: 1.0, ..Default::default() }, cx))))
-                            .child(Button::new("close-edit").small().ghost().label("Close").on_click(cx.listener(|this, _, _, cx| this.edit_sound(|s| s.editing = false, cx))))
+                            .child(Button::new("reset-sound").small().ghost().label("Reset").on_click(cx.listener(move |this, _, _, cx| this.edit_sound(slot, |s| s.edits = Edits { gain: 1.0, ..Default::default() }, cx))))
+                            .child(Button::new("close-edit").small().ghost().label("Close").on_click(cx.listener(move |this, _, _, cx| this.edit_sound(slot, |s| s.editing = false, cx))))
                             .child(
                                 Button::new("apply-sound")
                                     .small()
@@ -564,7 +650,7 @@ impl Studio {
                                     } else {
                                         "Encode the edit as Ogg Vorbis into the package (undoable)"
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| this.apply_sound(cx))),
+                                    .on_click(cx.listener(move |this, _, _, cx| this.apply_sound(slot, cx))),
                             ),
                     ),
             );

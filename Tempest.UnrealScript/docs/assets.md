@@ -203,8 +203,8 @@ sits in 584 `WWB_*.pck` + `Init.pck` file packages (`AKPK` v1) holding soundbank
 container layout: 66-byte `fmt`, no `vorb` chunk, 2-byte packet headers, external codebooks, mod
 packets; 196 carry a seek table). Ids are FNV-1 of lower-case names (`wwb_pc_khan` → bank id and
 `WWB_PC_Khan.pck`; event names from the AkEvent exports). `upk wwise
-ls|event|export|import|convert|rewrite` is the CLI; the Studio methods are
-`wwise.{packages,open,preview,export,import,replacePcm,forObject}` and `sound.replacePcm`.
+ls|event|names|export|import|convert|rewrite` is the CLI; the Studio methods are
+`wwise.{packages,open,preview,export,import,replacePcm,forObject,owners}` and `sound.replacePcm`.
 Localized banks (every `WWB_VOX_*`/`WWB_VGS_*`, the announcers: 677 files) and 4 `WW_*` packages
 live in the language folder `CookedPCConsole/English(US)/`, some banks with an empty package of the
 same name in `CookedPCConsole`. The server reads the workspace folder with its subfolders
@@ -229,3 +229,29 @@ yet. Every pck re-serialises byte-identically (`upk wwise rewrite`); a bank's `D
 rebuilt 16-byte aligned on replace and each sound/music-track source of the media gets the new
 in-memory size. Container children are found by scanning for the parent id in candidate objects of
 the kinds that node may contain (`NodeBaseParams` is not parsed).
+
+Why a sound plays (`bnk::event_sounds`, `upk wwise event`): a container's children list is found by
+content (a count and ascending ids of objects naming the container as parent) instead of parsing
+`NodeBaseParams`; after it, a layer container's crossfades (`rtpcID` + per-child curve: audible
+range) and a switch container's state → children groups (group id 10 bytes before the list). Each
+source gets its conditions: random/sequence variant `k of n`, crossfade, switch state. Paladins'
+voice lines cross on `IsFriendlyWithLocalPawn` (317 of 407 layer containers): ≥ 0.75 is what the
+player and allies hear, below is the enemies' line, so an ultimate's two media are its ally and enemy
+lines. `wwise/names.rs` holds the parameter, switch and state names matched to their FNV hashes from
+the game's strings (exe, every package's name table, the assembly) and pairs of their words (the
+`words.py` approach of bnnm's wwiser-utils, whose lists have no Paladins file and no licence: names
+only, none copied); `upk wwise names <dir>` lists the ids in use, named or not (unnamed: a few
+switch groups, among them the Friendly/Enemy/Local one). Media have no recoverable names (Wwise
+numbers them; only the unshipped `SoundbanksInfo.xml` maps them). `names::event_title` reads an event
+name in words (owner tokens and codes dropped, run-together words split with the labels' words).
+
+Who plays what (`mcts/sounds.rs`, `wwise.owners`): FX rows carry `AK_EVENT_RES_ID` (the event's
+resource path, `WW_PC_Nyx.Nyx_SP_…_Play`, in bank `WWB_PC_Nyx`); rows reach FX through any `*FX_ID`
+(not a skin's `FROM_FX_ID`), meshes (`*ASM_ID`, whose `DATA_SET_ASM_MESH_FXS` rows name the device
+slot), effect groups, projectiles and deployables. Champions (Champion Vendor 475) are walked from
+the bot row, its devices and its skins (`DATA_SET_SKIN_FX_XREF`: a skin bank's suffix gets the
+skin's name, also for its voice banks); items with no champion (sprays) on their own. A champion's
+files: every `.pck` named after its ability banks (Pip's are `Alchemist`) or its most used weapon
+bank, plus only its events of other files. `wwise.open {banks: [{path, only}], labels, owner}` opens
+such a set; `labels` adds each event's `fx`, `part` (ability, card, skin), `owner`, the owner's own
+first, a `_1p_` event its twin's.

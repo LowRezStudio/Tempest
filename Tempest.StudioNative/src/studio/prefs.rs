@@ -53,6 +53,8 @@ pub struct Prefs {
     pub sm3: bool,
     /// The Studio draws its own title bar (the header, with the window buttons on Windows and Linux); off: the system's. Read when a window opens.
     pub custom_title_bar: bool,
+    /// Sounds named by what plays them (the event in words, the ability, who hears it); off: their ids.
+    pub sound_names: bool,
 }
 
 fn map_panes() -> [f32; 2] {
@@ -69,7 +71,7 @@ fn movie_panes() -> [f32; 3] {
 
 impl Default for Prefs {
     fn default() -> Prefs {
-        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new(), id_range: None, sm3: false, custom_title_bar: true }
+        Prefs { theme: "dark".into(), ask_in_place: true, restore: true, folders: BTreeMap::new(), projects: Vec::new(), zoom: 1.0, check_updates: true, movie_panes: movie_panes(), map_hidden: map_hidden(), map_panes: map_panes(), panes: BTreeMap::new(), id_range: None, sm3: false, custom_title_bar: true, sound_names: true }
     }
 }
 

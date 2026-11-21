@@ -56,7 +56,8 @@ crates/tempest-assets/         Typed object layer over any package (see assets.m
   src/audio.rs                 PCM in/out: WAV read/write, Ogg Vorbis encode/decode (vorbis_rs = libvorbis aoTuV + Lancer, built from C by cc), editor ops
   src/wwise/                   Audiokinetic Wwise as the game ships it (bank version 120): akpk.rs (`.pck` packages: language map, bank/stream/external
                                tables, byte-identical rewrite), bnk.rs (soundbank chunks, DIDX/DATA media replace with HIRC in-memory sizes patched,
-                               event → action → containers → sounds/music tracks → media ids), vorbis.rs (Wwise Vorbis `.wem` ⇄ Ogg: packed setup with
+                               event → action → containers → sounds/music tracks → media ids, with why each plays: variant, crossfade,
+                               switch state), names.rs (parameter/switch/state names by hash, event titles in words), vorbis.rs (Wwise Vorbis `.wem` ⇄ Ogg: packed setup with
                                10-bit ids into the aoTuV 6.03 codebook library (data/packed_codebooks_aoTuV_603.bin, ww2ogg's), mod packets, the 66-byte
                                AkVorbisInfo header incl. FNV-1 setup hash and the decoder allocation sizes copied from the game's files), fnv.rs
   src/particle.rs              Cooked particle systems: the baked FRawDistribution tables (`[min, max]` + chunked entries, time scale/start),
@@ -96,6 +97,7 @@ crates/tempest-assets/         Typed object layer over any package (see assets.m
   src/batch.rs                 Find & replace over a package (values + object names) and folder batch import (`<package>.<object>.<ext>`; a first part that is not a package file is a group, the whole name is then an object path found through a `PathLookup` in every package)
   src/delta.rs                 Mod deltas (`.tdelta`): canonical per-object hashes, create (mini package of changed objects + reference descriptors), apply (remap by path, two phases when classes are added), compare
   src/mcts/delta.rs            Row deltas for the marshal files (key column per table, add/set/delete by key)
+  src/mcts/sounds.rs           Which Wwise events champions (abilities, cards, skins) and items play: FX rows → AK_EVENT_RES_ID (`wwise.owners`)
   src/wwise/delta.rs           Deltas of Wwise `.pck` files (`kind: "pck"`): add/set/delete per table entry (`stream:<id>`, `bank:<id>`,
                                `external:<id>`, `@<lang>` when not 0) or per bank part (`bank:<id>/hirc:<obj>` kind byte + body,
                                `/media:<id>`, `/chunk:<TAG>`), MD5 `base` for drift, payloads in one stream; additions keep the tables

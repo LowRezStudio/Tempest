@@ -128,9 +128,13 @@ impl Studio {
                 let me = me.clone();
                 Switch::new(id).checked(on).label(label).on_click(move |v, window, cx| {
                     let v = *v;
-                    let _ = me.update(cx, |this, _| {
+                    let _ = me.update(cx, |this, cx| {
+                        let names = this.prefs.sound_names;
                         set(&mut this.prefs, v);
                         this.prefs.save();
+                        if names != this.prefs.sound_names {
+                            this.sound_names_changed(cx);
+                        }
                     });
                     window.refresh();
                 })
@@ -164,6 +168,9 @@ impl Studio {
                 .child(section("Saving"))
                 .child(switch("ask-in-place", "Ask before overwriting game files", p.ask_in_place, |p, v| p.ask_in_place = v))
                 .child(hint("Patching overwrites the game's own files; only the launcher's Verify game files puts them back. Your mod, changes files and Export a copy never touch the game folder."))
+                .child(section("Sounds"))
+                .child(switch("sound-names", "Name sounds by what plays them", p.sound_names, |p, v| p.sound_names = v))
+                .child(hint("Events in words with the ability, card or skin they belong to, and each sound's role: heard by enemies, variant 2 of 5, on grass. Off: the names and ids the game files use. The game ships no file names for its sounds."))
                 .child(section("Starting"))
                 .child(switch("restore", "Reopen the package and object I was on", p.restore, |p, v| p.restore = v))
                 .child(hint("When a game folder opens, the Studio goes back to where you left it."))

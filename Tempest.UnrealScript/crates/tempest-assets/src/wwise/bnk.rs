@@ -9,7 +9,7 @@
 //! for the container's id inside candidate objects (every node stores its
 //! parent id in `NodeBaseParams`, whose layout is version-specific).
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use tempest_upk::io::{Error, Result};
 
@@ -339,9 +339,6 @@ fn contains_id(body: &[u8], id: u32) -> bool {
 /// objects visited, for display.
 pub fn event_media(objects: &[Object], event: u32) -> (Vec<Source>, Vec<(u8, u32)>) {
     let find = |id: u32| objects.iter().find(|o| o.id == id);
-    let mut out: Vec<Source> = Vec::new();
-    let mut visited: HashSet<u32> = HashSet::new();
-    let mut trail = Vec::new();
     let mut queue: VecDeque<u32> = VecDeque::new();
     if let Some(e) = find(event) {
         for a in event_actions(e) {
@@ -354,6 +351,15 @@ pub fn event_media(objects: &[Object], event: u32) -> (Vec<Source>, Vec<(u8, u32
             }
         }
     }
+    media_below(objects, queue)
+}
+
+/// Media under the nodes of `queue`, and the nodes visited.
+fn media_below(objects: &[Object], mut queue: VecDeque<u32>) -> (Vec<Source>, Vec<(u8, u32)>) {
+    let find = |id: u32| objects.iter().find(|o| o.id == id);
+    let mut out: Vec<Source> = Vec::new();
+    let mut visited: HashSet<u32> = HashSet::new();
+    let mut trail = Vec::new();
     while let Some(id) = queue.pop_front() {
         if id == 0 || !visited.insert(id) {
             continue;
@@ -385,4 +391,260 @@ pub fn event_media(objects: &[Object], event: u32) -> (Vec<Source>, Vec<(u8, u32
         }
     }
     (out, trail)
+}
+
+/// Why a sound plays, read from a container between an event and the sound.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Condition {
+    /// Child `index` (from 0) of the `count` a random or sequence container picks from.
+    Variant { index: usize, count: usize },
+    /// A layer container's crossfade: heard while game parameter `param` is in `from..=to`.
+    Crossfade { param: u32, from: f32, to: f32 },
+    /// A switch container's child for these states of switch (or state) group `group`.
+    Switch {
+        group: u32,
+        states: Vec<u32>,
+        state: bool,
+    },
+}
+
+/// A sound an event plays and the conditions on the way to it, outermost first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Played {
+    pub source: Source,
+    pub when: Vec<Condition>,
+}
+
+fn u32_at(b: &[u8], at: usize) -> Option<u32> {
+    b.get(at..at + 4)
+        .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+}
+
+fn f32_at(b: &[u8], at: usize) -> Option<f32> {
+    u32_at(b, at).map(f32::from_bits)
+}
+
+/// The children list of a container (`count` + ids, ascending, as the cooker
+/// writes it): its offset in the body and the ids. Found by its content, as
+/// what comes before it (`NodeBaseParams`) has a version-specific layout:
+/// every id must name an object of the bank whose body holds `o`'s id (its
+/// parent).
+fn children_list(o: &Object, by_id: &HashMap<u32, &Object>) -> Option<(usize, Vec<u32>)> {
+    let parent = o.id.to_le_bytes();
+    let b = &o.body;
+    let mut at = 0;
+    while at + 8 <= b.len() {
+        let n = u32_at(b, at)? as usize;
+        if (1..=4096).contains(&n) && at + 4 + n * 4 <= b.len() {
+            let ids: Vec<u32> = (0..n).map(|i| u32_at(b, at + 4 + i * 4).unwrap()).collect();
+            let ascending = ids.windows(2).all(|w| w[0] < w[1]);
+            if ascending
+                && ids.iter().all(|id| {
+                    *id != o.id
+                        && by_id
+                            .get(id)
+                            .is_some_and(|c| c.body.windows(4).skip(4).any(|w| w == parent))
+                })
+            {
+                return Some((at, ids));
+            }
+        }
+        at += 1;
+    }
+    None
+}
+
+/// A layer container's crossfades after its children list: child → `(game
+/// parameter, audible from, to)`. Layers with initial RTPCs are skipped
+/// (their size is not needed for the crossfade and varies by version).
+fn layer_crossfades(b: &[u8], after_children: usize) -> HashMap<u32, (u32, f32, f32)> {
+    let mut out = HashMap::new();
+    let Some(layers) = u32_at(b, after_children) else {
+        return out;
+    };
+    let mut at = after_children + 4;
+    for _ in 0..layers.min(256) {
+        // ulLayerID, InitialRTPC count (u16), rtpcID, rtpcType (u8), ulNumAssoc.
+        let Some(rtpcs) = b
+            .get(at + 4..at + 6)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]))
+        else {
+            break;
+        };
+        if rtpcs != 0 {
+            break;
+        }
+        at += 6;
+        let (Some(param), Some(assoc)) = (u32_at(b, at), u32_at(b, at + 5)) else {
+            break;
+        };
+        at += 9;
+        for _ in 0..assoc.min(4096) {
+            let (Some(child), Some(points)) = (u32_at(b, at), u32_at(b, at + 4)) else {
+                return out;
+            };
+            at += 8;
+            let mut audible: Option<(f32, f32)> = None;
+            for p in 0..points.min(4096) as usize {
+                let (Some(x), Some(y)) = (f32_at(b, at + p * 12), f32_at(b, at + p * 12 + 4))
+                else {
+                    return out;
+                };
+                if y > 0.0 {
+                    audible = Some(audible.map_or((x, x), |(a, z)| (a.min(x), z.max(x))));
+                }
+            }
+            at += points as usize * 12;
+            if param != 0 {
+                if let Some((from, to)) = audible {
+                    out.insert(child, (param, from, to));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A switch container's group (before the children: group type u8, group
+/// id, default switch, continuous validation u8) and the states that pick
+/// each child (after them: groups of `switch id, count, node ids`).
+fn switch_states(
+    b: &[u8],
+    list_at: usize,
+    after_children: usize,
+) -> Option<(u32, bool, HashMap<u32, Vec<u32>>)> {
+    let head = list_at.checked_sub(10)?;
+    let state = *b.get(head)? == 1;
+    let group = u32_at(b, head + 1)?;
+    let n = u32_at(b, after_children)?;
+    let mut at = after_children + 4;
+    let mut by_child: HashMap<u32, Vec<u32>> = HashMap::new();
+    for _ in 0..n.min(4096) {
+        let sw = u32_at(b, at)?;
+        let items = u32_at(b, at + 4)?;
+        at += 8;
+        for i in 0..items.min(4096) as usize {
+            by_child.entry(u32_at(b, at + i * 4)?).or_default().push(sw);
+        }
+        at += items as usize * 4;
+    }
+    Some((group, state, by_child))
+}
+
+/// The sounds an event plays, each with why: the variant a random container
+/// picks, the crossfade of a layer (e.g. heard by allies or by enemies), the
+/// state of a switch. Each source is listed once, with the first way found.
+pub fn event_sounds(objects: &[Object], event: u32) -> Vec<Played> {
+    Hierarchy::new(objects).event_sounds(event)
+}
+
+/// A bank's objects by id, for asking what several events play.
+pub struct Hierarchy<'a> {
+    objects: &'a [Object],
+    by_id: HashMap<u32, &'a Object>,
+}
+
+impl<'a> Hierarchy<'a> {
+    pub fn new(objects: &'a [Object]) -> Hierarchy<'a> {
+        Hierarchy {
+            objects,
+            by_id: objects.iter().map(|o| (o.id, o)).collect(),
+        }
+    }
+
+    /// [`event_sounds`] with this index.
+    pub fn event_sounds(&self, event: u32) -> Vec<Played> {
+        let (objects, by_id) = (self.objects, &self.by_id);
+        let mut out: Vec<Played> = Vec::new();
+        let mut stack: Vec<(u32, Vec<Condition>)> = Vec::new();
+        if let Some(e) = by_id.get(&event) {
+            for a in event_actions(e).into_iter().rev() {
+                if let Some((kind, target)) = by_id.get(&a).and_then(|act| action(act)) {
+                    if kind >> 8 == 0x04 || kind >> 8 == 0x05 {
+                        stack.push((target, Vec::new()));
+                    }
+                }
+            }
+        }
+        let mut visited: HashSet<u32> = HashSet::new();
+        while let Some((id, when)) = stack.pop() {
+            if id == 0 || !visited.insert(id) {
+                continue;
+            }
+            let Some(o) = by_id.get(&id) else { continue };
+            match o.kind {
+                SOUND | MUSIC_TRACK => {
+                    for s in sources(o) {
+                        if !out.iter().any(|p| p.source == s) {
+                            out.push(Played {
+                                source: s,
+                                when: when.clone(),
+                            });
+                        }
+                    }
+                }
+                RANDOM_SEQUENCE
+                | SWITCH
+                | LAYER
+                | MUSIC_SEGMENT
+                | MUSIC_SWITCH
+                | MUSIC_RANDOM_SEQUENCE
+                | ACTOR_MIXER => {
+                    let Some((list_at, children)) = children_list(o, by_id) else {
+                        // Not found by content: the children by parent id, unconditioned.
+                        let (sources, _) = media_below(objects, VecDeque::from([id]));
+                        for s in sources {
+                            if !out.iter().any(|p| p.source == s) {
+                                out.push(Played {
+                                    source: s,
+                                    when: when.clone(),
+                                });
+                            }
+                        }
+                        continue;
+                    };
+                    let after = list_at + 4 + children.len() * 4;
+                    let fades = if o.kind == LAYER {
+                        layer_crossfades(&o.body, after)
+                    } else {
+                        HashMap::new()
+                    };
+                    let switches = if o.kind == SWITCH {
+                        switch_states(&o.body, list_at, after)
+                    } else {
+                        None
+                    };
+                    for (index, c) in children.iter().enumerate().rev() {
+                        let mut w = when.clone();
+                        match o.kind {
+                            RANDOM_SEQUENCE if children.len() > 1 => w.push(Condition::Variant {
+                                index,
+                                count: children.len(),
+                            }),
+                            LAYER => {
+                                if let Some(&(param, from, to)) = fades.get(c) {
+                                    w.push(Condition::Crossfade { param, from, to });
+                                }
+                            }
+                            SWITCH => {
+                                if let Some((group, state, by_child)) = &switches {
+                                    if let Some(states) = by_child.get(c) {
+                                        w.push(Condition::Switch {
+                                            group: *group,
+                                            states: states.clone(),
+                                            state: *state,
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        stack.push((*c, w));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
 }
