@@ -643,19 +643,34 @@ impl GameMaterial {
         let (data, indices) = sphere();
         let vertices = pass.vertex_buffer(&data);
         let index_buf = pass.gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&indices), usage: wgpu::BufferUsages::INDEX });
-        GameMaterial { pass, vertices, indices: index_buf, count: indices.len() as u32, camera: Camera { yaw: 0.6, pitch: 0.25, distance: RADIUS * 2.9 }, clear: [0.016, 0.016, 0.027] }
+        GameMaterial { pass, vertices, indices: index_buf, count: indices.len() as u32, camera: Camera::orbit(0.6, 0.25, RADIUS * 2.9), clear: [0.016, 0.016, 0.027] }
     }
 
     pub fn render(&self, width: u32, height: u32) -> Arc<RenderImage> {
         let (w, h) = (width.max(16), height.max(16));
         let c = self.camera;
-        let eye = c.distance * Vec3::new(c.pitch.cos() * c.yaw.cos(), c.pitch.cos() * c.yaw.sin(), c.pitch.sin());
-        let near = (c.distance - RADIUS * 2.0).max(RADIUS * 0.01);
-        let proj = Mat4::perspective_lh(45f32.to_radians(), w as f32 / h as f32, near, c.distance + RADIUS * 2.0);
-        let frame = Frame { view_proj: proj * Mat4::look_at_lh(eye, Vec3::ZERO, Vec3::Z), eye, target: Vec3::ZERO, near, light: None };
+        let eye = c.pan + c.distance * eye_dir(&c);
+        let reach = RADIUS * 2.0 + c.pan.length();
+        let near = (c.distance - reach).max(RADIUS * 0.01);
+        let proj = Mat4::perspective_lh(45f32.to_radians(), w as f32 / h as f32, near, c.distance + reach);
+        let frame = Frame { view_proj: proj * Mat4::look_at_lh(eye, c.pan, Vec3::Z), eye, target: c.pan, near, light: None };
         self.pass.prepare(&frame);
         draw_frame(&self.pass.gpu, w, h, self.clear, |pass| self.pass.draw(pass, &self.vertices, &self.indices, self.count))
     }
+}
+
+/// From what the camera orbits towards the eye, in the game's space (Z up,
+/// left-handed). Yaw turns the other way than in the Y-up mesh view's space,
+/// so the same drag turns both views the same way on screen.
+fn eye_dir(c: &Camera) -> Vec3 {
+    Vec3::new(c.pitch.cos() * c.yaw.cos(), -c.pitch.cos() * c.yaw.sin(), c.pitch.sin())
+}
+
+/// The view's right and up axes in the game's space ([`Mat4::look_at_lh`]'s).
+pub fn axes(c: &Camera) -> (Vec3, Vec3) {
+    let forward = -eye_dir(c);
+    let right = Vec3::Z.cross(forward).normalize_or(Vec3::X);
+    (right, forward.cross(right))
 }
 
 /// Glb space (metres, Y up, the preview GLB's) → the game's (Unreal units, Z up): a mirror, so a tangent basis's sign flips.
@@ -787,4 +802,50 @@ mod tests {
         assert_eq!(Blend::of("blend_additive"), Blend::Additive);
         assert_eq!(Blend::of(""), Blend::Opaque);
     }
+
+    /// Where `p` lands on screen (NDC x, y) through the material preview's camera.
+    fn screen(c: &Camera, p: Vec3) -> (f32, f32) {
+        let eye = c.pan + c.distance * eye_dir(c);
+        let m = Mat4::perspective_lh(45f32.to_radians(), 1.0, 1.0, 10_000.0) * Mat4::look_at_lh(eye, c.pan, Vec3::Z);
+        let v = m * p.extend(1.0);
+        (v.x / v.w, v.y / v.w)
+    }
+
+    /// A drag to the right (yaw down) turns the sphere and the mesh view the
+    /// same way: the front of the object follows the pointer.
+    #[test]
+    fn orbit_follows_the_pointer_like_the_mesh_view() {
+        let c = Camera::orbit(0.6, 0.25, RADIUS * 2.9);
+        let front = c.pan + eye_dir(&c) * RADIUS;
+        let mut turned = c;
+        turned.yaw -= 0.1;
+        assert!(screen(&turned, front).0 > screen(&c, front).0 + 1e-3);
+        // The mesh view (Y up) does the same.
+        let m = crate::mesh_view::Camera::orbit(0.6, 0.25, 2.6);
+        let ndc = |c: &crate::mesh_view::Camera, p: Vec3| {
+            let (vp, _) = crate::mesh_view::view_proj(Vec3::ZERO, 1.0, *c, 100, 100);
+            let v = vp * p.extend(1.0);
+            v.x / v.w
+        };
+        let (right, up) = m.axes_y_up();
+        let front = right.cross(up);
+        let mut mt = m;
+        mt.yaw -= 0.1;
+        assert!(ndc(&mt, front) > ndc(&m, front) + 1e-3);
+    }
+
+    /// A pan drag right and down moves the sphere right and down on screen.
+    #[test]
+    fn pan_follows_the_pointer() {
+        let mut c = Camera::orbit(0.6, 0.25, RADIUS * 2.9);
+        c.pan_by(40.0, 30.0, 400.0, axes(&c), RADIUS);
+        let (x, y) = screen(&c, Vec3::ZERO);
+        assert!(x > 0.05 && y < -0.05, "{x} {y}");
+        let mut m = crate::mesh_view::Camera::orbit(0.6, 0.25, 2.6);
+        m.pan_by(40.0, 30.0, 400.0, m.axes_y_up(), 1.0);
+        let (vp, _) = crate::mesh_view::view_proj(Vec3::ZERO, 1.0, m, 100, 100);
+        let v = vp * Vec3::ZERO.extend(1.0);
+        assert!(v.x / v.w > 0.05 && v.y / v.w < -0.05);
+    }
+
 }

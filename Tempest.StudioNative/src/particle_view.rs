@@ -312,7 +312,7 @@ impl ParticleScene {
             };
             runtimes.push(Runtime { sim: EmitterSim::new(model, k as u32 + 1), visible: true, gpu: view });
         }
-        Ok(ParticleScene { gpu: gpu.clone(), runtimes, camera: Camera { yaw: 0.8, pitch: 0.35, distance: 2.6 }, center: Vec3::new(0.0, 0.5, 0.0), radius: 1.0, clear: [0.016, 0.016, 0.027], show_grid: true, floor: 0.0, uniforms, globals })
+        Ok(ParticleScene { gpu: gpu.clone(), runtimes, camera: Camera::orbit(0.8, 0.35, 2.6), center: Vec3::new(0.0, 0.5, 0.0), radius: 1.0, clear: [0.016, 0.016, 0.027], show_grid: true, floor: 0.0, uniforms, globals })
     }
 
     /// Advance every shown emitter by `dt` seconds.
@@ -355,7 +355,7 @@ impl ParticleScene {
         self.center = (lo + hi) * 0.5;
         self.radius = size.max_element().max(0.5);
         self.floor = lo.y.min(0.0);
-        self.camera = Camera { yaw: 0.8, pitch: 0.35, distance: self.radius * 2.6 };
+        self.camera = Camera::orbit(0.8, 0.35, self.radius * 2.6);
     }
 
     pub fn render(&self, width: u32, height: u32) -> Arc<RenderImage> {
@@ -366,9 +366,7 @@ impl ParticleScene {
         let u = Uniforms { view_proj: view_proj.to_cols_array_2d(), light: [eye.x - self.center.x + self.radius, eye.y - self.center.y + self.radius * 2.0, eye.z - self.center.z, 0.0], base: [1.0; 4] };
         gpu.queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         // The camera's right and up, for sprites facing it.
-        let forward = (self.center - eye).normalize_or(Vec3::NEG_Z);
-        let right = forward.cross(Vec3::Y).normalize_or(Vec3::X);
-        let up = right.cross(forward);
+        let (right, up) = self.camera.axes_y_up();
         // Instances of this frame.
         let mut draws: Vec<(usize, u32)> = Vec::new();
         for (k, r) in self.runtimes.iter().enumerate() {

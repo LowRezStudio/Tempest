@@ -6,7 +6,7 @@
 //!
 //! Steps: `key <keystroke>…` (`cmd-k`, `down`, `enter`), `type <text>`,
 //! `click <x> <y> [right|middle] [double] [cmd|shift|alt|ctrl]…` and
-//! `move`/`drag <x1> <y1> <x2> <y2>`/`scroll <x> <y> <dy>` in window
+//! `move`/`drag <x1> <y1> <x2> <y2> [right|middle]`/`scroll <x> <y> <dy>` in window
 //! points, `click @<probe>` at the centre of a probed element, `wait <ms>`,
 //! `size <w> <h>`, and anything else goes to `Studio::drive` (`package
 //! <name>`, `select <index|name>`, `run <command id>`, …).
@@ -213,19 +213,26 @@ async fn run(step: &str, window: AnyWindowHandle, studio: &Entity<Studio>, cx: &
                 (point(px(n(0)?), px(n(1)?)), point(px(n(2)?), px(n(3)?)))
             };
             let m = modifiers(&words);
+            let button = if words.contains(&"right") {
+                MouseButton::Right
+            } else if words.contains(&"middle") {
+                MouseButton::Middle
+            } else {
+                MouseButton::Left
+            };
             on_window(cx, &mut |window, cx| {
                 window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: a, pressed_button: None, modifiers: m }), cx);
-                window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: a, modifiers: m, click_count: 1, first_mouse: false }), cx);
+                window.dispatch_event(PlatformInput::MouseDown(MouseDownEvent { button, position: a, modifiers: m, click_count: 1, first_mouse: false }), cx);
             })?;
             for k in 1..=10 {
                 let p = a + (b - a) * (k as f32 / 10.0);
                 on_window(cx, &mut |window, cx| {
-                    window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: p, pressed_button: Some(MouseButton::Left), modifiers: m }), cx);
+                    window.dispatch_event(PlatformInput::MouseMove(MouseMoveEvent { position: p, pressed_button: Some(button), modifiers: m }), cx);
                 })?;
                 cx.background_executor().timer(Duration::from_millis(16)).await;
             }
             on_window(cx, &mut |window, cx| {
-                window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: b, modifiers: m, click_count: 1 }), cx);
+                window.dispatch_event(PlatformInput::MouseUp(MouseUpEvent { button, position: b, modifiers: m, click_count: 1 }), cx);
             })
         }
         "scroll" => {

@@ -160,7 +160,7 @@ impl ParticleState {
     fn summary(&self) -> String {
         let n = self.view.as_ref().map(|v| v.borrow().view.count()).unwrap_or(0);
         let em_n = self.emitters().len();
-        format!("{n} particles · {em_n} {} · approximate preview · drag to orbit, wheel to zoom, double-click to fit", if em_n == 1 { "emitter" } else { "emitters" })
+        format!("{n} particles · {em_n} {} · approximate preview · drag to orbit, right-drag to pan, wheel to zoom, double-click to fit", if em_n == 1 { "emitter" } else { "emitters" })
     }
 }
 

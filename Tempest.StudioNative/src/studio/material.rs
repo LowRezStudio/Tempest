@@ -440,7 +440,7 @@ impl Studio {
         let m = self.material.as_ref()?;
         let game = m.game.as_ref().map(|(g, _)| {
             let st = g.borrow();
-            json!({ "pair": st.view.pass.pair, "animated": st.view.pass.animated, "warnings": st.view.pass.warnings, "time": st.view.pass.params.time })
+            json!({ "pair": st.view.pass.pair, "animated": st.view.pass.animated, "warnings": st.view.pass.warnings, "time": st.view.pass.params.time, "camera": super::mesh::camera_json(&st.view.camera) })
         });
         Some(json!({ "export": m.export, "drawnWithGameShader": self.game_shaders && game.is_some(), "platform": crate::game_material::platform(), "game": game, "gameError": m.game_error }))
     }

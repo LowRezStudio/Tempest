@@ -1,5 +1,6 @@
 //! The 3D viewport: a `MeshView` (wgpu, off-screen) drawn into a canvas;
-//! drag orbits, the wheel zooms, double-click refits. A frame is drawn only
+//! drag orbits, right-, middle- or ⇧-drag pans, the wheel zooms,
+//! double-click refits (not on the toolbar over it). A frame is drawn only
 //! when the size or the camera changes, and the replaced frame is released
 //! from GPUI's atlas. The mesh preview (`mesh.preview`'s GLB, LODs,
 //! textures, wireframe) and the material preview's sphere both use it.
@@ -15,12 +16,15 @@ use serde_json::{json, Value as J};
 
 use super::Studio;
 use crate::mesh_view::{Camera, MeshView};
+use glam::Vec3;
 use crate::particle_view::ParticleScene;
 
 /// What a viewport draws: the mesh view, or the particle scene.
 pub trait Scene {
     fn render(&self, width: u32, height: u32) -> Arc<RenderImage>;
     fn camera_mut(&mut self) -> &mut Camera;
+    /// The view's right and up axes in the scene's space (for panning).
+    fn axes(&self) -> (Vec3, Vec3);
     fn radius(&self) -> f32;
     fn clear_mut(&mut self) -> &mut [f64; 3];
     /// Frame what there is to see.
@@ -34,6 +38,9 @@ impl Scene for MeshView {
     fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
     }
+    fn axes(&self) -> (Vec3, Vec3) {
+        self.camera.axes_y_up()
+    }
     fn radius(&self) -> f32 {
         self.radius
     }
@@ -41,7 +48,7 @@ impl Scene for MeshView {
         &mut self.clear
     }
     fn fit(&mut self) {
-        self.camera = Camera { yaw: 0.6, pitch: 0.25, distance: self.radius * 2.6 };
+        self.camera = Camera::orbit(0.6, 0.25, self.radius * 2.6);
     }
 }
 
@@ -52,6 +59,9 @@ impl Scene for crate::game_material::GameMaterial {
     fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
     }
+    fn axes(&self) -> (Vec3, Vec3) {
+        crate::game_material::axes(&self.camera)
+    }
     fn radius(&self) -> f32 {
         crate::game_material::RADIUS
     }
@@ -59,7 +69,7 @@ impl Scene for crate::game_material::GameMaterial {
         &mut self.clear
     }
     fn fit(&mut self) {
-        self.camera = Camera { yaw: 0.6, pitch: 0.25, distance: crate::game_material::RADIUS * 2.9 };
+        self.camera = Camera::orbit(0.6, 0.25, crate::game_material::RADIUS * 2.9);
     }
 }
 
@@ -69,6 +79,9 @@ impl Scene for ParticleScene {
     }
     fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
+    }
+    fn axes(&self) -> (Vec3, Vec3) {
+        self.camera.axes_y_up()
     }
     fn radius(&self) -> f32 {
         self.radius
@@ -90,7 +103,8 @@ pub struct MeshState<V: Scene = MeshView> {
     /// Frames replaced since the last paint, to release.
     stale: Vec<Arc<RenderImage>>,
     pub dirty: bool,
-    drag: Option<Point<Pixels>>,
+    /// Where the pointer was, and whether the drag pans (else it orbits).
+    drag: Option<(Point<Pixels>, bool)>,
     pub summary: String,
 }
 
@@ -145,6 +159,7 @@ struct Viewport<V: Scene + 'static> {
 
 fn apply_viewport_key<V: Scene>(st: &mut MeshState<V>, e: &gpui::KeyDownEvent) -> bool {
     let m = &e.keystroke.modifiers;
+    // ⌥← / ⌥→ are Back and Forward.
     if m.platform || m.control || m.alt {
         return false;
     }
@@ -189,6 +204,12 @@ fn apply_viewport_key<V: Scene>(st: &mut MeshState<V>, e: &gpui::KeyDownEvent) -
     true
 }
 
+fn pan<V: Scene>(st: &mut MeshState<V>, dx: f32, dy: f32, height: f32) {
+    let (axes, radius) = (st.view.axes(), st.view.radius());
+    st.view.camera_mut().pan_by(dx, dy, height, axes, radius);
+    st.dirty = true;
+}
+
 impl<V: Scene + 'static> RenderOnce for Viewport<V> {
     fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
         let Viewport { id, state, height, bar, bg, muted } = self;
@@ -205,7 +226,8 @@ impl<V: Scene + 'static> RenderOnce for Viewport<V> {
                 st.dirty = true;
             }
         }
-        let (s1, s2, s3, s4, s5, s6, s7) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state);
+        let (s1, s2, s3, s4, s5, s6, s7) = (state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone(), state.clone());
+        let (s8, s9) = (state.clone(), state);
         let view = canvas(
             move |bounds: Bounds<Pixels>, window: &mut Window, _| {
                 let scale = window.scale_factor();
@@ -251,21 +273,36 @@ impl<V: Scene + 'static> RenderOnce for Viewport<V> {
                     window.refresh();
                 }
             })
-            .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some(e.position))
-            .on_mouse_up(MouseButton::Left, move |_, _, _| s3.borrow_mut().drag = None)
+            // Left-drag orbits (⇧: pans); right- and middle-drag pan, like the Electron preview and the map.
+            .on_mouse_down(MouseButton::Left, move |e, _, _| s2.borrow_mut().drag = Some((e.position, e.modifiers.shift)))
+            .on_mouse_down(MouseButton::Right, move |e, _, _| s8.borrow_mut().drag = Some((e.position, true)))
+            .on_mouse_down(MouseButton::Middle, move |e, _, _| s9.borrow_mut().drag = Some((e.position, true)))
+            .on_mouse_up(MouseButton::Left, {
+                let s = s3.clone();
+                move |_, _, _| s.borrow_mut().drag = None
+            })
+            .on_mouse_up(MouseButton::Right, {
+                let s = s3.clone();
+                move |_, _, _| s.borrow_mut().drag = None
+            })
+            .on_mouse_up(MouseButton::Middle, move |_, _, _| s3.borrow_mut().drag = None)
             .on_mouse_move(move |e: &gpui::MouseMoveEvent, window, _| {
                 let mut st = s4.borrow_mut();
-                let Some(from) = st.drag else { return };
-                if !e.dragging() {
+                let Some((from, panning)) = st.drag else { return };
+                if e.pressed_button.is_none() {
                     st.drag = None;
                     return;
                 }
                 let d = e.position - from;
-                st.drag = Some(e.position);
-                let cam = st.view.camera_mut();
-                cam.yaw -= f32::from(d.x) * 0.01;
-                cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
-                st.dirty = true;
+                st.drag = Some((e.position, panning));
+                if panning {
+                    pan(&mut st, f32::from(d.x), f32::from(d.y), height);
+                } else {
+                    let cam = st.view.camera_mut();
+                    cam.yaw -= f32::from(d.x) * 0.01;
+                    cam.pitch = (cam.pitch + f32::from(d.y) * 0.01).clamp(-1.5, 1.5);
+                    st.dirty = true;
+                }
                 window.refresh();
             })
             .on_scroll(move |e: &gpui::ScrollEvent, window, cx| {
@@ -286,9 +323,26 @@ impl<V: Scene + 'static> RenderOnce for Viewport<V> {
                 }
             })
             .child(view)
-            .children(bar.map(|b| h_flex().absolute().top(px(6.0)).left(px(6.0)).gap_1().child(b)))
+            // The toolbar's clicks stay its own: a double-click on a button
+            // does not fit the view, a press on one does not start a drag.
+            .children(bar.map(|b| {
+                h_flex()
+                    .absolute()
+                    .top(px(6.0))
+                    .left(px(6.0))
+                    .gap_1()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Middle, |_, _, cx| cx.stop_propagation())
+                    .child(b)
+            }))
             .child(div().absolute().bottom(px(6.0)).left(px(8.0)).text_xs().text_color(muted).child(summary))
     }
+}
+
+/// A camera as `studio_state` reports it (tests read orbit, zoom and pan).
+pub fn camera_json(c: &Camera) -> J {
+    json!({ "yaw": c.yaw, "pitch": c.pitch, "distance": c.distance, "pan": [c.pan.x, c.pan.y, c.pan.z] })
 }
 
 /// The interactive view of `state`, `height` tall, with `bar` over its top
@@ -354,7 +408,7 @@ impl Studio {
                             view.wireframe = wireframe;
                         }
                         let n = |k: &str| r.json[k].as_u64().unwrap_or(0);
-                        let summary = format!("{} verts · {} tris · {} materials · {} textures · {} ms · drag/arrows orbit, wheel/+- zoom, F/double-click fit", n("vertices"), view.triangles, n("materials"), n("images"), t.elapsed().as_millis());
+                        let summary = format!("{} verts · {} tris · {} materials · {} textures · {} ms · drag/arrows orbit, right-drag pan, wheel/+- zoom, F/double-click fit", n("vertices"), view.triangles, n("materials"), n("images"), t.elapsed().as_millis());
                         view.use_game = this.game_shaders;
                         let state = Rc::new(RefCell::new(MeshState::new(i, lod, view, summary)));
                         this.mesh = Some(state.clone());

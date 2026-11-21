@@ -168,7 +168,43 @@ pub struct Camera {
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
+    /// Where the camera orbits, from the scene's centre (moved by panning).
+    pub pan: Vec3,
 }
+
+impl Camera {
+    pub fn orbit(yaw: f32, pitch: f32, distance: f32) -> Camera {
+        Camera { yaw, pitch, distance, pan: Vec3::ZERO }
+    }
+
+    /// Move what the camera orbits so the scene follows a drag of `dx`, `dy`
+    /// pixels in a frame `height` pixels tall; `right` and `up` are the
+    /// view's axes in the scene, `radius` the scene's size (a pan stays
+    /// within ten of it).
+    pub fn pan_by(&mut self, dx: f32, dy: f32, height: f32, (right, up): (Vec3, Vec3), radius: f32) {
+        let per_px = 2.0 * self.distance * (FOV * 0.5).tan() / height.max(1.0);
+        self.pan += (up * dy - right * dx) * per_px;
+        let max = radius * 10.0;
+        if self.pan.length() > max {
+            self.pan = self.pan.normalize() * max;
+        }
+    }
+
+    /// The view's right and up axes for a Y-up scene (meshes, particles).
+    pub fn axes_y_up(&self) -> (Vec3, Vec3) {
+        let forward = -self.dir_y_up();
+        let right = forward.cross(Vec3::Y).normalize_or(Vec3::X);
+        (right, right.cross(forward))
+    }
+
+    /// From what the camera orbits towards the eye, in a Y-up scene.
+    fn dir_y_up(&self) -> Vec3 {
+        Vec3::new(self.yaw.sin() * self.pitch.cos(), self.pitch.sin(), self.yaw.cos() * self.pitch.cos())
+    }
+}
+
+/// The preview cameras' vertical field of view.
+const FOV: f32 = std::f32::consts::FRAC_PI_4;
 
 /// The GPU device and the pipeline, made once for every viewer.
 pub(crate) struct Gpu {
@@ -633,7 +669,7 @@ impl MeshView {
             }
             Bones { parents, joints: sk.joints().map(|j| j.index()).collect(), world }
         });
-        let mut v = MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center, radius, camera: Camera { yaw: 0.6, pitch: 0.25, distance: radius * 2.6 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim, bones, floor: lo.y, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: true };
+        let mut v = MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center, radius, camera: Camera::orbit(0.6, 0.25, radius * 2.6), triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim, bones, floor: lo.y, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: true };
         if v.anim.is_some() {
             v.set_time(0.0);
         }
@@ -692,7 +728,7 @@ impl MeshView {
             game: None,
         }];
         let triangles = indices.len() / 3;
-        Ok(MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center: Vec3::ZERO, radius: 1.0, camera: Camera { yaw: 0.6, pitch: 0.25, distance: 2.9 }, triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim: None, bones: None, floor: -1.0, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: false })
+        Ok(MeshView { gpu: gpu.clone(), uniforms, globals, primitives, center: Vec3::ZERO, radius: 1.0, camera: Camera::orbit(0.6, 0.25, 2.9), triangles, textured: true, wireframe: false, clear: [0.016, 0.016, 0.027], anim: None, bones: None, floor: -1.0, show_grid: false, show_skeleton: false, game: Vec::new(), use_game: false })
     }
 
     /// Draw a `width`×`height` frame (device pixels).
@@ -713,7 +749,7 @@ impl MeshView {
         let game = self.drawing_game();
         if game {
             let swap = |v: Vec3| Vec3::new(v.x, v.z, v.y) * 100.0;
-            let frame = Frame { view_proj: view_proj * to_gltf_matrix(), eye: swap(eye), target: swap(self.center), near: 1.0, light: None };
+            let frame = Frame { view_proj: view_proj * to_gltf_matrix(), eye: swap(eye), target: swap(self.center + self.camera.pan), near: 1.0, light: None };
             for g in &self.game {
                 g.prepare(&frame);
             }
@@ -761,9 +797,12 @@ impl MeshView {
 
 /// The orbit camera's view-projection for a `w`×`h` frame, and where the eye is.
 pub(crate) fn view_proj(center: Vec3, radius: f32, c: Camera, w: u32, h: u32) -> (Mat4, Vec3) {
-    let eye = center + c.distance * Vec3::new(c.yaw.sin() * c.pitch.cos(), c.pitch.sin(), c.yaw.cos() * c.pitch.cos());
-    let view = Mat4::look_at_rh(eye, center, Vec3::Y);
-    let proj = Mat4::perspective_rh(45f32.to_radians(), w as f32 / h as f32, (c.distance - radius * 2.0).max(radius * 0.01), c.distance + radius * 2.0);
+    let target = center + c.pan;
+    let eye = target + c.distance * c.dir_y_up();
+    let view = Mat4::look_at_rh(eye, target, Vec3::Y);
+    // A pan moves the scene off the target: the depth range still covers it.
+    let reach = radius * 2.0 + c.pan.length();
+    let proj = Mat4::perspective_rh(FOV, w as f32 / h as f32, (c.distance - reach).max(radius * 0.01), c.distance + reach);
     (proj * view, eye)
 }
 

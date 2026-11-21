@@ -63,8 +63,13 @@ Replace and a ⋯ menu; Export and Replace ask their options first (format, mip,
 compression, mips, alpha, padding) in `actions.rs`. Raw engine data is folded under Technical
 details; empty `None` placeholder exports are left out of the tree; export rows have class icons and
 readable class names (`pretty_class`, `class_icon`). Texture preview (`texture.rs`): Fit / 1:1 / 2×,
-any stored mip, dark / grey / light background, size, format and where the mip lives. Mesh viewport:
-the wheel zooms without scrolling the pane, the background follows the theme. **Audio** view (⌘4,
+any stored mip, dark / grey / light background, size, format and where the mip lives. Mesh viewport
+(also the material sphere and particles, `mesh::Viewport`): drag orbits, right-, middle- or ⇧-drag
+pans (`Camera::pan`, in the scene's own space so it stays put while orbiting; the game-shader sphere
+is Z-up left-handed, so its yaw runs the other way, `game_material::eye_dir`), F or double-click
+fits; the toolbar over it keeps its presses (no fit or drag from its buttons); ⌥←/⌥→ stay Back and
+Forward. The wheel zooms without scrolling the pane, the background follows the theme;
+`studio_state.meshCamera` and `material.game.camera` give the cameras. **Audio** view (⌘4,
 `audio_view.rs`): Files / Champions / Items. Files: every `.pck` of the folder and its subfolders
 (`ui::folder_mark`, as in the package list; the empty packages the folder keeps for `English(US)/`
 are hidden). Champions and Items (`wwise.owners`, read once): a champion's voice lines, abilities,

@@ -16,7 +16,10 @@ Publish…) and **Build & install** (a fast build, into a temporary folder for a
 `mod install` into this game unless files saved in place would hide whether the mod works); tabs
 Files (game files you changed, each named in words with its counts on its line: `mod.preview`
 runs for the first 8 files after every refresh; What changed unfolds the list of changes under a
-file and keeps it unfolded across refreshes; errors shown in the file's row; other files),
+file and keeps it unfolded across refreshes; errors shown in the file's row; with two files or
+more, a bar above them ticks or unticks every file and removes the unticked ones from the list or
+project in one go (`remove_left_out`, after a confirm; a file with unsaved edits always stays
+listed, so it is neither counted nor offered in its ⋯ menu); other files),
 Details (name, version, author, icon, readme; Advanced: id, dependencies, Build only's compression)
 and Publish (listing, game patches, changelog, a pointer to the website for images and visibility,
 where the game patches are picked like on the website's upload form: Every patch (from the first

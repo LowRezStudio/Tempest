@@ -668,7 +668,7 @@ impl Studio {
                 None => groups.push((info.group, vec![(info.title, key_hint(info.keys))])),
             }
         }
-        let extra: [(&'static str, &[(&'static str, &'static str)]); 4] = [
+        let extra: [(&'static str, &[(&'static str, &'static str)]); 5] = [
             (
                 "Lists, trees & inspector",
                 &[
@@ -686,6 +686,15 @@ impl Studio {
                     ("Extend row selection", "⇧↑ · ⇧↓ · ⌘A"),
                     ("Edit cell or confirm", "Enter · F2 · Esc"),
                     ("Copy & paste rows", "⌘C · ⌘V"),
+                ],
+            ),
+            (
+                "Mesh, material & particle previews",
+                &[
+                    ("Orbit", "Drag · ← → ↑ ↓"),
+                    ("Pan", "Right-drag · Middle-drag · ⇧drag"),
+                    ("Zoom", "Wheel · + −"),
+                    ("Fit", "F · Double-click"),
                 ],
             ),
             (

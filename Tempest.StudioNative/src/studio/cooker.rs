@@ -1318,6 +1318,9 @@ impl Cooker {
         let mut list = v_flex()
             .when_some(unapplied_banner, |d, b| d.child(div().pb_2().child(b)))
             .when_some(particle_banner, |d, b| d.child(div().pb_2().child(b)));
+        if self.targets.len() > 1 {
+            list = list.child(self.render_bulk(cx));
+        }
         for (k, t) in self.targets.iter().enumerate() {
             let (_, source, origin) = &t.sources[t.chosen];
             let origin = match origin.as_str() {
@@ -1336,12 +1339,12 @@ impl Cooker {
                 .child(
                     h_flex()
                         .gap_3()
-                        .child(Checkbox::new(("inc", k)).checked(t.included).tooltip(if t.included { "In the mod: click to leave it out" } else { "Left out: click to put it in" }).on_click(cx.listener(move |this, v: &bool, _, cx| {
+                        .child(div().relative().child(Checkbox::new(("inc", k)).checked(t.included).tooltip(if t.included { "In the mod: click to leave it out" } else { "Left out: click to put it in" }).on_click(cx.listener(move |this, v: &bool, _, cx| {
                             if let Some(t) = this.targets.get_mut(k) {
                                 t.included = *v;
                             }
                             cx.notify();
-                        })))
+                        }))).child(crate::driver::probe(format!("cook-inc-{k}"))))
                         .child(
                             v_flex()
                                 .flex_1()
@@ -1615,8 +1618,10 @@ impl Cooker {
             let _ = origin;
             menu = menu.item(item(format!("Forget the copy {}", file_name(&src)), Box::new(move |this, _, cx| this.forget_copy(src.clone(), cx))));
         }
-        // Copies are forgotten above; unsaved edits are discarded; what is left is a file saved in place.
-        if self.project.is_some() {
+        // Copies are forgotten above; unsaved edits are discarded (until then the file stays listed); what is left is a file saved in place.
+        if !self.removable(t) {
+            menu
+        } else if self.project.is_some() {
             menu.item(item("Remove it from the project".into(), Box::new(move |this, _, cx| this.dismiss(k, cx))))
         } else if t.saved_modified.is_some() {
             menu.item(item("Remove it from the list (until saved again)".into(), Box::new(move |this, _, cx| this.dismiss(k, cx))))
@@ -1669,21 +1674,117 @@ impl Cooker {
 
     /// Off the list: a project forgets the file; an in-place save stays hidden until it is saved again.
     fn dismiss(&mut self, k: usize, cx: &mut Context<Self>) {
-        if k >= self.targets.len() {
-            return;
+        self.dismiss_all(vec![k], cx);
+    }
+
+    fn dismiss_all(&mut self, mut ks: Vec<usize>, cx: &mut Context<Self>) {
+        ks.retain(|&k| k < self.targets.len());
+        ks.sort_unstable();
+        ks.dedup();
+        let mut names = Vec::new();
+        for k in ks.into_iter().rev() {
+            let t = self.targets.remove(k);
+            if let Some(m) = t.saved_modified {
+                self.dismissed.insert(t.target.clone(), m);
+            }
+            names.push(file_name(&t.target).to_ascii_lowercase());
         }
-        let t = self.targets.remove(k);
-        if let Some(m) = t.saved_modified {
-            self.dismissed.insert(t.target.clone(), m);
-        }
-        let name = file_name(&t.target).to_ascii_lowercase();
         let _ = self.studio.update(cx, |s, _| {
             if let Some(p) = &mut s.project {
-                p.files.retain(|f| *f != name);
+                p.files.retain(|f| !names.contains(f));
             }
         });
         self.save_meta(cx);
         cx.notify();
+    }
+
+    /// Whether a file can leave the list: a project's file, or an in-place
+    /// save. A file with unsaved Studio edits is always listed (`refresh`):
+    /// it is saved or its edits are discarded first.
+    fn removable(&self, t: &Target) -> bool {
+        !t.sources.iter().any(|s| s.2 == "unsaved") && (self.project.is_some() || t.saved_modified.is_some())
+    }
+
+    /// The files left out (unticked) that can leave the list.
+    fn left_out(&self) -> Vec<usize> {
+        self.targets.iter().enumerate().filter(|(_, t)| !t.included && self.removable(t)).map(|(k, _)| k).collect()
+    }
+
+    /// Take every unticked file off the list at once, after asking.
+    fn remove_left_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ks = self.left_out();
+        if ks.is_empty() {
+            return;
+        }
+        let n = ks.len();
+        let files = if n == 1 { "1 file".to_string() } else { format!("{n} files") };
+        let (title, body) = if self.project.is_some() {
+            (format!("Remove {files} from the project?"), "They leave this mod's list of files. Nothing is deleted from disk, and a file comes back when you change it again.")
+        } else {
+            (format!("Remove {files} from the list?"), "They stay hidden here until you save them again. Nothing is deleted from disk.")
+        };
+        let me = cx.entity().downgrade();
+        super::dialogs::confirm(window, cx, title, body, "Remove", false, move |_, cx| {
+            let ks = ks.clone();
+            let _ = me.update(cx, |this, cx| this.dismiss_all(ks, cx));
+        });
+    }
+
+    /// Above the files: tick or untick them all, and remove the unticked ones.
+    fn render_bulk(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let total = self.targets.len();
+        let included = self.targets.iter().filter(|t| t.included).count();
+        let all = included == total;
+        let left_out = self.left_out().len();
+        let unticked = total - included;
+        let remove_tip = if left_out > 0 {
+            "Take the unticked files off this list"
+        } else if unticked > 0 {
+            "Files with unsaved edits stay listed: save them, or discard their edits from the ⋯ menu"
+        } else {
+            "Untick the files you want to remove first"
+        };
+        h_flex()
+            .gap_3()
+            .pb_2()
+            .items_center()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        Checkbox::new("inc-all")
+                            .checked(all)
+                            .label(format!("{included} of {total} files in the mod"))
+                            .tooltip(if all { "Leave every file out of the mod" } else { "Put every file in the mod" })
+                            .on_click(cx.listener(|this, v: &bool, _, cx| {
+                                for t in &mut this.targets {
+                                    t.included = *v;
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(crate::driver::probe("cook-inc-all")),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        Button::new("cook-remove-left-out")
+                            .xsmall()
+                            .ghost()
+                            .icon(gpui_component::Icon::new(gpui_kit_assets::IconName::Trash))
+                            .label(if left_out > 0 { format!("Remove {left_out} unticked") } else { "Remove unticked".to_string() })
+                            .tooltip(remove_tip)
+                            .disabled(left_out == 0)
+                            .on_click(cx.listener(|this, _, window, cx| this.remove_left_out(window, cx))),
+                    )
+                    .child(crate::driver::probe("cook-remove-left-out")),
+            )
+            .into_any_element()
     }
 
     /// The project's mod-files/ (shipped as laid out).
