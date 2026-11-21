@@ -38,7 +38,10 @@
 //! bytes. The image and the object files are LZMA-compressed (an `.xz`
 //! stream, recognised by its magic) unless that would not make them
 //! smaller. A delta without shared objects or compression is written as
-//! version 1.
+//! version 1. Version 3 is version 2 with `patch` ops whose properties are
+//! compressed against the base object (`from`, a changed movie's RawData):
+//! only such deltas say 3, so an older reader refuses them instead of
+//! applying an empty patch.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -56,8 +59,11 @@ use crate::reflect::ClassDb;
 use crate::visit::{visit_parsed, Visitor};
 
 pub const MAGIC: &[u8; 4] = b"TDLT";
-/// The newest version this build reads and writes.
+/// The version deltas (and digests) are written as, unless they need [`NEWEST`].
 pub const VERSION: u32 = 2;
+/// The newest version this build reads: a delta with a `patch` op compressed
+/// against the base object.
+pub const NEWEST: u32 = 3;
 /// Payloads at least this large become shared object files when sharing is on.
 pub const SHARE_MIN: usize = 16 * 1024;
 /// Extension of a shared object file.
@@ -251,12 +257,20 @@ fn worth_from(dict: &[u8], bytes: &[u8]) -> bool {
     pack_from_level(dict, bytes, 9).is_some_and(|z| z.len() * 100 < alone * 80)
 }
 
+/// The base object goes in as a prefix (what `zstd --patch-from` does): as a
+/// dictionary, the fast levels and long matching barely use a large one (a
+/// 7 MB movie: 6 MB instead of 10 KB at level 9). The frame is the same kind,
+/// read by [`unpack_from`]'s raw-content dictionary.
 fn pack_from_level(dict: &[u8], bytes: &[u8], level: i32) -> Option<Vec<u8>> {
-    use zstd::zstd_safe::CParameter;
-    let mut c = zstd::bulk::Compressor::with_dictionary(level, dict).ok()?;
+    use zstd::zstd_safe::{CCtx, CParameter};
+    let mut c = CCtx::try_create()?;
+    c.set_parameter(CParameter::CompressionLevel(level)).ok()?;
     c.set_parameter(CParameter::WindowLog(27)).ok()?;
     c.set_parameter(CParameter::EnableLongDistanceMatching(true)).ok()?;
-    c.compress(bytes).ok()
+    c.ref_prefix(dict).ok()?;
+    let mut out = Vec::with_capacity(zstd::zstd_safe::compress_bound(bytes.len()));
+    c.compress2(&mut out, bytes).ok()?;
+    Some(out)
 }
 
 /// The bytes [`pack_from`] made, given the same dictionary.
@@ -431,7 +445,14 @@ impl Delta {
         let image = packed.next().unwrap_or_default();
         let streams: Vec<Vec<u8>> = (0..self.streams.len()).map(|_| packed.next().unwrap_or_default()).collect();
         let compressed = image.len() != self.image.len() || image.starts_with(XZ_MAGIC);
-        let version = if hashes.is_empty() && !compressed && self.from.is_empty() && self.streams.is_empty() { 1 } else { VERSION };
+        let patch_from = self.header["ops"].as_array().is_some_and(|ops| ops.iter().any(|o| o.get("patch").is_some() && o.get("from").is_some()));
+        let version = if patch_from {
+            NEWEST
+        } else if hashes.is_empty() && !compressed && self.from.is_empty() && self.streams.is_empty() {
+            1
+        } else {
+            VERSION
+        };
         let mut header = self.header.clone();
         header["version"] = json!(version);
         let json = serde_json::to_vec(&header).unwrap_or_default();
@@ -473,8 +494,8 @@ impl Delta {
             return Err(Error::Format("not a Tempest delta (bad magic)".into()));
         }
         let version = r.u32()?;
-        if version == 0 || version > VERSION {
-            return Err(Error::Format(format!("delta version {version} is not supported (this build reads up to {VERSION}); update Tempest")));
+        if version == 0 || version > NEWEST {
+            return Err(Error::Format(format!("delta version {version} is not supported (this build reads up to {NEWEST}); update Tempest")));
         }
         let n = r.u32()? as usize;
         let header: Value = serde_json::from_slice(r.take(n)?).map_err(|e| Error::Format(format!("delta header: {e}")))?;
@@ -1085,6 +1106,13 @@ pub fn create_with(db: &ClassDb, base: Base, edited: &Package, target: &str, opt
         let bytes = write_parsed(&p, layout, mini_none);
         let class = edited.class_name_of(PackageIndex::export(i));
         if let Some(patch) = patch {
+            // Large changed properties (a movie's RawData) are mostly the
+            // base object's bytes: compressed against it below, like objects.
+            if let (Some(j), Some(bp), false) = (base_j, base_pkg, opts.fast) {
+                if bytes.len() >= 4096 && bp.export_data.get(j).is_some_and(|d| d.len() >= 4096) {
+                    candidates.push((ops.len(), k, j));
+                }
+            }
             mini.set_export_data(k, bytes);
             ops.push(json!({ "op": op, "path": path, "class": class, "base": base_hash, "export": k, "patch": patch }));
             continue;
@@ -1397,7 +1425,7 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
         };
         if let Some(patch) = &op.patch {
             // The changed properties, in the target's names and references…
-            let data = mini.export_data.get(k).map(|d| d.as_slice()).unwrap_or(&[]);
+            let data = from_data.as_deref().or(mini.export_data.get(k).map(|d| d.as_slice())).unwrap_or(&[]);
             let Parsed::Object(mut pm) = parse_export(db, &mini, mini_layout, k, data) else {
                 out.warnings.push(format!("{}: the property changes could not be read", op.path));
                 continue;
@@ -1607,6 +1635,39 @@ mod tests {
         let z = pack_from(&data, &edited).unwrap();
         assert!(z.len() < 1000);
         assert_eq!(unpack_from(&data, &z, edited.len()).unwrap(), edited);
+    }
+
+    #[test]
+    fn large_bases_are_found_by_the_quick_pass() {
+        // A big object changed in one place (a 7 MB movie): the level-9
+        // decision pass must see the whole base, not decide it is not worth it.
+        let mut x = 0x2545_f491_u32;
+        let base: Vec<u8> = (0..8 << 20).map(|_| { x ^= x << 13; x ^= x >> 17; x ^= x << 5; x as u8 }).collect();
+        let mut edited = base.clone();
+        edited[5_000_000..5_002_000].fill(1);
+        assert!(worth_from(&base, &edited));
+        let z = pack_from_level(&base, &edited, 9).unwrap();
+        assert!(z.len() < 20_000, "{} bytes", z.len());
+        assert_eq!(unpack_from(&base, &z, edited.len()).unwrap(), edited);
+    }
+
+    #[test]
+    fn patch_from_deltas_say_version_3() {
+        let ops = |patch: bool| {
+            let mut op = json!({ "op": "set", "path": "home.home", "class": "SwfMovie", "export": 0, "from": { "hash": "00", "size": 3 } });
+            if patch {
+                op["op"] = json!("patch");
+                op["patch"] = json!({ "remove": [], "after": [] });
+            }
+            json!({ "ops": [op] })
+        };
+        for (patch, version) in [(false, 2), (true, NEWEST)] {
+            let d = Delta { header: ops(patch), image: vec![9], from: BTreeMap::from([(0, vec![1, 2, 3])]), ..Default::default() };
+            let bytes = d.to_bytes();
+            assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), version);
+            let back = Delta::from_bytes(&bytes).unwrap();
+            assert_eq!((back.header["version"].as_u64(), back.from.get(&0)), (Some(version as u64), Some(&vec![1, 2, 3])));
+        }
     }
 
     #[test]

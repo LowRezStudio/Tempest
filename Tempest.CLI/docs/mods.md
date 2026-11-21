@@ -48,8 +48,9 @@ compresses, runs its diffs in parallel and is cached the same way. Cassie Bow (5
 {compression}`): "Smallest file" (LZMA, default) or "Faster build" (zstd 12: Cassie Bow 79 MB in
 about 9 s); readers detect either by its magic, `upk delta create --shared <dir>` on the CLI. The
 launcher stores `shared/` in the installed mod's folder like any other entry and `upk` finds it
-above the delta (`Delta::read`); `DeltaResolver.ReadHeader` accepts versions 1 and 2; deltas are
-version 2 whenever they are compressed (almost always), so mods made now need an up-to-date
+above the delta (`Delta::read`); `DeltaResolver.ReadHeader` accepts versions 1 to 3; deltas are
+version 2 whenever they are compressed (almost always), and version 3 when a property patch is
+compressed against the base object (changed movies), so mods made now need an up-to-date
 launcher. Format, `upk delta create|apply|info|digest|verify` and the Studio's base records:
 [backend delta reference](../../Tempest.UnrealScript/docs/deltas.md). Signing is unchanged: deltas
 are ordinary entries in `CHECKSUMS`, and the code policy below does not treat script packages as

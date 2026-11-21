@@ -30,8 +30,16 @@ changed properties and an empty native part; `patch: {remove: [[name, index]…]
 index] | null…]}`; apply parses the target object and replaces, inserts after the recorded
 neighbour, or removes by `prop_key`, without touching its table entry; a missing object is skipped
 with a warning). `from` ops (`pack_from`/`unpack_from`: zstd level 22, window 2^27, long matching,
-the base export's raw bytes as raw-content dictionary; chosen when under 85 % of `pack` of the
-payload alone; `from: {hash: md5 of the base bytes, size}`, the compressed payload in the file's
+the base export's raw bytes as a prefix (`ref_prefix`, what `zstd --patch-from` does; read back
+with it as raw-content dictionary: the same frames, so older readers decode them; as a dictionary
+the level-9 decision pass found nothing in a 7 MB base: 6.08 MB against 9.6 KB); chosen when under 85 % of `pack` of the
+payload alone; a `patch` op whose changed properties are 4 KiB or more (a movie's `RawData`) is a
+candidate too, its mini export payload compressed the same way (**version 3**, written only when a
+patch op has `from`, so older readers refuse the file instead of applying an empty patch; `NEWEST`
+is what this build reads, `VERSION` 2 what everything else is written as). Clean HUD's
+`LobbyUI_SF` (75 movie patches, 9 new textures) 6.69 MB → 0.92 MB, `GameUI_SF` 220 → 42 KB,
+`Startup` 30 → 1.9 KB, Clean Menu's whole `LobbyUI_SF` as a delta 11.5 → 6.05 MB, packages
+identical; `from: {hash: md5 of the base bytes, size}`, the compressed payload in the file's
 trailing section `u32 count, (u32 export, u32 len, bytes)…`; `apply_with(…, original)` takes the
 dictionary from the pristine package by path (`upk`'s `apply_deltas` passes a clone of the package
 before any delta when one has `from` ops), else from the target's current object; a hash mismatch
