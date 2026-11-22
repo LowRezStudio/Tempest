@@ -74,7 +74,7 @@ impl Graph<'_> {
         for (token, value) in &row.entries {
             match value {
                 super::Value::Rows(rows) => {
-                    for r in rows {
+                    for r in rows.iter() {
                         self.walk(r, part, fx_name, slots, seen, out);
                     }
                 }

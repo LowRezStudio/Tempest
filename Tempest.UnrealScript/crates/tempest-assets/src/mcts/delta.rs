@@ -189,7 +189,7 @@ pub fn apply(tokens: &Tokens, m: &mut Marshal, delta: &Delta) -> Result<Applied>
             Some((_, Value::Rows(rows))) => rows,
             Some(_) => return Err(Error::Format(format!("{name} is not a row set"))),
             None => {
-                m.root.entries.push((token, Value::Rows(Vec::new())));
+                m.root.entries.push((token, Value::Rows(Box::default())));
                 match &mut m.root.entries.last_mut().unwrap().1 {
                     Value::Rows(rows) => rows,
                     _ => unreachable!(),

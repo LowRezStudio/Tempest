@@ -383,7 +383,7 @@ impl Workspace {
             e.set(active_t, Value::Str("y".into()));
             out.push(e);
         }
-        row.set(entries_t, Value::Rows(out));
+        row.set(entries_t, Value::Rows(Box::new(out)));
         let at = self.add_row("DATA_SET_LOOT_TABLES", row)?;
         Ok((at, table_id))
     }

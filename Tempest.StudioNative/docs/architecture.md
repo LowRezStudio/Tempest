@@ -13,4 +13,7 @@ current sources.
   `gpui-pre` needs a newer Rust than 1.97). It runs `upk serve`'s `Server` in-process on a worker
   thread (`src/backend.rs`: `Server::with_events` + `call_bin`, replies keep their binary payloads
   as bytes; `WORK`/`Busy` count work in flight), so it calls the same methods as the Electron Studio
-  without IPC. Ported view by view while the Electron Studio keeps shipping.
+  without IPC. Ported view by view while the Electron Studio keeps shipping. The app runs on
+  mimalloc like `upk` (`src/main.rs`): the backend gives the memory freed after opening a folder
+  back to the system (`release_memory`), which macOS's allocator would keep (8.1 open: ~0.57 GB
+  instead of ~1.25 GB).

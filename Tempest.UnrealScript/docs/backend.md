@@ -70,8 +70,10 @@ and a decompile of each script package opened (`script_jobs`, used when the file
 (`material_ops::load_shared`, 768 MiB LRU, invalidated by size/mtime and `forget_shared` on save).
 Unedited packages closed with `package.close` are kept for reopening within 256 MiB of file size
 (about twice that in memory). `workspace.trim` drops both caches and the preview and movie caches
-and returns the memory to the system (`upk` runs on mimalloc, `mi_collect`): Match Ledger sends it
-once its reads go quiet, as a tool kept between bursts otherwise grows by gigabytes.
+and returns the memory to the system (`release_memory`: `upk` and the native Studio run on
+mimalloc, `mi_collect`): Match Ledger sends it once its reads go quiet, as a tool kept between
+bursts otherwise grows by gigabytes. `workspace.open` and its background jobs (search index,
+marshals) call `release_memory` when they finish, as does freeing a previous folder's state.
 The class database is reused when the same folder is reopened with unchanged script packages.
 Compiler/decompiler lookups are cached (`Context` import resolution reset on every package load,
 per-struct child names and operator lists, model name index): keep caches keyed on state that only
@@ -79,11 +81,17 @@ grows, and recheck byte identity with `scripts/verify.sh` on 8.1 and 0.57. A pan
 returned as that request's error instead of ending the server.
 
 `ClassDb::load_files` parses the script packages in parallel (`Context::load_files_parallel`,
-`par::map`; 0.75 s for 8.1's 16 packages) and `list_packages` reads the 993 summaries in parallel.
-A package's search index keeps its object paths in one string (`text` + `ends`): one
-allocation per package instead of one per export, and a lower-case package is searched with one
-`memmem` pass over all its paths. The search index is persisted compressed under the OS cache folder
-(`<cache>/tempest-studio/index/<hash>.idx`, entries reused while a package's size and mtime match).
+`par::map`; 0.75 s for 8.1's 16 packages) and `list_packages` reads the 993 summaries in parallel;
+it frees the script packages' `ShaderCache` payloads (41 MB in 8.1, nothing reads them through it).
+A package's search index (`pathindex.rs`) keeps its object paths as a tree of dot-separated parts:
+each distinct part once, one `(parent, part)` node per distinct prefix (8.1: 200 MB of paths, 20 MB
+of parts, 2.8 M nodes). A search is one `memmem` pass over the parts, then one pass marking the
+nodes whose path holds the query (queries with dots match the parts around them); `owners` is two
+sorted arrays (path hash, package) built from hashes extended part by part. The search index is
+persisted compressed under the OS cache folder (`<cache>/tempest-studio/index/<hash>.idx`, `TSI2`,
+entries reused while a package's size and mtime match; an older file is rebuilt once).
+Marshal values are 24 bytes (`Box<str>`, `Box<[u8]>`, `Box<Vec<Row>>`) and strings are allocated to
+their length: 8.1's `assembly.dat` and 14 languages take 289 MB parsed.
 `upk serve` answers framed after `{"method":"protocol","params":{"frames":true}}`: header line `{id,
 ok, ms, len, bin:[…]}` + result JSON + raw payloads (`BinSink`, `{"$bin": n}` markers); without the
 handshake payloads are base64 as before (scripted sessions). `package.open`/`package.tables` return

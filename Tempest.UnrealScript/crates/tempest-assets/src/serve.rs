@@ -36,6 +36,7 @@ use crate::visit::references;
 use crate::wwise::{self, akpk, bnk, fnv, vorbis};
 use crate::audio;
 use crate::mcts;
+use crate::pathindex::{self, path_hash, Owners, SearchIndex};
 
 type Res<T> = Result<T, Box<dyn Error>>;
 
@@ -75,57 +76,6 @@ struct WorkspacePackage {
     flags: u32,
 }
 
-/// Searchable table of one package (built lazily by `workspace.search`).
-#[derive(Clone)]
-struct SearchIndex {
-    classes: Vec<String>,
-    /// The object paths of every export, end to end: one allocation per
-    /// package instead of one per export (millions in a cooked folder).
-    text: String,
-    /// (class id, end of the object path in `text`) per export.
-    ends: Vec<(u16, u32)>,
-    /// Some path has upper-case letters (script packages keep case, content
-    /// packages are lower-case): searching must fold them.
-    mixed_case: bool,
-}
-
-impl SearchIndex {
-    fn new(classes: Vec<String>) -> SearchIndex {
-        SearchIndex { classes, text: String::new(), ends: Vec::new(), mixed_case: false }
-    }
-
-    fn push(&mut self, class: u16, path: &str) {
-        self.mixed_case |= path.bytes().any(|b| b.is_ascii_uppercase());
-        self.text.push_str(path);
-        self.ends.push((class, self.text.len() as u32));
-    }
-
-    fn done(mut self) -> SearchIndex {
-        self.text.shrink_to_fit();
-        self.ends.shrink_to_fit();
-        self
-    }
-
-    fn len(&self) -> usize {
-        self.ends.len()
-    }
-
-    fn path(&self, i: usize) -> &str {
-        let start = if i == 0 { 0 } else { self.ends[i - 1].1 as usize };
-        &self.text[start..self.ends[i].1 as usize]
-    }
-
-    /// (class id, object path) per export.
-    fn exports(&self) -> impl Iterator<Item = (u16, &str)> {
-        let mut start = 0;
-        self.ends.iter().map(move |&(class, end)| {
-            let path = &self.text[start..end as usize];
-            start = end as usize;
-            (class, path)
-        })
-    }
-}
-
 pub struct Server {
     dir: Option<PathBuf>,
     /// Editors borrow it as `'static` (see [`Server::db`]).
@@ -147,7 +97,7 @@ pub struct Server {
     /// Object path hash → the first workspace package (in `packages` order)
     /// whose index holds the path: `index_lookup` without scanning every
     /// export of every package. Dropped whenever `index` changes.
-    owners: Option<std::sync::Arc<HashMap<u64, u32>>>,
+    owners: Option<std::sync::Arc<Owners>>,
     /// Search index of every workspace package, built in the background
     /// from `workspace.open` on; joined by `index_all`.
     index_job: Option<std::thread::JoinHandle<IndexJob>>,
@@ -213,11 +163,36 @@ pub struct Server {
 
 /// What the background indexing returns: the search index of every package
 /// and its `owners` map.
-type IndexJob = (HashMap<String, SearchIndex>, HashMap<u64, u32>);
+type IndexJob = (HashMap<String, SearchIndex>, Owners);
 
 /// A file's size and modification time: whether a background result made from
 /// it still applies.
 type FileStamp = Option<(u64, std::time::SystemTime)>;
+
+/// Returns freed memory to the system. Opening a folder frees hundreds of
+/// megabytes of file images and scratch tables that the allocator would
+/// otherwise keep: mimalloc's (`upk`), or the system allocator's empty
+/// blocks in a process that keeps it (the native Studio).
+fn release_memory() {
+    // SAFETY: no arguments to uphold; outside a mimalloc process it only visits mimalloc's own, empty heap.
+    unsafe { libmimalloc_sys::mi_collect(true) };
+    #[cfg(target_os = "macos")]
+    {
+        extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: a null zone means every zone, a zero goal as much as possible.
+        unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
+    }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        // SAFETY: no pointers; glibc trims its own arenas.
+        unsafe { malloc_trim(0) };
+    }
+}
 
 fn file_stamp(path: &Path) -> FileStamp {
     let m = std::fs::metadata(path).ok()?;
@@ -520,8 +495,7 @@ impl Server {
         self.swf_embeds.clear();
         self.swf_libs.clear();
         self.swf_subset_cache.clear();
-        // SAFETY: no arguments to uphold; outside a mimalloc process it only visits mimalloc's own, empty heap.
-        unsafe { libmimalloc_sys::mi_collect(true) };
+        release_memory();
         json!({ "closed": closed })
     }
 
@@ -888,7 +862,10 @@ impl Server {
             };
             // Freeing the old marshals (millions of rows) takes a while: off this thread.
             if let Some(old) = self.mcts.replace(fresh) {
-                std::thread::spawn(move || drop(old));
+                std::thread::spawn(move || {
+                    drop(old);
+                    release_memory();
+                });
             }
         }
         Ok(self.mcts()?.summary()?)
@@ -936,7 +913,10 @@ impl Server {
         dbs.extend(self.db.take().filter(|old| !std::sync::Arc::ptr_eq(old, &db)));
         let old = (std::mem::take(&mut self.editors), std::mem::take(&mut self.index), self.mcts.take(), std::mem::take(&mut self.scripts), dbs);
         self.owners = None;
-        std::thread::spawn(move || drop(old));
+        std::thread::spawn(move || {
+            drop(old);
+            release_memory();
+        });
         self.swf_libs.clear();
         self.wwise = None;
         self.ak_names = None;
@@ -954,13 +934,23 @@ impl Server {
         self.index_job = Some(std::thread::spawn(move || {
             let index = build_indexes(&paths, cache_file.as_deref());
             let owners = build_owners(&index, paths.iter().map(|p| p.as_path()));
+            release_memory();
             (index, owners)
         }));
         self.script_jobs.clear();
         self.mcts_job = dir.join("assembly.dat").is_file().then(|| {
             let d = dir.clone();
-            (dir.clone(), std::thread::spawn(move || mcts::workspace::Workspace::open(&d)))
+            (
+                dir.clone(),
+                std::thread::spawn(move || {
+                    let ws = mcts::workspace::Workspace::open(&d);
+                    release_memory();
+                    ws
+                }),
+            )
         });
+        // The script packages' decompressed files are freed by now.
+        release_memory();
         Ok(json!({
             "dir": dir.to_string_lossy(),
             "scriptPackages": db.package_names(),
@@ -1021,11 +1011,11 @@ impl Server {
         // first package holding it instead of scanning every package's paths.
         if opt_b(p, "exact") == Some(true) && is_a.is_none() {
             let owners = self.path_owners();
-            if let Some(w) = owners.get(&path_hash(&query)).and_then(|&i| self.packages.get(i as usize)) {
+            if let Some(w) = owners.get(path_hash(&query)).and_then(|i| self.packages.get(i as usize)) {
                 if let Some(idx) = self.index.get(&key(&w.path.to_string_lossy())) {
-                    let found = idx.exports().enumerate().find(|(_, (cid, text))| text.eq_ignore_ascii_case(&query) && class.as_ref().is_none_or(|c| idx.classes[*cid as usize].eq_ignore_ascii_case(c)));
-                    if let Some((i, (cid, text))) = found {
-                        let hit = json!({ "package": w.name, "path": w.path.to_string_lossy(), "index": i, "object": text, "class": idx.classes[cid as usize] });
+                    let found = (0..idx.len()).find(|&i| idx.path_is(i, &query) && class.as_ref().is_none_or(|c| idx.classes[idx.class_of(i) as usize].eq_ignore_ascii_case(c)));
+                    if let Some(i) = found {
+                        let hit = json!({ "package": w.name, "path": w.path.to_string_lossy(), "index": i, "object": idx.path(i), "class": idx.classes[idx.class_of(i) as usize] });
                         return Ok(json!({ "results": [hit], "truncated": false }));
                     }
                 }
@@ -1037,9 +1027,9 @@ impl Server {
         let mut scanned = 0usize;
         let mut truncated = false;
         // Every object path of the workspace is tested on each keystroke: one
-        // reused lowercase buffer and a SIMD substring search, no allocation.
+        // SIMD substring search over the distinct path parts of a package.
         let finder = memchr::memmem::Finder::new(query.as_bytes());
-        let mut lower = Vec::new();
+        let mut scratch = pathindex::Scratch::default();
         for (n, (name, path)) in paths.iter().enumerate() {
             let k = key(&path.to_string_lossy());
             if !self.index.contains_key(&k) {
@@ -1064,42 +1054,13 @@ impl Server {
                     _ => true,
                 })
                 .collect();
-            let mut hit = |i: usize, cid: u16, path_text: &str| {
-                results.push(json!({ "package": name, "path": path.to_string_lossy(), "index": i, "object": path_text, "class": idx.classes[cid as usize] }));
+            truncated = idx.find(&query, &finder, &mut scratch, |i, cid| {
+                if !wanted[cid as usize] {
+                    return false;
+                }
+                results.push(json!({ "package": name, "path": path.to_string_lossy(), "index": i, "object": idx.path(i), "class": idx.classes[cid as usize] }));
                 results.len() >= limit
-            };
-            if !query.is_empty() && !idx.mixed_case {
-                // Lower-case paths: one search over all of them, a match
-                // running into the next path is not one.
-                let (hay, mut pos) = (idx.text.as_bytes(), 0);
-                while let Some(m) = finder.find(&hay[pos..]) {
-                    let at = pos + m;
-                    let i = idx.ends.partition_point(|&(_, end)| end as usize <= at);
-                    let (cid, end) = idx.ends[i];
-                    pos = end as usize;
-                    if at + query.len() <= pos && wanted[cid as usize] && hit(i, cid, idx.path(i)) {
-                        truncated = true;
-                        break;
-                    }
-                }
-            } else {
-                for (i, (cid, path_text)) in idx.exports().enumerate() {
-                    if !wanted[cid as usize] {
-                        continue;
-                    }
-                    if !query.is_empty() {
-                        lower.clear();
-                        lower.extend(path_text.bytes().map(|b| b.to_ascii_lowercase()));
-                        if finder.find(&lower).is_none() {
-                            continue;
-                        }
-                    }
-                    if hit(i, cid, path_text) {
-                        truncated = true;
-                        break;
-                    }
-                }
-            }
+            });
             if truncated {
                 break;
             }
@@ -2051,10 +2012,10 @@ impl Server {
             let k = key(&w.path.to_string_lossy());
             let Some(idx) = self.index.get(&k) else { continue };
             let rank = if here.as_deref() == Some(k.as_str()) { 2 } else { u8::from(near.contains(&k)) };
-            for (i, (cid, path)) in idx.exports().enumerate() {
-                let Some(class) = idx.classes.get(cid as usize) else { continue };
+            for i in 0..idx.len() {
+                let Some(class) = idx.classes.get(idx.class_of(i) as usize) else { continue };
                 // Placed actors only: `theworld.persistentlevel.<name>`.
-                let mut parts = path.split('.');
+                let mut parts = idx.parts_up(i);
                 if !(parts.next().is_some() && parts.next().is_some_and(|l| l.eq_ignore_ascii_case("persistentlevel")) && parts.next().is_some() && parts.next().is_none()) {
                     continue;
                 }
@@ -3053,8 +3014,8 @@ impl Server {
             let k = key(&w.path.to_string_lossy());
             let Some(idx) = self.index.get(&k) else { continue };
             let here = prefer.as_deref() == Some(k.as_str());
-            for (i, (cid, _)) in idx.exports().enumerate() {
-                let Some(class) = idx.classes.get(cid as usize) else { continue };
+            for i in 0..idx.len() {
+                let Some(class) = idx.classes.get(idx.class_of(i) as usize) else { continue };
                 let ok = *is_seq.entry(class.clone()).or_insert_with(|| db.class_is_a(class, "SequenceObject") && !db.class_is_a(class, "Sequence") && !class.eq_ignore_ascii_case("InterpData"));
                 if !ok {
                     continue;
@@ -3921,13 +3882,13 @@ impl Server {
         'packages: for w in &self.packages {
             let k = key(&w.path.to_string_lossy());
             let Some(idx) = self.index.get(&k) else { continue };
-            for (i, (cid, object_path)) in idx.exports().enumerate() {
-                if !idx.classes[cid as usize].eq_ignore_ascii_case("SwfMovie") {
+            for i in 0..idx.len() {
+                if !idx.classes[idx.class_of(i) as usize].eq_ignore_ascii_case("SwfMovie") {
                     continue;
                 }
-                let name = object_path.rsplit('.').next().unwrap_or(object_path).to_ascii_lowercase();
+                let name = idx.leaf(i).to_ascii_lowercase();
                 if unknown.contains(name.as_str()) && !hits.contains_key(&name) {
-                    hits.insert(name.clone(), (w.path.clone(), i, object_path.to_string()));
+                    hits.insert(name.clone(), (w.path.clone(), i, idx.path(i)));
                     if hits.len() == unknown.len() {
                         break 'packages;
                     }
@@ -4570,10 +4531,10 @@ impl Server {
             self.index_all();
             let mut names: HashMap<u32, String> = HashMap::new();
             for idx in self.index.values() {
-                for (cid, path) in idx.exports() {
-                    let class = &idx.classes[cid as usize];
+                for i in 0..idx.len() {
+                    let class = &idx.classes[idx.class_of(i) as usize];
                     if class.eq_ignore_ascii_case("AkEvent") || class.eq_ignore_ascii_case("AkBank") {
-                        let leaf = path.rsplit('.').next().unwrap_or(path);
+                        let leaf = idx.leaf(i);
                         names.entry(fnv::name_id(leaf)).or_insert_with(|| leaf.to_string());
                     }
                 }
@@ -6344,7 +6305,7 @@ impl Server {
     /// Build the search index of every workspace package that has none yet
     /// (`search.progress` events while it runs).
     /// `owners`, built from the current index when needed.
-    fn path_owners(&mut self) -> std::sync::Arc<HashMap<u64, u32>> {
+    fn path_owners(&mut self) -> std::sync::Arc<Owners> {
         if self.owners.is_none() {
             self.owners = Some(std::sync::Arc::new(build_owners(&self.index, self.packages.iter().map(|p| p.path.as_path()))));
         }
@@ -6395,7 +6356,7 @@ impl Server {
         self.index_all();
         let index = &self.index;
         let mut lookup = |path: &str| -> Vec<(String, PathBuf)> {
-            packages.iter().filter(|(_, p)| index.get(&key(&p.to_string_lossy())).is_some_and(|idx| idx.exports().any(|(_, op)| op.eq_ignore_ascii_case(path)))).cloned().collect()
+            packages.iter().filter(|(_, p)| index.get(&key(&p.to_string_lossy())).is_some_and(|idx| (0..idx.len()).any(|i| idx.path_is(i, path)))).cloned().collect()
         };
         let entries = if run {
             // The imports are edits of the open packages, like Replace: unsaved
@@ -6590,31 +6551,20 @@ fn resample_rgba(rgba: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
     out
 }
 
-/// FNV-1a of an object path, ASCII case folded (the key of `Server::owners`).
-fn path_hash(path: &str) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in path.bytes() {
-        h = (h ^ b.to_ascii_lowercase() as u64).wrapping_mul(0x100000001b3);
-    }
-    h
-}
-
 /// Object path hash → index in `packages` of the first package holding it.
-fn build_owners<'a>(index: &HashMap<String, SearchIndex>, packages: impl Iterator<Item = &'a Path>) -> HashMap<u64, u32> {
-    let mut out: HashMap<u64, u32> = HashMap::with_capacity(index.values().map(|i| i.len()).sum());
+fn build_owners<'a>(index: &HashMap<String, SearchIndex>, packages: impl Iterator<Item = &'a Path>) -> Owners {
+    let mut pairs = Vec::with_capacity(index.values().map(|i| i.len()).sum());
     for (i, w) in packages.enumerate() {
         if let Some(idx) = index.get(&key(&w.to_string_lossy())) {
-            for (_, op) in idx.exports() {
-                out.entry(path_hash(op)).or_insert(i as u32);
-            }
+            pairs.extend(idx.path_hashes().map(|h| (h, i as u32)));
         }
     }
-    out
+    Owners::new(pairs)
 }
 
 /// The workspace package holding an object path (the first in package order).
-fn index_lookup(owners: &HashMap<u64, u32>, packages: &[WorkspacePackage], path: &str) -> Option<String> {
-    owners.get(&path_hash(path)).and_then(|&i| packages.get(i as usize)).map(|w| w.name.clone())
+fn index_lookup(owners: &Owners, packages: &[WorkspacePackage], path: &str) -> Option<String> {
+    owners.get(path_hash(path)).and_then(|i| packages.get(i as usize)).map(|w| w.name.clone())
 }
 
 /// The on-disk search index of a cooked folder: `<cache dir>/tempest-studio/index/<hash>.idx`.
@@ -6635,8 +6585,8 @@ fn index_cache_file(dir: &Path) -> Option<PathBuf> {
 
 /// Index every package, reusing the entries of the cache file whose file
 /// size and modification time still match, and rewrite the cache when any
-/// package was (re)indexed. Format: `TSIX` + u32 count, then per package
-/// the key, mtime, size, class names and (class id, path) pairs.
+/// package was (re)indexed. Format: `TSI2` + u32 count, then per package
+/// the key, mtime, size and [`SearchIndex::write`].
 fn build_indexes(paths: &[PathBuf], cache: Option<&Path>) -> HashMap<String, SearchIndex> {
     let stamp = |p: &Path| -> (u64, u64) {
         std::fs::metadata(p).map(|m| (m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0), m.len())).unwrap_or((0, 0))
@@ -6695,34 +6645,25 @@ fn build_indexes(paths: &[PathBuf], cache: Option<&Path>) -> HashMap<String, Sea
 
 fn write_index_cache(entries: &HashMap<String, SearchIndex>, stamps: &HashMap<String, (u64, u64)>) -> Vec<u8> {
     let mut v = Vec::new();
-    let put_str = |v: &mut Vec<u8>, s: &str| {
-        v.extend_from_slice(&(s.len() as u32).to_le_bytes());
-        v.extend_from_slice(s.as_bytes());
-    };
-    v.extend_from_slice(b"TSIX");
+    v.extend_from_slice(b"TSI2");
     v.extend_from_slice(&(entries.len() as u32).to_le_bytes());
     for (k, idx) in entries {
         let (mtime, size) = stamps.get(k).copied().unwrap_or_default();
-        put_str(&mut v, k);
+        v.extend_from_slice(&(k.len() as u32).to_le_bytes());
+        v.extend_from_slice(k.as_bytes());
         v.extend_from_slice(&mtime.to_le_bytes());
         v.extend_from_slice(&size.to_le_bytes());
-        v.extend_from_slice(&(idx.classes.len() as u32).to_le_bytes());
-        for c in &idx.classes {
-            put_str(&mut v, c);
-        }
-        v.extend_from_slice(&(idx.len() as u32).to_le_bytes());
-        for (c, p) in idx.exports() {
-            v.extend_from_slice(&c.to_le_bytes());
-            put_str(&mut v, p);
-        }
+        idx.write(&mut v);
     }
     v
 }
 
+/// The entries of a cache file up to the first unreadable one (an older
+/// format: none, every package is indexed again).
 fn read_index_cache(b: &[u8]) -> HashMap<String, ((u64, u64), SearchIndex)> {
     let mut out = HashMap::new();
     let mut pos = 4;
-    if b.len() < 8 || &b[..4] != b"TSIX" {
+    if b.len() < 8 || &b[..4] != b"TSI2" {
         return out;
     }
     let u32_at = |pos: &mut usize| -> Option<u32> {
@@ -6745,46 +6686,21 @@ fn read_index_cache(b: &[u8]) -> HashMap<String, ((u64, u64), SearchIndex)> {
     let Some(count) = u32_at(&mut pos) else { return out };
     for _ in 0..count {
         let (Some(k), Some(mtime), Some(size)) = (get_str(&mut pos), get_u64(&mut pos), get_u64(&mut pos)) else { break };
-        let Some(nc) = u32_at(&mut pos) else { break };
-        let mut classes = Vec::with_capacity(nc as usize);
-        for _ in 0..nc {
-            let Some(c) = get_str(&mut pos) else { return out };
-            classes.push(c);
-        }
-        let Some(ne) = u32_at(&mut pos) else { break };
-        let mut idx = SearchIndex::new(classes);
-        idx.ends.reserve_exact(ne as usize);
-        for _ in 0..ne {
-            let Some(c) = b.get(pos..pos + 2).map(|x| u16::from_le_bytes([x[0], x[1]])) else { return out };
-            pos += 2;
-            let Some(p) = get_str(&mut pos) else { return out };
-            idx.push(c, &p);
-        }
-        out.insert(k, ((mtime, size), idx.done()));
+        let Some(idx) = SearchIndex::read(b, &mut pos) else { break };
+        out.insert(k, ((mtime, size), idx));
     }
     out
 }
 
 fn build_index(path: &Path) -> SearchIndex {
-    let mut idx = SearchIndex::new(Vec::new());
-    let Ok(pf) = PackageFile::open(path) else { return idx };
+    let mut idx = pathindex::Builder::default();
+    let Ok(pf) = PackageFile::open(path) else { return idx.finish() };
     let pkg = pf.tables();
-    let mut class_ids: HashMap<String, u16> = HashMap::new();
     for i in 0..pkg.exports.len() {
         let r = PackageIndex::export(i);
-        let class = pkg.class_name_of(r);
-        let id = match class_ids.get(&class) {
-            Some(id) => *id,
-            None => {
-                let id = idx.classes.len() as u16;
-                idx.classes.push(class.clone());
-                class_ids.insert(class, id);
-                id
-            }
-        };
-        idx.push(id, &pkg.object_path(r));
+        idx.push(&pkg.class_name_of(r), &pkg.object_path(r));
     }
-    idx.done()
+    idx.finish()
 }
 
 pub fn base64_decode(text: &str) -> Vec<u8> {

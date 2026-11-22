@@ -827,7 +827,7 @@ impl<'c, 'a> Emitter<'c, 'a> {
             NodeKind::Class => {
                 let s = self.struct_data(n);
                 let state = self.state_data(n);
-                let class = self.class_data(n);
+                let class = Box::new(self.class_data(n));
                 ObjectBody::Class { s, state, class }
             }
             NodeKind::State => {

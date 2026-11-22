@@ -10,7 +10,7 @@ use tempest_upk::flags::{cpf, func};
 use tempest_upk::io::{FName, PackageIndex, Result};
 use tempest_upk::Package;
 
-use crate::objects::{ClassData, self, ExportInfo, Layout, ObjectBody, ParsedObject, PropertyData, PropertyKind, StructData};
+use crate::objects::{self, ExportInfo, Layout, ObjectBody, ParsedObject, PropertyData, PropertyKind, StructData};
 
 /// Global reference to an export in a loaded package.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -662,8 +662,8 @@ impl Context {
 
     /// `(HideCategories, AutoExpandCategories, AutoCollapseCategories, DontSortCategories, bForceScriptOrder)`.
     pub fn class_category_lists(&self, r: ObjRef) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, bool) {
-        match self.object(r).map(|x| &x.body) {
-            Some(ObjectBody::Class { class: ClassData { editor: Some(e), .. }, .. }) => {
+        match self.object(r).and_then(|x| if let ObjectBody::Class { class, .. } = &x.body { class.editor.as_ref() } else { None }) {
+            Some(e) => {
                 let pkg = &self.packages[r.pkg].pkg;
                 let conv = |v: &Vec<FName>| v.iter().map(|n| pkg.fname_to_string(*n)).collect::<Vec<_>>();
                 (conv(&e.hide_categories), conv(&e.auto_expand_categories), conv(&e.auto_collapse_categories), conv(&e.dont_sort_categories), e.force_script_order != 0)

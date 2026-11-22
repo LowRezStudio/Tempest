@@ -584,7 +584,8 @@ pub fn write_property(w: &mut Writer, p: &PropertyData, kind: PropertyKind, layo
 /// Everything we know how to interpret in an export payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectBody {
-    Class { s: StructData, state: StateData, class: ClassData },
+    /// Boxed: most exports are not classes, and an object is as large as its largest body.
+    Class { s: StructData, state: StateData, class: Box<ClassData> },
     State { s: StructData, state: StateData },
     Function { s: StructData, function: FunctionData },
     ScriptStruct { s: StructData, data: ScriptStructData },
@@ -635,7 +636,7 @@ pub fn parse_export(data: &[u8], names: &dyn NameTable, info: ExportInfo, layout
         "Class" => {
             let s = read_struct(&mut r)?;
             let state = read_state(&mut r)?;
-            let class = read_class(&mut r, layout)?;
+            let class = Box::new(read_class(&mut r, layout)?);
             ObjectBody::Class { s, state, class }
         }
         "State" => {

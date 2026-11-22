@@ -20,6 +20,11 @@ mod update;
 
 use gpui::App;
 
+// The backend's many small parse allocations, and freed memory given back to
+// the system once a folder is open (the system allocator keeps it).
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     // What a finished or abandoned update left, and the file associations of a bundled build.
     std::thread::spawn(|| {

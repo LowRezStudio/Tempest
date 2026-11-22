@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use tempest_unrealscript::context::{Context, ObjRef};
 use tempest_unrealscript::objects::{ObjectBody, PropertyData, PropertyKind};
 use tempest_upk::flags::{cpf, pkg as pkgf, strct};
+use tempest_upk::io::PackageIndex;
 use tempest_upk::{Package, Result};
 
 pub struct ClassDb {
@@ -88,8 +89,23 @@ impl ClassDb {
         let mut db = ClassDb::new();
         // The packages parse independently: spread them over the cores.
         db.ctx.load_files_parallel(files)?;
+        db.drop_shader_caches();
         db.index();
         Ok(db)
+    }
+
+    /// Frees the script packages' shader caches (41 MB in 8.1, held twice:
+    /// the payload and its parsed copy). Nothing reads them through the class
+    /// database: material previews load the packages themselves.
+    fn drop_shader_caches(&mut self) {
+        for lp in &mut self.ctx.packages {
+            for i in 0..lp.pkg.exports.len() {
+                if lp.pkg.class_name_is(PackageIndex::export(i), "ShaderCache") {
+                    lp.pkg.export_data[i] = Vec::new();
+                    lp.objects[i] = None;
+                }
+            }
+        }
     }
 
     fn index(&mut self) {

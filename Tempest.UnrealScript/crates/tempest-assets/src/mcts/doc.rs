@@ -354,7 +354,7 @@ pub fn grid_row(tokens: &Tokens, row: &Row) -> J {
 /// Text of a scalar cell, as shown and searched.
 pub fn cell_text(tokens: &Tokens, token: u16, v: &Value) -> String {
     match v {
-        Value::Str(s) => s.clone(),
+        Value::Str(s) => s.to_string(),
         Value::Rows(r) => format!("{} rows", r.len()),
         Value::Num(n) => match tokens.kind(token) {
             Kind::Int => (*n as u32 as i32).to_string(),

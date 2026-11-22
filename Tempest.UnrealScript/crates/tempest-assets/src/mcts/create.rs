@@ -174,7 +174,7 @@ impl Workspace {
                         Value::Num(*n)
                     }
                 }
-                Value::Rows(rows) => Value::Rows(rows.iter().map(|r| self.clone_row(r, rewrite, fresh)).collect()),
+                Value::Rows(rows) => Value::Rows(Box::new(rows.iter().map(|r| self.clone_row(r, rewrite, fresh)).collect())),
                 other => other.clone(),
             };
             out.entries.push((*t, nv));
@@ -318,7 +318,7 @@ impl Workspace {
         let mut bot = self.clone_row(&self.row_of("DATA_SET_BOTS", bi)?, &rewrite, &mut HashMap::new());
         let msgs = self.name_messages(&mut bot, "BOT", name, desc, "", &mut ids.msg)?;
         let ref_name_t = self.t("REFERENCE_NAME")?;
-        bot.set(ref_name_t, Value::Str(name.replace(' ', "")));
+        bot.set(ref_name_t, Value::Str(name.replace(' ', "").into()));
         // Devices: one clone per slot, the bot's device list rewritten.
         let mut devices = Vec::new();
         let mut map: HashMap<u64, u64> = HashMap::new();
@@ -521,10 +521,10 @@ impl Workspace {
                 for (_, v) in r.entries.iter_mut() {
                     *v = match v {
                         Value::Num(_) => Value::Num(0),
-                        Value::Str(_) => Value::Str(String::new()),
-                        Value::Rows(_) => Value::Rows(Vec::new()),
+                        Value::Str(_) => Value::Str("".into()),
+                        Value::Rows(_) => Value::Rows(Box::default()),
                         Value::Guid(_) => Value::Guid([0; 16]),
-                        Value::Blob(_) => Value::Blob(Vec::new()),
+                        Value::Blob(_) => Value::Blob(Box::default()),
                     };
                 }
                 r

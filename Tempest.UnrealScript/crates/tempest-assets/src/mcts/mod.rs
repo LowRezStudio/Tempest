@@ -309,14 +309,15 @@ impl Tokens {
 // ----------------------------------------------------------------------------
 
 /// A field value. Numbers keep their raw bits (`Float` is the `f32` bit
-/// pattern, `DateTime` seconds since 1970) so that nothing is lost.
+/// pattern, `DateTime` seconds since 1970) so that nothing is lost. 24 bytes
+/// (boxed strings, blobs and row sets): a folder's marshals hold millions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Num(u64),
-    Str(String),
-    Rows(Vec<Row>),
+    Str(Box<str>),
+    Rows(Box<Vec<Row>>),
     Guid([u8; 16]),
-    Blob(Vec<u8>),
+    Blob(Box<[u8]>),
 }
 
 /// One row: its entries in file order.
@@ -494,10 +495,10 @@ impl<'a> Reader<'a> {
                     let n = (len & 0x7FFF) as usize;
                     utf16(self.bytes(n * 2)?)
                 } else {
-                    self.bytes(len as usize)?.iter().map(|&b| b as char).collect()
+                    exact(self.bytes(len as usize)?.iter().map(|&b| b as char))
                 };
                 self.encoding.get_or_insert(if len & 0x8000 != 0 { 4 } else { 5 });
-                row.entries.push((t, Value::Str(s)));
+                row.entries.push((t, Value::Str(s.into())));
                 Ok(1)
             }
             6 => {
@@ -507,7 +508,7 @@ impl<'a> Reader<'a> {
                 for _ in 0..n {
                     rows.push(self.row()?);
                 }
-                row.entries.push((t, Value::Rows(rows)));
+                row.entries.push((t, Value::Rows(Box::new(rows))));
                 Ok(1)
             }
             7 => {
@@ -519,7 +520,7 @@ impl<'a> Reader<'a> {
             8 => {
                 let t = self.u16()?;
                 let n = self.u16()? as usize;
-                row.entries.push((t, Value::Blob(self.bytes(n)?.to_vec())));
+                row.entries.push((t, Value::Blob(self.bytes(n)?.into())));
                 Ok(1)
             }
             9 => {
@@ -528,7 +529,7 @@ impl<'a> Reader<'a> {
                     return Err(Error::Format(format!("inline string of {param} units at {at}")));
                 }
                 let s = utf16(self.bytes(param * 2)?);
-                row.entries.push((t, Value::Str(s)));
+                row.entries.push((t, Value::Str(s.into())));
                 Ok(1)
             }
             10 => {
@@ -538,14 +539,14 @@ impl<'a> Reader<'a> {
                     1 => String::from_utf8_lossy(self.bytes(n)?).to_string(),
                     2 | 3 => {
                         let b = self.bytes(n * 4)?;
-                        b.chunks(4).map(|c| char::from_u32(u32::from_le_bytes([c[0], c[1], c[2], c[3]])).unwrap_or('\u{FFFD}')).collect()
+                        exact(b.chunks(4).map(|c| char::from_u32(u32::from_le_bytes([c[0], c[1], c[2], c[3]])).unwrap_or('\u{FFFD}')))
                     }
                     4 => utf16(self.bytes(n * 2)?),
-                    5 => self.bytes(n)?.iter().map(|&b| b as char).collect(),
+                    5 => exact(self.bytes(n)?.iter().map(|&b| b as char)),
                     _ => return Err(Error::Format(format!("string encoding {param} at {at}"))),
                 };
                 self.encoding.get_or_insert(param as u8);
-                row.entries.push((t, Value::Str(s)));
+                row.entries.push((t, Value::Str(s.into())));
                 Ok(1)
             }
             _ => Err(Error::Format(format!("entry kind {kind} at {at}"))),
@@ -559,7 +560,15 @@ fn utf16(b: &[u8]) -> String {
     if units.clone().all(|u| u < 0x80) {
         return units.map(|u| u as u8 as char).collect();
     }
-    char::decode_utf16(units).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)).collect()
+    exact(char::decode_utf16(units).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)))
+}
+
+/// A string allocated to its length: collecting characters grows the buffer
+/// by doubling, and millions of marshal strings stay in memory.
+fn exact(chars: impl Iterator<Item = char> + Clone) -> String {
+    let mut s = String::with_capacity(chars.clone().map(char::len_utf8).sum());
+    s.extend(chars);
+    s
 }
 
 /// Parse a marshal (not obscured).
@@ -734,7 +743,7 @@ impl<'a> Writer<'a> {
                     self.u16(0x6001);
                     self.u16(*token);
                     self.count(rows.len());
-                    for r in rows {
+                    for r in rows.iter() {
                         self.row(r);
                     }
                 }
@@ -851,18 +860,18 @@ pub fn value_from_json(tokens: &Tokens, token: u16, v: &serde_json::Value) -> Re
     Ok(match kind {
         Kind::RowSet => {
             let arr = v.as_array().ok_or_else(|| Error::Format(format!("{} must be an array of rows", tokens.name(token))))?;
-            Value::Rows(arr.iter().map(|r| row_from_json(tokens, r)).collect::<Result<_>>()?)
+            Value::Rows(Box::new(arr.iter().map(|r| row_from_json(tokens, r)).collect::<Result<_>>()?))
         }
         Kind::String => Value::Str(match v {
-            serde_json::Value::String(s) => s.clone(),
-            other => other.to_string(),
+            serde_json::Value::String(s) => s.as_str().into(),
+            other => other.to_string().into(),
         }),
         Kind::Guid => {
             let s = v.as_str().ok_or_else(|| Error::Format("GUID must be a hex string".into()))?;
             let bytes: Vec<u8> = (0..s.len() / 2).filter_map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()).collect();
             Value::Guid(bytes.try_into().map_err(|_| Error::Format("GUID must be 16 bytes of hex".into()))?)
         }
-        Kind::Blob => Value::Blob(crate::serve::base64_decode(v.as_str().unwrap_or(""))),
+        Kind::Blob => Value::Blob(crate::serve::base64_decode(v.as_str().unwrap_or("")).into()),
         _ => Value::Num(match v {
             serde_json::Value::Number(n) => {
                 if let Some(u) = n.as_u64() {
@@ -897,6 +906,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn values_stay_small() {
+        assert_eq!(std::mem::size_of::<(u16, Value)>(), 32);
+    }
+
+    #[test]
     fn builtin_tables() {
         let t = Tokens::builtin();
         assert!(t.field_count() > 3000);
@@ -914,7 +928,7 @@ mod tests {
         let mut row = Row::default();
         row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
         row.set(price, Value::Num(5));
-        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(Box::new(vec![row])))] }, encoding: 4 };
         let dir = std::env::temp_dir().join(format!("tempest-mcts-undo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("assembly.dat");
@@ -955,7 +969,7 @@ mod tests {
         let mut row = Row::default();
         row.set(t.token("ITEM_ID").unwrap(), Value::Num(70000));
         row.set(price, Value::Num(5));
-        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row]))] }, encoding: 4 };
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(Box::new(vec![row])))] }, encoding: 4 };
         let dir = std::env::temp_dir().join(format!("tempest-mcts-redo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("assembly.dat");
@@ -1010,7 +1024,7 @@ mod tests {
         row.set(id, Value::Num(70000));
         row.set(name, Value::Str("Épée".into()));
         row.set(price, Value::Num(5));
-        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(vec![row.clone(), row]))] }, encoding: 4 };
+        let m = Marshal { flags: 0, function: t.function("GET_DATA_ASSEMBLY"), legacy: false, root: Row { entries: vec![(items, Value::Rows(Box::new(vec![row.clone(), row])))] }, encoding: 4 };
         let bytes = write_obscured(&m, &t);
         let back = parse_obscured(&bytes, &t).unwrap();
         // The writer batches numbers after the strings: same fields, and a

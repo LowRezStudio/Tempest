@@ -46,6 +46,7 @@ pub mod havok;
 pub mod wwise;
 pub mod audio;
 pub mod particle;
+pub mod pathindex;
 pub mod mcts;
 pub mod swf;
 pub mod mesh_fbx;
