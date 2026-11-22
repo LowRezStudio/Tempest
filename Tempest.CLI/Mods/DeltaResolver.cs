@@ -69,6 +69,49 @@ internal static class DeltaResolver
         return keys;
     }
 
+    /// <summary>
+    /// The objects that really conflict when <paramref name="newDelta"/> is applied over <paramref name="installedDelta"/>
+    /// on the package <paramref name="relative"/> (lower-case object paths): <c>upk delta check</c> applies both over the
+    /// pristine file, merging a movie both change and composing changes to different properties of one object. Null when
+    /// it cannot tell; the caller then treats every shared object as a conflict.
+    /// </summary>
+    public static async Task<HashSet<string>?> ConflictsAsync(string resolvedGame, string relative, string installedDelta, string newDelta)
+    {
+        var gameFile = Path.GetFullPath(Path.Combine(resolvedGame, relative));
+        var backup = GamePath.Resolve(Path.Combine(resolvedGame, ".tempest", "v2", "backup"), relative);
+        // The game file is pristine until a delta first touches it (the backup is made then).
+        var basePath = File.Exists(backup) ? backup : gameFile;
+        if (!File.Exists(basePath)) return null;
+        try
+        {
+            var psi = new ProcessStartInfo(FindUpk()) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "delta", "check", basePath, installedDelta, newDelta, "-I", Path.GetDirectoryName(gameFile)! }) psi.ArgumentList.Add(a);
+            using var process = Process.Start(psi) ?? throw new Exception("could not start upk");
+            var stderr = process.StandardError.ReadToEndAsync();
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            await stderr;
+            if (process.ExitCode != 0) return null;
+            using var doc = JsonDocument.Parse(stdout.Trim().Split('\n')[^1]);
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Conflicts, and warnings about objects (one mod deletes what the other changes): `path: what`.
+            foreach (var list in new[] { "conflicts", "warnings" })
+            {
+                foreach (var item in doc.RootElement.GetProperty(list).EnumerateArray())
+                {
+                    var text = item.GetString() ?? "";
+                    var colon = text.IndexOf(": ", StringComparison.Ordinal);
+                    if (colon > 0) paths.Add(text[..colon].ToLowerInvariant());
+                }
+            }
+            return paths;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Does the delta add script classes? Those packages are rebuilt first, so the others decode against the new classes.</summary>
     private static bool AddsClasses(string deltaFile)
     {

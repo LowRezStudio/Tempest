@@ -1245,6 +1245,19 @@ pub struct Applied {
     /// was made against (another mod or a game update changed them first).
     pub drift: Vec<String>,
     pub warnings: Vec<String>,
+    /// Objects an earlier delta had changed whose changes this one replaced
+    /// (`path: what`); known only with the original package (`apply_with`).
+    pub conflicts: Vec<String>,
+    /// Movies an earlier delta had changed, merged with this one's changes.
+    pub merged: Vec<String>,
+}
+
+/// The bytes of a movie property (`SwfMovie.RawData`), or `None`.
+fn movie_bytes(v: &crate::value::Value) -> Option<Vec<u8>> {
+    use crate::value::Value;
+    let Value::Array(items) = v else { return None };
+    let bytes: Vec<u8> = items.iter().map(|v| if let Value::Byte(b) = v { Some(*b) } else { None }).collect::<Option<_>>()?;
+    matches!(bytes.get(..3), Some(b"GFX" | b"CFX" | b"FWS" | b"CWS")).then_some(bytes)
 }
 
 /// Apply `delta` to the open package `ed`.
@@ -1256,7 +1269,9 @@ pub fn apply(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase) -> Resu
 /// (`original`): payloads compressed against their base object (`from`) are
 /// decompressed with the object from there, so they still apply after an
 /// earlier delta changed the same object. Without it, the object as it is in
-/// `ed` is used.
+/// `ed` is used. With it, changes an earlier delta made are detected: a movie
+/// both change is merged tag by tag (`swf::merge`), anything else this delta
+/// replaces is listed in [`Applied::conflicts`].
 pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, original: Option<&Package>) -> Result<Applied> {
     let mut out = Applied::default();
     let original_paths = original.map(path_index);
@@ -1274,6 +1289,8 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
     ed.flush();
     let mut paths = path_index(&ed.pkg);
     let target_layout = ed.layout();
+    // Exports from here on are this delta's (in a second phase, the first's too).
+    let existing = if phase == Phase::Objects { 0 } else { ed.pkg.exports.len() };
 
     // Drift is judged against the package as it was before this delta: once
     // the deletes below run, objects that referred to a deleted one hash
@@ -1461,14 +1478,41 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
                 out.warnings.push(format!("{}: the object could not be read; its property changes were skipped", op.path));
                 continue;
             };
+            // The object before any delta, to tell what an earlier one changed.
+            let before = match (original, &original_paths) {
+                (Some(o), Some(op_paths)) => op_paths.get(&op.path.to_ascii_lowercase()).and_then(|&j| match parse_export(db, o, target_layout, j, o.export_data.get(j)?) {
+                    Parsed::Object(x) => Some(x),
+                    _ => None,
+                }),
+                _ => None,
+            };
             let key_of = |v: &Value| -> Option<(String, i32)> { Some((v[0].as_str()?.to_ascii_lowercase(), v[1].as_i64()? as i32)) };
             let remove: Vec<(String, i32)> = patch["remove"].as_array().map(|a| a.iter().filter_map(key_of).collect()).unwrap_or_default();
             let after: Vec<Option<(String, i32)>> = patch["after"].as_array().map(|a| a.iter().map(key_of).collect()).unwrap_or_default();
             let pkg = &ed.pkg;
             pt.properties.retain(|p| !remove.contains(&prop_key(pkg, p)));
-            for (n, np) in pm.properties.into_iter().enumerate() {
+            for (n, mut np) in pm.properties.into_iter().enumerate() {
                 let k = prop_key(pkg, &np);
                 if let Some(pos) = pt.properties.iter().position(|p| prop_key(pkg, p) == k) {
+                    let was = before.as_ref().map(|b| b.properties.iter().find(|p| prop_key(pkg, p) == k).map(|p| &p.value));
+                    let now = &pt.properties[pos].value;
+                    // An earlier delta changed this property (or added it) and this one changes it too.
+                    if let Some(was) = was.filter(|w| *w != Some(now) && np.value != *now) {
+                        let merged = match (was.and_then(movie_bytes), movie_bytes(now), movie_bytes(&np.value)) {
+                            (Some(b), Some(o), Some(t)) => Some(crate::swf::merge::merge3(&b, &o, &t)),
+                            _ => None,
+                        };
+                        match merged {
+                            Some(Ok(m)) => {
+                                np.value = crate::value::Value::Array(m.bytes.into_iter().map(crate::value::Value::Byte).collect());
+                                out.merged.push(op.path.clone());
+                                // Tags both change: this delta's version was kept.
+                                out.conflicts.extend(m.overridden.into_iter().map(|what| format!("{}: {what}", op.path)));
+                            }
+                            Some(Err(c)) => out.conflicts.push(format!("{}: {} (the whole movie)", op.path, c.0)),
+                            None => out.conflicts.push(format!("{}: both change {}", op.path, k.0)),
+                        }
+                    }
                     pt.properties[pos] = np;
                     continue;
                 }
@@ -1481,6 +1525,14 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
             let bytes = write_parsed(&Parsed::Object(pt), target_layout, target_none);
             ed.set_raw(t, bytes)?;
             continue;
+        }
+        // A whole object replaced over another delta's changes, or added by both.
+        if let (Some(o), Some(op_paths)) = (original, &original_paths) {
+            match op_paths.get(&op.path.to_ascii_lowercase()) {
+                Some(&j) if o.export_data.get(j) != ed.pkg.export_data.get(t) => out.conflicts.push(format!("{}: replaced whole over another mod's changes", op.path)),
+                None if t < existing => out.conflicts.push(format!("{}: another mod adds it too", op.path)),
+                _ => {}
+            }
         }
         let me = mini.exports[k].clone();
         let mut table: Vec<PackageIndex> = [me.class, me.super_, me.outer, me.archetype].into_iter().map(|r| res.resolve(ed, &mut paths, r)).collect();

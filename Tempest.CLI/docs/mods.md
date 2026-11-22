@@ -11,8 +11,11 @@ A `.tempest` package changes a game file either whole (`files/<game path>`, repl
 mods on one file conflict) or by **delta** (`deltas/<game path>.tdelta`: only the objects or rows
 the mod added, changed or removed, keyed by object path / table id column, never by index). Deltas
 of several mods on one file compose; conflicts are per object (`ModV2Installer` compares the keys of
-the delta files, `DeltaResolver.Keys`) and the usual replace/stack prompts apply, stack meaning
-"last installed wins" on the shared objects. The game file is derived:
+the delta files, `DeltaResolver.Keys`). Objects of a package both change are then checked with `upk
+delta check <pristine> <installed> <new>` (`DeltaResolver.ConflictsAsync`): a movie both change is
+merged tag by tag and changes to different properties of one object compose, so only what really
+overlaps prompts; the usual replace/stack prompts apply, stack meaning "last installed wins" on what
+overlaps (in a merged movie, only the tags both change; reported as warnings when rebuilding). The game file is derived:
 `Tempest.CLI/Mods/DeltaResolver.cs` rebuilds it as *base + every enabled mod's delta in install
 order* with the `upk` sidecar (one `upk delta batch` run for every file to rebuild, so the class
 database loads once; found next to `tempest-cli`, `TEMPEST_UPK`, or the repo's

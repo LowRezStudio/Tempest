@@ -22,6 +22,7 @@ pub mod as2;
 pub mod dict;
 pub mod display;
 pub mod font;
+pub mod merge;
 pub mod preview;
 pub mod shape;
 pub mod svg;

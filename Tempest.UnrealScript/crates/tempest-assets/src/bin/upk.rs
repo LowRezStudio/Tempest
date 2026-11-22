@@ -91,6 +91,7 @@ fn usage() -> ExitCode {
                      [--fast]                         zstd instead of LZMA: much faster to make, about 30 % bigger\n  \
                                                       (<dir>/<sha256>.tobj, once for every delta using them; --share embeds)\n  \
            upk delta apply <pkg> <d.tdelta>... -o <out.upk> [--strict]   apply deltas over a package (in order)\n  \
+           upk delta check <pkg> <installed.tdelta>... <new.tdelta>   what the new delta changes over the others: merged movies, conflicts (JSON)\n  \
            upk delta info <d.tdelta>                      target, operations, references\n  \
            upk delta digest <pkg> -o <digest.json>        canonical hashes of every object (a base for `create`)\n  \
            upk delta verify <base.upk> <edited.upk> [--share]   create + apply, compare with the edited package\n  \
@@ -1379,10 +1380,30 @@ fn cmd_delta(args: &[String]) -> Res {
             for d in &report.drift {
                 eprintln!("drift: {d} was changed since the delta was made; the delta's version won");
             }
+            for m in &report.merged {
+                eprintln!("merged: {m}");
+            }
+            for c in &report.conflicts {
+                eprintln!("conflict: {c} (the later delta's version won)");
+            }
             eprintln!("{} added, {} replaced, {} deleted objects in {:.2}s -> {out}", report.added, report.replaced, report.deleted, t.elapsed().as_secs_f32());
             if strict && !report.drift.is_empty() {
                 return Err(format!("{} objects drifted (--strict)", report.drift.len()).into());
             }
+            Ok(())
+        }
+        "check" => {
+            // What the last delta changes over the earlier ones: merged movies
+            // and real conflicts, as JSON (the launcher's install prompt).
+            let target = positional.first().ok_or("missing target package")?;
+            let deltas: Vec<Delta> = positional[1..].iter().map(Delta::read).collect::<Result<_, _>>()?;
+            if deltas.len() < 2 {
+                return Err("give the installed delta(s), then the new one".into());
+            }
+            let dir = db_dir(&[target]);
+            let db: &'static ClassDb = Box::leak(Box::new(load_db(&dir)?));
+            let report = apply_deltas(db, &dir, target, None, &deltas, "", &mut |_| {})?;
+            println!("{}", serde_json::json!({ "conflicts": report.conflicts, "merged": report.merged, "warnings": report.warnings }));
             Ok(())
         }
         "verify" => {
@@ -1623,8 +1644,9 @@ fn apply_deltas(db: &'static ClassDb, script_dir: &Path, target: &str, replaces:
     stage("open");
     let mut ed = Editor::open(db, target)?;
     // The package before any delta: payloads compressed against their base
-    // object decompress with it, whatever an earlier delta did to the object.
-    let original = deltas.iter().any(|d| !d.from.is_empty()).then(|| ed.pkg.clone());
+    // object decompress with it, whatever an earlier delta did to the object,
+    // and what a delta changes over an earlier one is merged or reported.
+    let original = (deltas.len() > 1 || deltas.iter().any(|d| !d.from.is_empty())).then(|| ed.pkg.clone());
     let apply = |db: &ClassDb, ed: &mut Editor, d: &tempest_assets::delta::Delta, phase: Phase| apply_with(db, ed, d, phase, original.as_ref());
     stage("apply");
     let name = ed.name.clone();
@@ -1639,6 +1661,8 @@ fn apply_deltas(db: &'static ClassDb, script_dir: &Path, target: &str, replaces:
             total.deleted += r.deleted;
             total.drift.extend(r.drift);
             total.warnings.extend(r.warnings);
+            total.conflicts.extend(r.conflicts);
+            total.merged.extend(r.merged);
         };
         if new_classes.is_empty() {
             merge(&mut total, apply(current_db, &mut ed, d, Phase::All)?);
@@ -1665,8 +1689,10 @@ fn apply_deltas(db: &'static ClassDb, script_dir: &Path, target: &str, replaces:
         ed = Editor::from_package(current_db, name.clone(), pkg);
         merge(&mut total, apply(current_db, &mut ed, d, Phase::Objects)?);
     }
-    stage("save");
-    ed.save(out)?;
+    if !out.is_empty() {
+        stage("save");
+        ed.save(out)?;
+    }
     Ok(total)
 }
 
@@ -1775,6 +1801,12 @@ fn cmd_delta_batch(plan_path: &str) -> Res {
                 }
                 for text in &a.drift {
                     emit(serde_json::json!({"event": "drift", "job": i, "text": text}));
+                }
+                for text in &a.conflicts {
+                    emit(serde_json::json!({"event": "warning", "job": i, "text": format!("{text}: the later mod's version won")}));
+                }
+                for text in &a.merged {
+                    emit(serde_json::json!({"event": "merged", "job": i, "text": text}));
                 }
                 emit(serde_json::json!({"event": "done", "job": i, "added": a.added, "replaced": a.replaced, "deleted": a.deleted}));
             }

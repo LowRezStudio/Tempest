@@ -305,6 +305,7 @@ public class ModV2Installer : IModInstaller
             // Deltas conflict per object or row, not per file: two mods changing different
             // objects of the same package both install. Keys by game-relative target.
             var newDeltas = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var newDeltaEntries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in archive.Entries)
             {
                 if (IsDirectoryEntry(entry)) continue;
@@ -325,6 +326,7 @@ public class ModV2Installer : IModInstaller
                 }
                 if (!newDeltas.TryGetValue(target, out var set)) newDeltas[target] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 set.UnionWith(keys);
+                newDeltaEntries[target] = entry;
             }
 
             // ID collision — same modId already installed (component-level conflict)
@@ -399,7 +401,25 @@ public class ModV2Installer : IModInstaller
                         existingKeys = DeltaResolver.Keys(stream);
                     }
                     catch { continue; }
-                    foreach (var key in existingKeys.Where(newKeys.Contains).Order(StringComparer.OrdinalIgnoreCase))
+                    var shared = existingKeys.Where(newKeys.Contains).ToList();
+                    // Objects of a package both change may still combine (a movie merged, different properties).
+                    if (shared.Count > 0 && relativeExisting.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) && newDeltaEntries.TryGetValue(relativeExisting, out var newEntry))
+                    {
+                        var newDeltaFile = Path.Combine(Path.GetTempPath(), $"tempest-check-{Environment.ProcessId}-{Guid.NewGuid():N}.tdelta");
+                        try
+                        {
+                            await using (var source = await newEntry.OpenAsync())
+                            await using (var file = File.Create(newDeltaFile))
+                                await source.CopyToAsync(file);
+                            var real = await DeltaResolver.ConflictsAsync(resolvedGame, relativeExisting, existingDelta, newDeltaFile);
+                            if (real != null) shared = shared.Where(real.Contains).ToList();
+                        }
+                        finally
+                        {
+                            try { File.Delete(newDeltaFile); } catch { }
+                        }
+                    }
+                    foreach (var key in shared.Order(StringComparer.OrdinalIgnoreCase))
                         overlapping.Add($"{relativeExisting}: {key}");
                 }
                 if (overlapping.Count > 0)

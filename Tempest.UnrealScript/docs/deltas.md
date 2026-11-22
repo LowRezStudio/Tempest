@@ -43,7 +43,18 @@ identical; `from: {hash: md5 of the base bytes, size}`, the compressed payload i
 trailing section `u32 count, (u32 export, u32 len, bytes)…`; `apply_with(…, original)` takes the
 dictionary from the pristine package by path (`upk`'s `apply_deltas` passes a clone of the package
 before any delta when one has `from` ops), else from the target's current object; a hash mismatch
-skips the op with a warning). `pack`/`unpack`: LZMA2 preset 9e, dictionary sized to the data, `.xz`
+skips the op with a warning). **Stacked deltas** (`apply_with` with `original`, which `upk` keeps
+whenever several deltas apply): a property an earlier delta changed that this one changes too is a
+conflict (`Applied::conflicts`), except a movie (`RawData` holding a GFx/SWF), which is merged
+(`swf::merge::merge3`, `Applied::merged`): tags matched by code and character id (others by bytes,
+Myers over the keys), both sides' changes combined, a sprite both change merged inside, a tag both
+change differently taken from the later delta and listed; overlapping replaced stretches, one new id
+defined differently by both, or both changing the header keep the later movie whole. A `set` over an
+object another delta changed, or an object two deltas add, is a conflict too. `upk delta check <pkg>
+<installed>... <new>` prints `{conflicts, merged, warnings}` (the launcher's install prompt); `delta
+batch` reports conflicts as warnings and merges as `merged` events. Facet over Classic Kinessa Scope
+(`GameUI_SF` `hud.hud`: 519 recoloured tags, the scope sprite and two new characters) merges the same
+in either order. `pack`/`unpack`: LZMA2 preset 9e, dictionary sized to the data, `.xz`
 stream recognised by its magic, used for the mini image and object files when smaller. Measured on
 8.1: a CDO property change 20.9 KB → 0.7 KB, a re-imported body mesh 1.17 MB (zip deflate) → 0.33
 MB, another mesh in its place 1.1 MB → 0.42 MB, a texture with a small area repainted 22 KB → 3.2
