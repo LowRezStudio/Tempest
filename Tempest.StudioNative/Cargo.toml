@@ -1,6 +1,6 @@
 [package]
 name = "tempest-studio-native"
-version = "1.0.0-alpha.8"
+version = "1.0.0-alpha.9"
 edition = "2021"
 license = "MIT"
 description = "Tempest Studio as a native GPUI app, linking tempest-assets directly"
