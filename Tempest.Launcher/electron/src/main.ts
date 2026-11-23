@@ -2,7 +2,6 @@
 // associations and session hardening. All IPC handlers live in their own
 // domain modules and are registered for their side effects via the imports
 // below.
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -128,27 +127,6 @@ if (!hasInstanceLock) {
 
 const loadURL = serve({ directory: "build" });
 
-// script-src without 'unsafe-inline': the only inline script we ship is SvelteKit's
-// bootstrap in build/index.html, allowed by its hash. With 'unsafe-inline', markup
-// injected into the page could run inline event handlers (onerror=, onload=, ...).
-// Dev keeps 'unsafe-inline' because Vite injects its own inline scripts.
-function inlineScriptSources(): string {
-	if (!app.isPackaged) return "'unsafe-inline'";
-	try {
-		const html = fs.readFileSync(path.join(app.getAppPath(), "build", "index.html"), "utf8");
-		const hashes = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(
-			([, body]) =>
-				`'sha256-${createHash("sha256")
-					.update(body ?? "")
-					.digest("base64")}'`,
-		);
-		return hashes.join(" ");
-	} catch (error) {
-		console.error("[csp] could not hash the inline bootstrap script:", error);
-		return "";
-	}
-}
-
 // Whether closing the window should hide it into the tray instead of
 // quitting. The renderer pushes this via `app:set-close-behavior` whenever
 // its background-work state changes (running games, active lobby, ...).
@@ -238,7 +216,6 @@ app.whenReady()
 			obj[key] = [value];
 		};
 
-		const scriptSources = inlineScriptSources();
 		session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 			const responseHeaders = details.responseHeaders ?? {};
 
@@ -250,11 +227,9 @@ app.whenReady()
 				return;
 			}
 
-			upsert(
-				responseHeaders,
-				"Content-Security-Policy",
-				`default-src 'self'; script-src 'self' ${scriptSources} 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src 'none'; object-src 'none'; base-uri 'self';`,
-			);
+			// SvelteKit hashes its inline bootstrap into the resource policy it writes
+			// to index.html; a meta tag cannot carry frame-ancestors, so it goes here.
+			upsert(responseHeaders, "Content-Security-Policy", "frame-ancestors 'none'");
 			upsert(responseHeaders, "Access-Control-Allow-Origin", "*");
 			callback({ responseHeaders });
 		});

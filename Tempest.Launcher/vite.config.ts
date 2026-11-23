@@ -27,6 +27,22 @@ export default defineConfig({
 			paths: {
 				relative: true,
 			},
+			csp: {
+				mode: "hash",
+				directives: {
+					"default-src": ["self"],
+					"script-src": ["self", "wasm-unsafe-eval"],
+					"worker-src": ["self"],
+					"style-src": ["self", "unsafe-inline"],
+					"img-src": ["self", "http:", "https:", "data:", "blob:"],
+					"media-src": ["self", "http:", "https:", "data:", "blob:"],
+					"font-src": ["self", "data:"],
+					"connect-src": ["self", "http:", "https:", "ws:", "wss:"],
+					"frame-src": ["none"],
+					"object-src": ["none"],
+					"base-uri": ["self"],
+				},
+			},
 		}),
 	],
 
