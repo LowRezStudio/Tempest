@@ -16,8 +16,8 @@ const FIND_SCRIPT =
 	"Where-Object { $_.DisplayName -like 'Tempest Launcher*' -and $_.PSChildName -like '{*}' } | " +
 	"Select-Object PSChildName, DisplayName, InstallLocation | ConvertTo-Json -Compress";
 
-// Product codes are interpolated into an elevated PowerShell command line: accept
-// only a real MSI GUID, not whatever a (user-writable HKCU) registry key is named.
+// Product codes end up on an elevated command line and come from a user-writable
+// registry key, so only a real MSI GUID is accepted.
 const MSI_PRODUCT_CODE = /^\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}$/i;
 
 function runPowerShell(

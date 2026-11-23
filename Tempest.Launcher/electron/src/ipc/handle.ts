@@ -10,13 +10,8 @@ export type IpcHandler<K extends IpcChannel> = (
 	args: IpcContract[K]["args"],
 ) => IpcContract[K]["result"] | Promise<IpcContract[K]["result"]>;
 
-/**
- * Whether an invoke comes from the top frame of our own page. The preload bridge
- * forwards any channel, so the host is where untrusted senders are refused: a
- * sub-frame or a navigated-away page must never reach shell, opener or Defender.
- * @param event - The invoke event whose sender frame is checked.
- * @returns Whether the sender is our top-level page.
- */
+// The preload bridge forwards every channel, so untrusted senders (sub-frames, a
+// navigated-away page) are refused here rather than in each handler.
 export function isTrustedSender(event: IpcMainInvokeEvent): boolean {
 	const frame = event.senderFrame;
 	if (!frame || frame.parent !== null) return false;

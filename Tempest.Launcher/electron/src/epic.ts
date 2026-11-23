@@ -81,11 +81,8 @@ const isAccount = (value: unknown): value is StoredAccount => {
 	);
 };
 
-// Refresh tokens are long-lived Epic credentials: keep them encrypted with the OS
-// keystore (DPAPI on Windows, Keychain on macOS, libsecret on Linux) so another
-// program reading accounts.json gets nothing usable. Plaintext entries written by
-// older builds are still read and are encrypted on the next write. Without a
-// keystore (some Linux setups) the token stays in plaintext, as before.
+// Refresh tokens are long-lived Epic credentials, so they are encrypted with the
+// OS keystore; plaintext entries from older builds migrate on the next write.
 const ENCRYPTED_PREFIX = "enc:v1:";
 
 function protectToken(token: string): string {
