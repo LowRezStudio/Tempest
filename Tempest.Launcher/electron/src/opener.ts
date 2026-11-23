@@ -4,7 +4,9 @@ import { shell } from "electron";
 import { handle } from "./ipc/handle.js";
 
 // openPath executes files and openExternal hands any scheme to the OS, so only
-// folders, web pages and the Windows Security page are allowed through.
+// folders, the schemes the renderer links can use and the Windows Security page
+// are allowed through.
+const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"]);
 const ALLOWED_EXTERNAL_URLS = new Set(["windowsdefender://threatsettings"]);
 
 handle("opener:open-path", async (_event, { path: target }) => {
@@ -23,8 +25,7 @@ handle("opener:open-url", (_event, { url }) => {
 	} catch {
 		throw new Error("Invalid URL");
 	}
-	const isHttp = parsed.protocol === "https:" || parsed.protocol === "http:";
-	if (!isHttp && !ALLOWED_EXTERNAL_URLS.has(parsed.href)) {
+	if (!ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol) && !ALLOWED_EXTERNAL_URLS.has(parsed.href)) {
 		throw new Error(`Refusing to open a ${parsed.protocol} URL`);
 	}
 	void shell.openExternal(parsed.href);
