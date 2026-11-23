@@ -195,9 +195,8 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
 
     public override Task<SetDefaultMapResponse> SetDefaultMap(SetDefaultMapRequest request, ServerCallContext context)
     {
-        // Every lobby client sends these two on purpose (map from its game mode, the
-        // countdown button), but only a player holding a ticket may: anyone able to
-        // reach the gRPC port could otherwise change the map or start the match.
+        // Only a player holding a lobby ticket may change the map or start the match:
+        // anyone able to reach the gRPC port could otherwise do it.
         if (!TryGetPlayerId(context, out var playerId))
         {
             logger.LogWarning("SetDefaultMap refused: unauthenticated caller {IP}", GetClientIP(context));
