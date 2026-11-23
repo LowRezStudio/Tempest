@@ -338,6 +338,14 @@ pub(super) fn explain(text: &str) -> String {
 }
 
 impl Cooker {
+    /// Runs a Studio command once this Cooker is no longer being updated: commands read the Cooker back.
+    fn run_studio(&self, cmd: super::Cmd, window: &mut Window, cx: &mut Context<Self>) {
+        let studio = self.studio.clone();
+        window.defer(cx, move |window, cx| {
+            let _ = studio.update(cx, |s, cx| s.run(cmd, window, cx));
+        });
+    }
+
     pub fn new(backend: Backend, dir: String, project: Option<super::project::Project>, movies: Vec<Entity<super::swf::MovieEditor>>, studio: WeakEntity<Studio>, window: &mut Window, cx: &mut Context<Self>) -> Cooker {
         // A project keeps the details in its file; otherwise they are kept per game folder.
         let saved: J = match project.as_ref().map(|p| p.cooker.clone()).filter(|c| c.is_object()) {
@@ -1306,7 +1314,7 @@ impl Cooker {
             }
             let go = |id: &'static str, icon: gpui_kit_assets::IconName, label: &'static str, cmd: super::Cmd, cx: &mut Context<Self>| {
                 Button::new(id).small().icon(gpui_component::Icon::new(icon)).label(label).on_click(cx.listener(move |this, _, window, cx| {
-                    let _ = this.studio.update(cx, |s, cx| s.run(cmd, window, cx));
+                    this.run_studio(cmd, window, cx);
                 }))
             };
             return crate::studio::ui::empty(gpui_kit_assets::IconName::Pencil, "No changes yet", "Change a champion's look, a number in the game data, a sound or a map: every game file you change shows up here and goes into your mod.", &theme)
@@ -1908,7 +1916,7 @@ impl Cooker {
             // An unnamed mod's first step: its name (and its own folder).
             .when(unnamed, |d| {
                 d.child(Button::new("cook-name").small().primary().label("Name this mod…").tooltip("Gives the mod its name and its own folder: it saves itself as you work").on_click(cx.listener(|this, _, window, cx| {
-                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
+                    this.run_studio(super::Cmd::NewProject, window, cx);
                 })))
             })
             .when(self.installed, |d| d.child(Button::new("cook-remove").small().ghost().label("Remove from game").tooltip(remove_tip).disabled(busy.is_some() || !cli).on_click(cx.listener(|this, _, _, cx| this.remove_from_game(cx)))))
@@ -1929,7 +1937,7 @@ impl Cooker {
                         .separator()
                         .item(item("Publish…", can_use, |this, w, cx| this.publish_dialog(w, cx)))
                         .item(item("Upgrade another mod to deltas…", true, |this, w, cx| {
-                            let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::UpgradeMod, w, cx));
+                            this.run_studio(super::Cmd::UpgradeMod, w, cx);
                         }))
                 }),
             )
@@ -2158,7 +2166,7 @@ impl Cooker {
                             })
                             .when(name_it, |d| {
                                 d.child(h_flex().child(Button::new(("cook-fix", k)).xsmall().ghost().label("Name this mod…").icon(gpui_component::Icon::new(gpui_kit_assets::IconName::ArrowUpRight)).on_click(cx.listener(|this, _, window, cx| {
-                                    let _ = this.studio.update(cx, |s, cx| s.run(super::Cmd::NewProject, window, cx));
+                                    this.run_studio(super::Cmd::NewProject, window, cx);
                                 }))))
                             })
                             .when_some(go, |d, t| {
