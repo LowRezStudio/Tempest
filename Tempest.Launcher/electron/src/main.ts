@@ -227,11 +227,9 @@ app.whenReady()
 				return;
 			}
 
-			upsert(
-				responseHeaders,
-				"Content-Security-Policy",
-				"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; font-src * data:; connect-src *; frame-src *;",
-			);
+			// SvelteKit hashes its inline bootstrap into the resource policy it writes
+			// to index.html; a meta tag cannot carry frame-ancestors, so it goes here.
+			upsert(responseHeaders, "Content-Security-Policy", "frame-ancestors 'none'");
 			upsert(responseHeaders, "Access-Control-Allow-Origin", "*");
 			callback({ responseHeaders });
 		});

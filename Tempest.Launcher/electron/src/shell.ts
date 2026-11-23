@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { app } from "electron";
 import { handle } from "./ipc/handle.js";
 
 const activeChildren = new Map<number, ReturnType<typeof spawn>>();
@@ -26,6 +27,14 @@ function killChild(child: ReturnType<typeof spawn>) {
 	child.kill();
 }
 
+// The renderer only needs the bundled CLI (and the debug `dotnet` build in dev);
+// anything else would let injected script run a shell or a path of its choosing.
+function resolveRendererProgram(program: string, sidecar: boolean | undefined): string {
+	if (sidecar && program === "binaries/tempest-cli") return resolveSidecar(program);
+	if (!sidecar && program === "dotnet" && !app.isPackaged) return program;
+	throw new Error(`Program not allowed: ${program}`);
+}
+
 function resolveSidecar(program: string): string {
 	const ext = process.platform === "win32" ? ".exe" : "";
 	const direct = path.join(process.resourcesPath, program + ext);
@@ -34,7 +43,7 @@ function resolveSidecar(program: string): string {
 }
 
 handle("shell:spawn", (event, { program, args, options, sidecar }) => {
-	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
+	const resolvedProgram = resolveRendererProgram(program, sidecar);
 
 	const child = spawn(resolvedProgram, args, {
 		...options,
@@ -80,7 +89,7 @@ handle("shell:spawn", (event, { program, args, options, sidecar }) => {
 });
 
 handle("shell:execute", (event, { program, args, options, sidecar, streamId }) => {
-	const resolvedProgram = sidecar ? resolveSidecar(program) : program;
+	const resolvedProgram = resolveRendererProgram(program, sidecar);
 	return new Promise((resolve) => {
 		const child = execFile(
 			resolvedProgram,

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Check, Download, ExternalLink, LifeBuoy } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
-	import { marked } from "marked";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
 	import { kindLabel } from "$lib/mods/listing";
@@ -17,6 +16,7 @@
 		tempestRequirement,
 		satisfies,
 	} from "$lib/utils/deps";
+	import { renderUntrustedMarkdown } from "$lib/utils/markdown";
 	import { compareVersions, describeCompat, isCompatible } from "$lib/utils/version";
 	import BugReportModal from "./BugReportModal.svelte";
 	import RepoModIcon from "./RepoModIcon.svelte";
@@ -64,9 +64,7 @@
 	let bugOpen = $state(false);
 
 	const readmeHtml = $derived(
-		modQuery.data?.readme
-			? (marked.parse(modQuery.data.readme, { async: false }) as string)
-			: "",
+		modQuery.data?.readme ? renderUntrustedMarkdown(modQuery.data.readme) : "",
 	);
 	const versions = $derived((versionsQuery.data ?? []).filter((v) => v.status === "approved"));
 	// The newest version for this patch: what the Overview offers to install.

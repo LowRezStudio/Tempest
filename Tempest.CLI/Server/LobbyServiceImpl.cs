@@ -195,14 +195,26 @@ internal sealed class LobbyServiceImpl(LobbyState state, ITicketStore ticketStor
 
     public override Task<SetDefaultMapResponse> SetDefaultMap(SetDefaultMapRequest request, ServerCallContext context)
     {
-        logger.LogInformation("Default map set to {MapId}", request.MapId);
+        // Only a player holding a lobby ticket may change the map or start the match:
+        // anyone able to reach the gRPC port could otherwise do it.
+        if (!TryGetPlayerId(context, out var playerId))
+        {
+            logger.LogWarning("SetDefaultMap refused: unauthenticated caller {IP}", GetClientIP(context));
+            return Task.FromResult(new SetDefaultMapResponse());
+        }
+        logger.LogInformation("Player {PlayerId} set the default map to {MapId}", playerId, request.MapId);
         state.SetDefaultMap(request.MapId);
         return Task.FromResult(new SetDefaultMapResponse());
     }
 
     public override Task<ForceStartResponse> ForceStart(ForceStartRequest request, ServerCallContext context)
     {
-        logger.LogInformation("Force start requested");
+        if (!TryGetPlayerId(context, out var playerId))
+        {
+            logger.LogWarning("ForceStart refused: unauthenticated caller {IP}", GetClientIP(context));
+            return Task.FromResult(new ForceStartResponse());
+        }
+        logger.LogInformation("Force start requested by {PlayerId}", playerId);
         state.ForceStart();
         return Task.FromResult(new ForceStartResponse());
     }
