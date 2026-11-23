@@ -27,19 +27,11 @@ function killChild(child: ReturnType<typeof spawn>) {
 	child.kill();
 }
 
-// The renderer only runs the bundled CLI (and `dotnet exec` of the debug build in
-// dev). The bridge forwards whatever program and args it is given, so anything
-// else is refused here: script injected into the page must not reach
-// powershell.exe, cmd.exe or a path outside resources/.
-const RENDERER_SIDECARS = new Set(["binaries/tempest-cli"]);
-const DEV_PROGRAMS = new Set(["dotnet"]);
-
+// The renderer only needs the bundled CLI (and the debug `dotnet` build in dev);
+// anything else would let injected script run a shell or a path of its choosing.
 function resolveRendererProgram(program: string, sidecar: boolean | undefined): string {
-	if (sidecar) {
-		if (!RENDERER_SIDECARS.has(program)) throw new Error(`Sidecar not allowed: ${program}`);
-		return resolveSidecar(program);
-	}
-	if (!app.isPackaged && DEV_PROGRAMS.has(program)) return program;
+	if (sidecar && program === "binaries/tempest-cli") return resolveSidecar(program);
+	if (!sidecar && program === "dotnet" && !app.isPackaged) return program;
 	throw new Error(`Program not allowed: ${program}`);
 }
 
