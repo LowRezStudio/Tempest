@@ -77,20 +77,11 @@ function canInstallUpdates(): boolean {
 // module-level listener instead of one per `updater:download` call: stacking
 // listeners would resend every progress chunk once per retry.
 let downloadSender: Electron.WebContents | null = null;
-let lastTransferred = 0;
 
 autoUpdater.on("download-progress", (p) => {
 	const sender = downloadSender;
 	if (!sender || sender.isDestroyed()) return;
-	// bytesPerSecond is throughput, not a chunk size; the renderer accumulates
-	// chunkLength, so send the actual delta of transferred bytes (clamped for
-	// resumed downloads where transferred can jump backwards).
-	const chunk = Math.max(0, p.transferred - lastTransferred);
-	lastTransferred = p.transferred;
-	sender.send("updater:download-progress", {
-		chunkLength: chunk,
-		contentLength: p.total,
-	});
+	sender.send("updater:download-progress", { transferred: p.transferred, total: p.total });
 });
 
 /**
@@ -241,7 +232,6 @@ handle("updater:check", async () => {
 
 handle("updater:download", async (event) => {
 	downloadSender = event.sender;
-	lastTransferred = 0;
 	await autoUpdater.downloadUpdate();
 	updateDownloaded = true;
 });

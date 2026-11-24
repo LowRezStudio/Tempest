@@ -411,8 +411,7 @@ export const fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
 // ---- Updater ----
 
 export type DownloadEvent =
-	| { event: "Started"; data: { contentLength: number } }
-	| { event: "Progress"; data: { chunkLength: number } }
+	| { event: "Progress"; data: { transferred: number; total: number } }
 	| { event: "Finished"; data?: undefined };
 
 class ElectronUpdate {
@@ -448,13 +447,8 @@ class ElectronUpdate {
 	}
 
 	async downloadAndInstall(onEvent: (event: DownloadEvent) => void): Promise<void> {
-		let started = false;
 		const unsub = eio().on("updater:download-progress", (data) => {
-			if (!started) {
-				started = true;
-				onEvent({ event: "Started", data: { contentLength: data.contentLength } });
-			}
-			onEvent({ event: "Progress", data: { chunkLength: data.chunkLength } });
+			onEvent({ event: "Progress", data });
 		});
 
 		try {

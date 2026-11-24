@@ -83,12 +83,9 @@ class UpdaterStore {
 		try {
 			await this.update.downloadAndInstall((event) => {
 				switch (event.event) {
-					case "Started": {
-						this.contentLength = event.data.contentLength ?? null;
-						break;
-					}
 					case "Progress": {
-						this.downloadedBytes += event.data.chunkLength;
+						this.downloadedBytes = event.data.transferred;
+						this.contentLength = event.data.total || null;
 						break;
 					}
 					case "Finished": {

@@ -80,7 +80,12 @@ export type SaveDialogOptions = {
 	title?: string;
 };
 
-export type UpdaterProgress = { chunkLength: number; contentLength: number };
+/**
+ * Bytes of the current download attempt. `total` can change mid-download: a
+ * failed differential download (total = changed blocks only) falls back to the
+ * full installer, which restarts `transferred` from zero.
+ */
+export type UpdaterProgress = { transferred: number; total: number };
 
 /** What the renderer should do after the user picks a log-console menu item. */
 export type ContextMenuAction = "copy" | "selectAll";
