@@ -20,7 +20,7 @@ current sources.
   the mirror image). The root project is installed either way, so `prepare` (husky) runs.
 - Uploads artifacts and creates a draft GitHub release
 - Release notes are pulled from the annotated tag's message (set by `pnpm bump`)
-- The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest-cli`, `upk` and the faststart DLL) is
+- The bundled CLI sidecar (`scripts/build-cli.js`: AOT `tempest` CLI, `upk` and the faststart DLL) is
   built by three independent jobs in parallel.
 
 ## Releasing

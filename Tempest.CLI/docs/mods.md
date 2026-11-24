@@ -18,7 +18,7 @@ overlaps prompts; the usual replace/stack prompts apply, stack meaning "last ins
 overlaps (in a merged movie, only the tags both change; reported as warnings when rebuilding). The game file is derived:
 `Tempest.CLI/Mods/DeltaResolver.cs` rebuilds it as *base + every enabled mod's delta in install
 order* with the `upk` sidecar (one `upk delta batch` run for every file to rebuild, so the class
-database loads once; found next to `tempest-cli`, `TEMPEST_UPK`, or the repo's
+database loads once; found next to the `tempest` CLI, `TEMPEST_UPK`, or the repo's
 `Tempest.UnrealScript/target/release/upk` in dev) after every install, remove, enable and disable,
 and at launch, printing `[progress] 42% <what>` lines on stderr while it works (the launcher's mod
 rows show them as "Patching game files 42%", streamed through `shell:execute`'s `streamId`); the

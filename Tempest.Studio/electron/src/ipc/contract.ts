@@ -2669,12 +2669,12 @@ export interface IpcContract {
 		result: { path: string; exists: boolean; mtime: number | null };
 	};
 
-	/** tempest-cli for the mod cooker: where it is and whether a signing key exists. */
+	/** tempest for the mod cooker: where it is and whether a signing key exists. */
 	"cli:status": {
 		args: Record<string, never>;
 		result: { path: string | null; available: boolean; signingKey: string; hasKey: boolean };
 	};
-	/** Run `tempest-cli mod <args>` (pack, sign, verify, install, publish, login, gen-key…). */
+	/** Run `tempest mod <args>` (pack, sign, verify, install, publish, login, gen-key…). */
 	"cli:mod": {
 		args: { args: string[] };
 		result: { code: number; stdout: string; stderr: string };

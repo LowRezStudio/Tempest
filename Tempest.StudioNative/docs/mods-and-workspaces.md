@@ -23,7 +23,7 @@ listed, so it is neither counted nor offered in its ⋯ menu); other files),
 **Upgrade a mod to deltas…** (`Cmd::UpgradeMod`, Package menu, palette, the Mod view's ⋯ menu;
 `Studio::upgrade_mod` → `upgrade_mod_to`, driver `upgrade <mod>|<out.tempest>`,
 `studio_state.lastUpgrade`): picks a mod and where the new package goes, runs `mod.upgrade` into a
-temporary folder, packs it with `tempest-cli mod pack` and signs it when the signing key exists,
+temporary folder, packs it with `tempest mod pack` and signs it when the signing key exists,
 like a build; the toast gives the sizes, kept files come as warnings with their reason,
 Details (name, version, author, icon, readme; Advanced: id, dependencies, Build only's compression)
 and Publish (listing, game patches, changelog, a pointer to the website for images and visibility,
@@ -42,7 +42,7 @@ changes, leave out, whole file, Discard my edits, Forget the copy, remove from t
 source link, dependencies checked by `dependency_problem`; `tempest-scripting>=1.0.0` added when Lua
 ships), icon (PNG ≤ 1 MB) and readme; the checks of the Electron `modmeta.ts`, unit-tested, block
 Build (code without a signing key too). Build (`mod.cook` with icon/authors/deps/extras +
-`tempest-cli mod pack/sign`; in a project into `builds/`, asking before replacing a version),
+`tempest mod pack/sign`; in a project into `builds/`, asking before replacing a version),
 Install, Save a copy, **Publish…** (`mod publish --json` with patches/range/changelog/listing,
 outcome parsed, an auth error asks for an API key in place and publishes again), **Signing and
 publishing** (key fingerprint from `mod fingerprint`, Create my signing key = `mod gen-key --id`,

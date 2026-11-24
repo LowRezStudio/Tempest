@@ -72,7 +72,7 @@ current sources.
   readme. Invalid values, and code without a signing key, are listed as `problems` that block Build.
   Kept per game folder and in workspace files; New mod clears them. Cook writes the mod folder
   (manifest in the launcher's format; large objects that several files change the same way as shared
-  object files, written once, the build log says how much that saved), then `tempest-cli mod pack`
+  object files, written once, the build log says how much that saved), then `tempest mod pack`
   and `mod sign` (the view creates a key with `mod gen-key` when missing), then Install (`mod
   install <game> <pkg> --replace --allow-untrusted`; warns when the folder holds in-place edits of
   files the mod changes), Save a copy (`fs:copy`) or Publish… (`PublishDialog.svelte`: `mod publish
@@ -83,7 +83,7 @@ current sources.
   `cli:account` reads the CLI's `signing/tempest.key` through `mod fingerprint` and `repo.json`):
   the signing key (create with `mod gen-key --id`, verify ownership with `mod sign-text`) and the
   API key (masked; log in, replace, forget with `mod login` without a key), shared with the
-  launcher. The CLI is `$TEMPEST_CLI`, the bundled `binaries/tempest-cli` (Studio build and
+  launcher. The CLI is `$TEMPEST_CLI`, the bundled `binaries/tempest` (Studio build and
   `studio-release.yml` publish Tempest.CLI next to `upk`), or the repository's Debug/Release build
   in dev; only `mod` subcommands run. The launcher keeps its own cooker.
 

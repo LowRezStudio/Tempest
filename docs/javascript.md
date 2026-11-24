@@ -36,7 +36,7 @@ current sources.
   paths, mod downloads/previews, settings snapshots) all live in the Electron host; the renderer
   only orchestrates.
 
-- `pnpm electron:build` bundles external `tempest-cli` and `upk` binaries built by
+- `pnpm electron:build` bundles external `tempest` (the CLI) and `upk` binaries built by
   `scripts/build-cli.js` into `electron/resources/binaries`; the dev server does not need them (the
   cooker uses the Rust release build of `upk` from `Tempest.UnrealScript/target/release`,
   overridable with `TEMPEST_UPK`).

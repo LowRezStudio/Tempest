@@ -1015,7 +1015,7 @@ function buildServer(): McpServer {
 					} else if (a.action === "build") {
 						if (!cooker.projectDir && !a.out) throw new Error("outside a project, give out (the .tempest to write)");
 						await cooker.refresh();
-						if (!cooker.canCook) throw new Error("cannot build: " + (cooker.problems.join(" ") || "tempest-cli is not available"));
+						if (!cooker.canCook) throw new Error("cannot build: " + (cooker.problems.join(" ") || "tempest is not available"));
 						outcome = await watch(cooker.cook(a.out), 600000);
 					} else if (a.action === "install") {
 						if (!cooker.cooked) throw new Error("build the mod first");

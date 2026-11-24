@@ -9,12 +9,11 @@ import path from "node:path";
 import { handle } from "./ipc/handle.js";
 import type { CliInstallResult } from "./ipc/contract.js";
 
-const SHIM_NAME = process.platform === "win32" ? "tempest.exe" : "tempest";
-const CLI_NAME = process.platform === "win32" ? "tempest-cli.exe" : "tempest-cli";
+const CLI_NAME = process.platform === "win32" ? "tempest.exe" : "tempest";
 
 /**
  * The bundled CLI sidecar binary, or null when it doesn't exist (dev runs).
- * @returns Absolute path to `tempest-cli(.exe)`, or null.
+ * @returns Absolute path to `tempest(.exe)`, or null.
  */
 function cliBinary(): string | null {
 	const bin = path.join(process.resourcesPath, "binaries", CLI_NAME);
@@ -57,7 +56,7 @@ function notBundled(): CliInstallResult {
 
 /**
  * Adds the binaries dir to the user PATH (idempotent) and broadcasts the change.
- * @param dir Directory containing the CLI shim.
+ * @param dir Directory containing the CLI.
  */
 async function addToUserPath(dir: string): Promise<void> {
 	const script = [
@@ -78,7 +77,7 @@ async function addToUserPath(dir: string): Promise<void> {
 
 	// Write to a temp file: a -Command one-liner with this much quoting is
 	// unmanageable; a script file keeps it verifiable.
-	const scriptPath = path.join(os.tmpdir(), `tempest-cli-path-${process.pid}.ps1`);
+	const scriptPath = path.join(os.tmpdir(), `tempest-path-${process.pid}.ps1`);
 	await fs.promises.writeFile(scriptPath, script, "utf8");
 	try {
 		await exec("powershell.exe", [
@@ -96,27 +95,45 @@ async function addToUserPath(dir: string): Promise<void> {
 async function installWindows(): Promise<CliInstallResult> {
 	const bin = cliBinary();
 	if (!bin) return Promise.resolve(notBundled());
-	const dir = path.dirname(bin);
-	const shim = path.join(dir, SHIM_NAME);
-	// Hardlink (same volume, no extra disk space, runs from CreateProcess);
-	// fails harmlessly if it already exists.
-	if (shim !== bin) {
-		await fs.promises.link(bin, shim).catch(() => {});
-	}
-	await addToUserPath(dir);
-	return { installed: true, path: shim, onPath: true };
+	await addToUserPath(path.dirname(bin));
+	return { installed: true, path: bin, onPath: true };
 }
 
-// ---- macOS ----
+// ---- macOS / Linux ----
+
+/**
+ * Whether the link at `shim` can be replaced without asking: it points at a launcher's
+ * bundled CLI (`binaries/tempest`, or `binaries/tempest-cli` before 1.6), or at nothing
+ * (an uninstalled launcher, or an AppImage mount that is gone).
+ * @param shim The link's path.
+ * @param target What it points at.
+ * @returns Whether it is a stale link of ours.
+ */
+function isStaleLink(shim: string, target: string): boolean {
+	const resolved = path.resolve(path.dirname(shim), target);
+	return /[\\/]binaries[\\/]tempest(-cli)?$/.test(resolved) || !fs.existsSync(resolved);
+}
+
+/**
+ * Links `shim` to `bin`, replacing a stale link of ours; throws when `shim` is anything else.
+ * @param bin The bundled CLI.
+ * @param shim Where the `tempest` command goes.
+ */
+async function linkShim(bin: string, shim: string): Promise<void> {
+	await fs.promises.mkdir(path.dirname(shim), { recursive: true });
+	const current = await fs.promises.readlink(shim).catch(() => null);
+	if (current === bin) return;
+	if (current !== null && isStaleLink(shim, current)) await fs.promises.unlink(shim);
+	await fs.promises.symlink(bin, shim);
+}
 
 async function installMac(shimDir: string, elevated: boolean): Promise<CliInstallResult> {
 	const bin = cliBinary();
 	if (!bin) return Promise.resolve(notBundled());
-	const shim = path.join(shimDir, SHIM_NAME);
+	const shim = path.join(shimDir, CLI_NAME);
 
 	try {
-		await fs.promises.mkdir(shimDir, { recursive: true });
-		await fs.promises.symlink(bin, shim);
+		await linkShim(bin, shim);
 	} catch {
 		if (!elevated) {
 			// Silent startup pass: a read-only shim dir is not an error.
@@ -147,8 +164,6 @@ async function installMac(shimDir: string, elevated: boolean): Promise<CliInstal
 	return { installed: true, path: shim, onPath: await isOnPath(shim) };
 }
 
-// ---- Linux ----
-
 function installLinux(): Promise<CliInstallResult> {
 	const bin = cliBinary();
 	if (!bin) return Promise.resolve(notBundled());
@@ -172,7 +187,7 @@ handle("cli:status", async (): Promise<CliInstallResult> => {
 			: process.platform === "darwin"
 				? "/usr/local/bin"
 				: path.join(os.homedir(), ".local", "bin");
-	const shim = path.join(shimDir, SHIM_NAME);
+	const shim = path.join(shimDir, CLI_NAME);
 	const exists = await fs.promises.access(shim).then(
 		() => true,
 		() => false,

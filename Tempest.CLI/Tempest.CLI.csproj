@@ -9,7 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup Condition="$([MSBuild]::IsOSUnixLike()) And '$(PublishAot)' != 'true'">
-        <None Include="tempest-cli.sh">
+        <None Include="tempest.sh">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         </None>

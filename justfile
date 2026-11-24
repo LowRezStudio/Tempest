@@ -258,7 +258,7 @@ studio-native-build:
     Tempest.StudioNative/scripts/fetch-ruffle.sh
     cd Tempest.StudioNative && cargo build --release
 
-# Release bundle for this platform (app + tempest-cli + upk; .app, zip and DMG on macOS) -> Tempest.StudioNative/dist
+# Release bundle for this platform (app + tempest + upk; .app, zip and DMG on macOS) -> Tempest.StudioNative/dist
 [group("studio-native")]
 studio-native-bundle out="":
     Tempest.StudioNative/scripts/bundle.sh {{out}}

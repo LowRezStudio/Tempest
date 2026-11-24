@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Release bundle of the native Studio for the platform it runs on (macOS,
-# Linux, Windows under Git Bash), with tempest-cli (the mod cooker's pack,
-# sign, install, publish) and upk (tempest-cli rebuilds delta-patched game
+# Linux, Windows under Git Bash), with tempest (the mod cooker's pack,
+# sign, install, publish) and upk (tempest rebuilds delta-patched game
 # files with it) next to the app:
 #
 #   macOS    Tempest Studio Native.app (signed, .upk/.twrk associations) as a
@@ -62,16 +62,16 @@ stage=$out/stage
 rm -rf "$stage"
 mkdir -p "$stage"
 
-# The binaries every platform ships: the app, upk, tempest-cli and the CLI's native libraries.
+# The binaries every platform ships: the app, upk, tempest and the CLI's native libraries.
 put_binaries() {
 	local dir=$1
 	cp "$STUDIO_BIN" "$dir/tempest-studio$exe"
 	cp "$UPK" "$dir/upk$exe"
-	cp "$CLI_DIR/Tempest.CLI$exe" "$dir/tempest-cli$exe"
+	cp "$CLI_DIR/Tempest.CLI$exe" "$dir/tempest$exe"
 	shopt -s nullglob
 	for lib in "$CLI_DIR"/*.dylib "$CLI_DIR"/*.so "$CLI_DIR"/*.dll; do cp "$lib" "$dir/"; done
 	shopt -u nullglob
-	chmod +x "$dir/tempest-studio$exe" "$dir/upk$exe" "$dir/tempest-cli$exe"
+	chmod +x "$dir/tempest-studio$exe" "$dir/upk$exe" "$dir/tempest$exe"
 }
 
 checksum() {

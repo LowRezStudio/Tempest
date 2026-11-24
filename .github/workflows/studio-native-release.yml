@@ -77,7 +77,7 @@ jobs:
           sudo apt-get install -y zip clang cmake pkg-config libasound2-dev libfontconfig-dev libfreetype-dev \
             libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev libvulkan-dev libssl-dev
 
-      # tempest-cli (AOT) for the mod cooker; its build compiles the Zig injector.
+      # The tempest CLI (AOT) for the mod cooker; its build compiles the Zig injector.
       - name: Setup .NET 10.0
         uses: actions/setup-dotnet@v4
         with:

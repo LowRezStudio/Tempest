@@ -3,7 +3,7 @@
 // Studio, the file saved in place, or an exported copy) and the cooker makes a
 // delta against the file's original (the Studio's record, the launcher's
 // backup, or an original the user confirms or picks). Plus other files (Lua,
-// DLLs, loose files). Cooked into a signed `.tempest` with tempest-cli, then
+// DLLs, loose files). Cooked into a signed `.tempest` with tempest, then
 // saved, installed or published like the launcher's cooker does.
 import { invoke, pickDirectory, pickFile, pickFiles, pickSave } from "$lib/platform/api";
 import { assembly } from "./assembly.svelte";
@@ -287,7 +287,7 @@ class Cooker {
 		) {
 			out.push("Add at least one file.");
 		}
-		if (this.cli && !this.cli.available) out.push("tempest-cli was not found.");
+		if (this.cli && !this.cli.available) out.push("tempest was not found.");
 		return out;
 	});
 	canCook = $derived(this.problems.length === 0 && !!this.cli?.available);

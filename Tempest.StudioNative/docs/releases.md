@@ -8,8 +8,8 @@ current sources.
 ## Release, self-update and file associations
 
 **Release and updates**: `scripts/bundle.sh [out]` (`just studio-native-bundle`) builds the app,
-`upk` and the AOT `tempest-cli` (prebuilt ones via `STUDIO_BIN`/`UPK`/`CLI_DIR`) and lays them out
-side by side (the cooker finds `tempest-cli` next to the exe, `tempest-cli` finds `upk`): on macOS
+`upk` and the AOT `tempest` (prebuilt ones via `STUDIO_BIN`/`UPK`/`CLI_DIR`) and lays them out
+side by side (the cooker finds `tempest` next to the exe, `tempest` finds `upk`): on macOS
 `Tempest Studio Native.app` (`com.lowrezstudio.tempest.studio-native`, `.upk`/`.twrk` document types
 in its Info.plist, signed with `APPLE_SIGNING_IDENTITY` or ad-hoc, notarized with
 `APPLE_NOTARY_PROFILE`) as a zip and a DMG, elsewhere a zip of a folder holding the

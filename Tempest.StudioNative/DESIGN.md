@@ -274,5 +274,5 @@ Laid out like the website's mod page, on a 1160px page centred in the work area 
 - The Mod view reads the counts of the first 8 files by itself; the others get theirs when What changed is unfolded.
 - The patch timeline takes clicks, not the website's drag across ticks.
 - The second pane (⌘J) is the middle list in Game files and Sounds but the right-hand inspector in Game data and Maps: each is the secondary pane of its view, not one place.
-- Banner, screenshots, more authors and visibility are set on the website only: `tempest-cli mod publish` sends compatibility, summary, tags, changelog and source link.
+- Banner, screenshots, more authors and visibility are set on the website only: `tempest mod publish` sends compatibility, summary, tags, changelog and source link.
 - The Map view keeps its own power-user density and does not follow the newcomer spacing.

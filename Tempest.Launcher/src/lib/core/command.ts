@@ -30,6 +30,6 @@ const createDevCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
 	);
 
 const createProdCommand = (args: ArgumentType[], env?: SpawnOptions["env"]) =>
-	Command.sidecar("binaries/tempest-cli", processArgs(args), { env });
+	Command.sidecar("binaries/tempest", processArgs(args), { env });
 
 export const createCommand = import.meta.env.DEV ? createDevCommand : createProdCommand;

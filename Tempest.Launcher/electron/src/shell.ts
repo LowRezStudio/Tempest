@@ -30,7 +30,7 @@ function killChild(child: ReturnType<typeof spawn>) {
 // The renderer only needs the bundled CLI (and the debug `dotnet` build in dev);
 // anything else would let injected script run a shell or a path of its choosing.
 function resolveRendererProgram(program: string, sidecar: boolean | undefined): string {
-	if (sidecar && program === "binaries/tempest-cli") return resolveSidecar(program);
+	if (sidecar && program === "binaries/tempest") return resolveSidecar(program);
 	if (!sidecar && program === "dotnet" && !app.isPackaged) return program;
 	throw new Error(`Program not allowed: ${program}`);
 }

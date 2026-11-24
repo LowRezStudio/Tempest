@@ -57,7 +57,7 @@ await Promise.all([
 		root,
 	),
 	// The upk tool applies mod deltas (deltas/<game path>.tdelta package entries)
-	// for tempest-cli, which looks for it next to its own executable, and
+	// for the CLI, which looks for it next to its own executable, and
 	// LZO-compresses packages for the launcher's cooker.
 	(async () => {
 		await $`cargo build --release -p tempest-assets`.cwd(
@@ -81,6 +81,6 @@ for (const f of fs.readdirSync(binariesDir)) {
 	}
 	if (lower === "tempest.cli" || lower === "tempest.cli.exe") {
 		const ext = lower.endsWith(".exe") ? ".exe" : "";
-		fs.renameSync(path.join(binariesDir, f), path.join(binariesDir, `tempest-cli${ext}`));
+		fs.renameSync(path.join(binariesDir, f), path.join(binariesDir, `tempest${ext}`));
 	}
 }

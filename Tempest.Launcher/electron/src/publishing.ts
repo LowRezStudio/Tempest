@@ -8,7 +8,7 @@ import path from "node:path";
 import { app } from "electron";
 import { handle } from "./ipc/handle.js";
 
-const CLI_NAME = process.platform === "win32" ? "tempest-cli.exe" : "tempest-cli";
+const CLI_NAME = process.platform === "win32" ? "tempest.exe" : "tempest";
 
 type CliRun = { program: string; prefix: string[] };
 

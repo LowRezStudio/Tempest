@@ -1,4 +1,4 @@
-//! Signing and publishing, shared with the launcher through tempest-cli:
+//! Signing and publishing, shared with the launcher through tempest:
 //! the signing key (`mod gen-key`, its fingerprint from `mod fingerprint`,
 //! `mod sign-text` for the website's ownership check) and the mod
 //! repository's API key (`mod login`, kept in `repo.json`); **Publish**
@@ -66,7 +66,7 @@ impl Cooker {
         .detach();
     }
 
-    /// Run `tempest-cli mod <args>` off the UI thread, then `done` with (code, stdout, stderr).
+    /// Run `tempest mod <args>` off the UI thread, then `done` with (code, stdout, stderr).
     fn cli(&mut self, args: Vec<String>, busy: &str, cx: &mut Context<Self>, done: impl FnOnce(&mut Cooker, Result<(i32, String, String), String>, &mut Context<Cooker>) + 'static) {
         self.busy = Some(busy.to_string());
         cx.notify();

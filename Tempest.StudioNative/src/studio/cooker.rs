@@ -2,7 +2,7 @@
 //! one is listed with where its edits are (unsaved, saved in place, an
 //! exported copy) and how it ships (a delta of only what changed, or the
 //! whole file); its changes can be previewed. Details name the mod; Build
-//! writes the mod folder (`mod.cook`), packs and signs it with tempest-cli
+//! writes the mod folder (`mod.cook`), packs and signs it with tempest
 //! like the launcher, and Install puts it into a game folder.
 
 use std::path::{Path, PathBuf};
@@ -189,12 +189,12 @@ impl Meta {
     }
 }
 
-/// tempest-cli: $TEMPEST_CLI, next to this program, or the repository's build.
+/// tempest: $TEMPEST_CLI, next to this program, or the repository's build.
 fn cli_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("TEMPEST_CLI").map(PathBuf::from).filter(|p| p.exists()) {
         return Some(p);
     }
-    let exe = if cfg!(windows) { "tempest-cli.exe" } else { "tempest-cli" };
+    let exe = if cfg!(windows) { "tempest.exe" } else { "tempest" };
     if let Some(p) = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.exists()) {
         return Some(p);
     }
@@ -217,9 +217,9 @@ pub(super) fn signing_key() -> PathBuf {
     std::env::var_os("TEMPEST_SIGNING_KEY").map(PathBuf::from).unwrap_or_else(|| app_data().join("com.lowrezstudio.tempest").join("signing").join("tempest.key"))
 }
 
-/// `tempest-cli mod <args>`: exit code, stdout and stderr.
+/// `tempest mod <args>`: exit code, stdout and stderr.
 pub(super) fn run_cli_split(args: &[String]) -> Result<(i32, String, String), String> {
-    let cli = cli_path().ok_or("tempest-cli was not found (build Tempest.CLI, or set TEMPEST_CLI)")?;
+    let cli = cli_path().ok_or("tempest was not found (build Tempest.CLI, or set TEMPEST_CLI)")?;
     let out = std::process::Command::new(cli).arg("mod").args(args).output().map_err(|e| e.to_string())?;
     Ok((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string()))
 }
@@ -320,7 +320,7 @@ fn installed_name(list: &J, id: &str) -> Option<String> {
     mods.iter().find(|m| field(m, "id").is_some_and(|i| i.eq_ignore_ascii_case(id))).and_then(|m| field(m, "name"))
 }
 
-/// `tempest-cli mod <args>`: exit code and the output (stdout then stderr).
+/// `tempest mod <args>`: exit code and the output (stdout then stderr).
 fn run_cli(args: &[String]) -> Result<(i32, String), String> {
     run_cli_split(args).map(|(code, out, err)| (code, out + &err))
 }
@@ -1906,7 +1906,7 @@ impl Cooker {
         let removable = !id.is_empty() && cli;
         let remove_tip = match &busy {
             Some(b) => b.clone(),
-            None if !cli => "The mod packer (tempest-cli) is missing from this Studio".into(),
+            None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
             None => "Take this mod out of the game folder that is open".into(),
         };
         let actions = h_flex()
@@ -1950,7 +1950,7 @@ impl Cooker {
                         .label(busy.clone().unwrap_or_else(|| "Build & install".into()))
                         .tooltip(match problems.first() {
                             Some(p) => format!("Before building: {p}"),
-                            None if !cli => "The mod packer (tempest-cli) is missing from this Studio".into(),
+                            None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
                             None => "Build the mod (fast) and install it into this game, ready to play from Tempest Launcher".into(),
                         })
                         .disabled(blocked)
@@ -2104,7 +2104,7 @@ impl Cooker {
         );
         let mut issues: Vec<String> = problems.to_vec();
         if cli_path().is_none() {
-            issues.push("The mod packer (tempest-cli) is missing from this Studio: reinstall the Studio, or set TEMPEST_CLI".into());
+            issues.push("The mod packer (tempest) is missing from this Studio: reinstall the Studio, or set TEMPEST_CLI".into());
         }
         let n = issues.len();
         let mut check = crate::studio::ui::panel(if n == 0 { gpui_kit_assets::IconName::CircleCheck } else { gpui_kit_assets::IconName::TriangleAlert }, "Before building", if n == 0 { String::new() } else { format!("{n} to do") }, &theme);

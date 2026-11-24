@@ -16,13 +16,13 @@ const built = resolve(rust, "target", "release", exe);
 if (!existsSync(built)) throw new Error(`missing ${built}`);
 cpSync(built, resolve(binaries, exe));
 
-// tempest-cli for the mod cooker (pack, sign, install, publish), as the launcher bundles it.
+// The tempest CLI for the mod cooker (pack, sign, install, publish), as the launcher bundles it.
 const cliOut = resolve(binaries, "cli-publish");
 await $`dotnet publish ${resolve(root, "..", "Tempest.CLI")} -c Release -o ${cliOut}`.cwd(root);
 const cliExe = process.platform === "win32" ? "Tempest.CLI.exe" : "Tempest.CLI";
 cpSync(
 	resolve(cliOut, cliExe),
-	resolve(binaries, process.platform === "win32" ? "tempest-cli.exe" : "tempest-cli"),
+	resolve(binaries, process.platform === "win32" ? "tempest.exe" : "tempest"),
 );
 for (const lib of [
 	"libblake3_dotnet.dylib",

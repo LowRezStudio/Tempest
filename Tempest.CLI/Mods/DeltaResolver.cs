@@ -155,7 +155,7 @@ internal static class DeltaResolver
 
     /// <summary>
     /// The <c>upk</c> binary: <c>TEMPEST_UPK</c>, next to this executable (the launcher bundles it with
-    /// tempest-cli), or the development build in the repository.
+    /// tempest), or the development build in the repository.
     /// </summary>
     public static string FindUpk()
     {
@@ -168,7 +168,7 @@ internal static class DeltaResolver
             var dev = Path.Combine(dir.FullName, "Tempest.UnrealScript", "target", "release", name);
             if (File.Exists(dev)) return dev;
         }
-        throw new Exception("the upk tool that applies mod deltas is not installed next to tempest-cli (set TEMPEST_UPK to its path)");
+        throw new Exception("the upk tool that applies mod deltas is not installed next to tempest (set TEMPEST_UPK to its path)");
     }
 
     /// <summary>

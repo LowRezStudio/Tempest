@@ -214,7 +214,7 @@ export const checkForCoreUpdatesAndInstall = async (instances: Instance[]): Prom
 
 export const listMods = async (gamePath: string): Promise<ModRecord[]> => {
 	const args = ["mod", "list", gamePath, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	appendProcessLogs([`Running command: tempest ${args.join(" ")}`], false, "mods");
 	const res = await createCommand(args).execute();
 
 	if (res.stdout) {
@@ -277,7 +277,7 @@ async function executeModCommand(
 	what: string,
 	onProgress?: PatchProgress,
 ): Promise<ModInstallResult> {
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	appendProcessLogs([`Running command: tempest ${args.join(" ")}`], false, "mods");
 	let partial = "";
 	const res = await createCommand(args).execute(
 		onProgress &&
@@ -339,7 +339,7 @@ export const disableMod = (gamePath: string, modName: string, onProgress?: Patch
 
 export const reloadModDll = async (gamePath: string, modId: string): Promise<ModInstallResult> => {
 	const args = ["mod", "reload-dll", gamePath, modId, "--json"];
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	appendProcessLogs([`Running command: tempest ${args.join(" ")}`], false, "mods");
 	const res = await createCommand(args).execute();
 	reportAntivirusBlocks(res.stderr);
 
@@ -366,7 +366,7 @@ export const describeError = (error: unknown): string =>
 	error instanceof Error ? error.message : String(error);
 
 const runCli = async (args: string[], label: string): Promise<CliResult> => {
-	appendProcessLogs([`Running command: tempest-cli ${args.join(" ")}`], false, "mods");
+	appendProcessLogs([`Running command: tempest ${args.join(" ")}`], false, "mods");
 	const res = await createCommand(args).execute();
 	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
 	if (res.stderr) appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
@@ -395,7 +395,7 @@ const KEY_MISSING_PATTERN =
 export const isKeyExistsError = (message: string): boolean => /already exists/i.test(message);
 
 export const signModPackage = async (packagePath: string): Promise<string> => {
-	appendProcessLogs([`Running command: tempest-cli mod sign ${packagePath}`], false, "mods");
+	appendProcessLogs([`Running command: tempest mod sign ${packagePath}`], false, "mods");
 	const res = await createCommand(["mod", "sign", packagePath]).execute();
 	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");
 	if (res.stderr) appendProcessLogs(res.stderr.split("\n").filter(Boolean), true, "mods");
@@ -456,7 +456,7 @@ export const repoPublish = async (
 	if (listing.repository) args.push("--repository", listing.repository);
 	args.push("--json");
 
-	appendProcessLogs([`Running command: tempest-cli mod publish ${packagePath}`], false, "mods");
+	appendProcessLogs([`Running command: tempest mod publish ${packagePath}`], false, "mods");
 	// Publish against the repository the launcher browses, not just the CLI's own config.
 	const res = await createCommand(args, { TEMPEST_REPO_URL: modRepositoryURL.value }).execute();
 	if (res.stdout) appendProcessLogs(res.stdout.split("\n").filter(Boolean), false, "mods");

@@ -1,4 +1,4 @@
-// tempest-cli for the mod cooker: packing, signing, verifying, installing
+// The tempest CLI for the mod cooker: packing, signing, verifying, installing
 // and publishing `.tempest` packages, exactly as the launcher does. Found at
 // $TEMPEST_CLI, else bundled next to `upk` (packaged builds), else the
 // repository's Debug/Release build (dev). Only `mod` subcommands run.
@@ -8,7 +8,7 @@ import path from "node:path";
 import { app } from "electron";
 import { handle } from "./ipc/handle.js";
 
-const EXE = process.platform === "win32" ? "tempest-cli.exe" : "tempest-cli";
+const EXE = process.platform === "win32" ? "tempest.exe" : "tempest";
 const DEV_EXE = process.platform === "win32" ? "Tempest.CLI.exe" : "Tempest.CLI";
 const ALLOWED = new Set([
 	"pack",
@@ -111,7 +111,7 @@ handle("cli:mod", (_event, { args }) => {
 	const cli = cliPath();
 	if (!cli) {
 		return Promise.reject(
-			new Error("tempest-cli was not found (build Tempest.CLI, or set TEMPEST_CLI)"),
+			new Error("tempest was not found (build Tempest.CLI, or set TEMPEST_CLI)"),
 		);
 	}
 	if (!ALLOWED.has(args[0] ?? "")) {
