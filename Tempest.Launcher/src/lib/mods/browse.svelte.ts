@@ -19,8 +19,8 @@ export const HIDDEN_TAGS = ["meme", "joke"] as const;
 export const isHiddenTag = (tag: string | null | undefined): boolean =>
 	!!tag && (HIDDEN_TAGS as readonly string[]).includes(tag);
 
-export const isMemeMod = (tags: readonly string[]): boolean =>
-	tags.some((t) => (HIDDEN_TAGS as readonly string[]).includes(t));
+export const isMemeMod = (mod: Pick<RepoMod, "meme" | "tags">): boolean =>
+	Boolean(mod.meme) || mod.tags.some((t) => (HIDDEN_TAGS as readonly string[]).includes(t));
 
 export const kinds: RepoMod["kind"][] = ["assets", "scripts", "native"];
 export const sorts: RepoSort[] = ["downloads", "updated", "created", "name"];
@@ -51,7 +51,7 @@ export const compatibleWith = (mod: RepoMod, patch: string | undefined) =>
 
 export function matches(mod: RepoMod, f: BrowseFilter, ctx: BrowseContext): boolean {
 	if (f.featuredOnly && !mod.featured) return false;
-	if (!f.showMemes && !isHiddenTag(f.tag) && isMemeMod(mod.tags)) return false;
+	if (!f.showMemes && !isHiddenTag(f.tag) && isMemeMod(mod)) return false;
 	if (f.kind && mod.kind !== f.kind) return false;
 	if (f.tag && !mod.tags.includes(f.tag)) return false;
 	if (f.compatibleOnly && ctx.patch && !compatibleWith(mod, ctx.patch)) return false;

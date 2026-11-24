@@ -47,6 +47,7 @@ export type RepoMod = {
 	owner: { handle: string; displayName: string; avatar: string | null; team: boolean };
 	downloads: number;
 	featured?: boolean;
+	meme?: boolean;
 	updatedAt: string;
 	latest: RepoVersion | null;
 	url: string;

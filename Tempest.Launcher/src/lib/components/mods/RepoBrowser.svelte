@@ -70,7 +70,7 @@
 	const hiddenMemes = $derived(
 		!f.showMemes && !isHiddenTag(f.tag)
 			? catalog.filter(
-					(mod) => isMemeMod(mod.tags) && matches(mod, { ...f, showMemes: true }, ctx),
+					(mod) => isMemeMod(mod) && matches(mod, { ...f, showMemes: true }, ctx),
 				).length
 			: 0,
 	);
