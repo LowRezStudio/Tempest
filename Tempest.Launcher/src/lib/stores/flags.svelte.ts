@@ -8,10 +8,6 @@ export interface FlagDefinition<T extends FlagValue = FlagValue> {
 }
 
 export const FEATURE_FLAGS = {
-	"public-servers": {
-		description: "Show the public Internet servers tab on the Servers page.",
-		default: false,
-	},
 	"mod-publishing": {
 		description:
 			"Publish mods to the mod repository straight from the launcher (otherwise packages must be uploaded by hand on the website).",

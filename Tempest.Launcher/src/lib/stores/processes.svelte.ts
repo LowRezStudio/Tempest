@@ -1,9 +1,7 @@
 import { Command } from "$lib/platform/api";
-import type { LobbyServerProcess, Process, ProcessLog } from "$lib/types/process";
+import type { Process, ProcessLog } from "$lib/types/process";
 
 export const processesList = $state({ value: [] as Process[] });
-
-export const lobbyServerProcessesList = $state({ value: [] as LobbyServerProcess[] });
 
 const MAX_LOGS = 5000;
 let nextLogId = 0;

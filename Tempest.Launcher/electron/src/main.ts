@@ -129,7 +129,7 @@ const loadURL = serve({ directory: "build" });
 
 // Whether closing the window should hide it into the tray instead of
 // quitting. The renderer pushes this via `app:set-close-behavior` whenever
-// its background-work state changes (running games, active lobby, ...).
+// its background-work state changes (running games, downloads, ...).
 let hideOnClose = false;
 
 handle("app:set-close-behavior", (_event, { hideToTray }) => {

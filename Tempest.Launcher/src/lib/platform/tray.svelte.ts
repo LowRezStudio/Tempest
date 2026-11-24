@@ -4,14 +4,12 @@
 // tray behaviour — showing the window, quitting, left-click handling — is
 // host-side.
 import { goto } from "$app/navigation";
-import { lobbyManager } from "$lib/lobby/lobby-manager";
-import { lobbyHost } from "$lib/lobby/stores.svelte";
 import { m } from "$lib/paraglide/messages";
 import { invoke, listen } from "$lib/platform/api";
 import { queueItems, queueRunning } from "$lib/rigby/stores.svelte";
 import { preparedInstances } from "$lib/stores/instance.svelte";
 import { localeState } from "$lib/stores/locale.svelte";
-import { lobbyServerProcessesList, processesList } from "$lib/stores/processes.svelte";
+import { processesList } from "$lib/stores/processes.svelte";
 import type { TrayEntry, TrayNavId } from "$ipc/contract";
 
 /**
@@ -22,10 +20,8 @@ import type { TrayEntry, TrayNavId } from "$ipc/contract";
 export function shouldKeepRunningInTray(): boolean {
 	return (
 		processesList.value.length > 0 ||
-		lobbyServerProcessesList.value.length > 0 ||
 		queueRunning.value ||
-		queueItems.value.some((item) => item.status === "running") ||
-		lobbyManager.isConnected()
+		queueItems.value.some((item) => item.status === "running")
 	);
 }
 
@@ -46,24 +42,12 @@ function trayEntries(): TrayEntry[] {
 		navEntry("/", m.sidebar_home()),
 		navEntry("/library", m.sidebar_library()),
 		navEntry("/downloads", m.sidebar_downloads()),
-		navEntry("/servers", m.sidebar_servers()),
 	];
-
-	if (lobbyHost.value) {
-		entries.push(navEntry("/lobby", m.sidebar_lobby()));
-	}
 
 	if (preparedInstances.value.length > 0) {
 		entries.push(separator);
 		for (const instance of preparedInstances.value) {
 			entries.push(navEntry(`/instance/${instance.id}`, instance.label));
-		}
-	}
-
-	if (lobbyServerProcessesList.value.length > 0) {
-		entries.push(separator);
-		for (const server of lobbyServerProcessesList.value) {
-			entries.push(navEntry(`/lobby-admin/${server.child.pid}`, server.createOptions.name));
 		}
 	}
 
@@ -96,7 +80,7 @@ $effect.root(() => {
 	});
 
 	// Close guard: hide the window into the tray while background work (running
-	// games, hosted servers, an active lobby) needs the launcher to stay alive.
+	// games) needs the launcher to stay alive.
 	// The decision is rendered host-side by the main process close handler.
 	$effect(() => {
 		void invoke("app:set-close-behavior", { hideToTray: shouldKeepRunningInTray() });

@@ -8,7 +8,7 @@ scripting := "Tempest.Scripting"
 unrealscript := "Tempest.UnrealScript"
 launcher := "Tempest.Launcher"
 studio := "Tempest.Studio"
-# `dotnet run` of the CLI; the Web SDK would run it from Tempest.CLI/, so relative paths resolve from where just was invoked
+# `dotnet run` of the CLI; relative paths resolve from where just was invoked
 tempest := 'dotnet run --project "' + justfile_directory() / "Tempest.CLI" + '" -p:RunWorkingDirectory="' + invocation_directory() + '"'
 # R2 folder behind https://cdn.lowrezstudio.com/keys/ (rclone remote:bucket/path)
 r2_keys := env("TEMPEST_R2_KEYS", "lowrezstudio:lowrezstudio-cdn/keys")
@@ -17,19 +17,18 @@ default:
     @just --list --unsorted
 
 # ---------------------------------------------------------------------------
-# Tempest.Utils (Zig): asmloader -> Tempest.Utils/zig-out/bin
+# Tempest.Utils (Zig): faststart -> Tempest.Utils/zig-out/bin
 # ---------------------------------------------------------------------------
 
 # Build the native utils (Debug by default; ReleaseFast / ReleaseSmall / ReleaseSafe).
-# Those are the asmloader DLLs the CLI injects, cross-compiled for both Windows
-# clients whatever the host is (anyzig resolves the package's zig version from
-# its build.zig.zon). Zig builds run from the package directory: zig's
-# --build-file-from-outside form breaks the relative cache.
+# That is the faststart DLL the CLI injects into the 8.1 Win64 client,
+# cross-compiled whatever the host is. Zig builds run from the package
+# directory: zig's --build-file-from-outside form breaks the relative cache.
 [group("utils")]
 utils optimize="Debug":
     cd Tempest.Utils && {{zig}} build -Doptimize={{optimize}}
 
-# Release utils, size-optimised (what the launcher bundle ships)
+# Release utils, size-optimised
 [group("utils")]
 utils-release: (utils "ReleaseSmall")
 
@@ -151,7 +150,7 @@ upk *args: unrealscript-build
     {{unrealscript}}/target/release/upk {{args}}
 
 # ---------------------------------------------------------------------------
-# .NET: Tempest.CLI, MarshalLib, MarshalLib.Database, Tempest.Protocol
+# .NET: Tempest.CLI, MarshalLib, MarshalLib.Database
 # ---------------------------------------------------------------------------
 
 # Build the whole solution (also compiles Tempest.CLI/inject via zig)
@@ -208,11 +207,6 @@ launcher-build:
 launcher-check: js-lint
     cd {{launcher}} && pnpm check
     cd {{launcher}} && pnpm check:electron
-
-# Regenerate TS protobuf clients from Tempest.Protocol
-[group("launcher")]
-launcher-proto: build
-    cd {{launcher}} && pnpm proto-generate
 
 # Version bump + annotated tag (prompts; see AGENTS.md "Releasing")
 [group("launcher")]

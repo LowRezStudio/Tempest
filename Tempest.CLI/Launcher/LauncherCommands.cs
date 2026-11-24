@@ -263,11 +263,6 @@ internal class LauncherCommands
         {
             await Task.WhenAll(matchingDlls.Select(d => process.InjectLibraryAsync(d, is64Bit)));
         }
-        if (isServer)
-        {
-            var asmLoaderPath = Path.Combine(SidecarDirectory, $"asmloader-windows_x86{(is64Bit ? "_64" : "")}.dll");
-            await process.InjectLibraryAsync(asmLoaderPath, is64Bit);
-        }
         await fastStartup;
 
         return process;

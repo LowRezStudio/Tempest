@@ -32,7 +32,4 @@ pnpm fmt
 
 # Lint every JS package (each app's own `lint`: oxlint --type-aware, root .oxlintrc.json)
 pnpm lint
-
-# Regenerate TS protobuf clients from Tempest.Protocol
-pnpm -C Tempest.Launcher proto-generate
 ```

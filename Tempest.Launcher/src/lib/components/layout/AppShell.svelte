@@ -10,7 +10,6 @@
 	import ToastStack from "$lib/components/ui/ToastStack.svelte";
 	import "$lib/platform/init.svelte";
 	import "$lib/stores/flags.svelte";
-	import { clearStaleConnectionIfNeeded } from "$lib/lobby/stores.svelte";
 	import "$lib/mods/deeplink.svelte";
 	import "$lib/platform/tray.svelte";
 	import "$lib/theme/theme.svelte";
@@ -25,8 +24,6 @@
 	import HalloweenWebs from "./HalloweenWebs.svelte";
 	import SeasonalDecorations from "./SeasonalDecorations.svelte";
 	import SeasonalWeather from "./SeasonalWeather.svelte";
-
-	clearStaleConnectionIfNeeded();
 
 	const { children } = $props();
 	const queryClient = useQueryClient();

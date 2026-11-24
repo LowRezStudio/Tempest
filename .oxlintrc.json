@@ -131,7 +131,6 @@
 		"**/dist/**",
 		"**/node_modules/**",
 		"**/electron/resources/binaries/**",
-		"**/src/lib/rpc/**",
 		"**/src/lib/paraglide/**",
 		"**/vendor/**",
 		"**/*.d.ts",

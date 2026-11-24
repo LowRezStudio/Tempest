@@ -75,9 +75,6 @@
 			case "launch": {
 				return m.logs_filter_launch();
 			}
-			case "lobby": {
-				return m.logs_filter_lobby();
-			}
 			case "rigby": {
 				return m.logs_filter_rigby();
 			}
