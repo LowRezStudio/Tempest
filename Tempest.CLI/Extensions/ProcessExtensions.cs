@@ -1,79 +1,12 @@
 ﻿using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Tempest.CLI.Launcher;
 
 namespace Tempest.CLI.Extensions;
 
 internal static class ProcessExtensions
 {
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool LookupPrivilegeValue(string? lpSystemName, string lpName, out long lpLuid);
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges, ref TokPriv1Luid NewState, uint BufferLength, IntPtr PreviousState, IntPtr ReturnLength);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GetCurrentProcess();
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct TokPriv1Luid
-    {
-        public uint PrivilegeCount;
-        public long Luid;
-        public uint Attributes;
-    }
-
-    private const uint SE_PRIVILEGE_ENABLED = 0x2;
-    private const uint TOKEN_QUERY = 0x0008;
-    private const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
-
-    private static void EnableDebugPrivilege()
-    {
-        try
-        {
-            if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out var tokenHandle))
-                return;
-            try
-            {
-                if (!LookupPrivilegeValue(null, "SeDebugPrivilege", out var luid))
-                    return;
-                var tp = new TokPriv1Luid { PrivilegeCount = 1, Luid = luid, Attributes = SE_PRIVILEGE_ENABLED };
-                AdjustTokenPrivileges(tokenHandle, false, ref tp, (uint)System.Runtime.InteropServices.Marshal.SizeOf<TokPriv1Luid>(), IntPtr.Zero, IntPtr.Zero);
-            }
-            finally { CloseHandle(tokenHandle); }
-        }
-        catch { }
-    }
-
     public static async Task<bool> InjectLibraryAsync(this Process process, string path, bool is64Bit)
     {
-        EnableDebugPrivilege();
-        string executable;
-        try
-        {
-            executable = GetExecutablePath(is64Bit ? "inject64.exe" : "inject32.exe");
-        }
-        catch (Exception ex) when (Antivirus.IsBlock(ex))
-        {
-            Console.Error.WriteLine($"[inject] antivirus blocked the injector in {AppContext.BaseDirectory}; allow the folder to load mod DLLs");
-            Antivirus.Report(AppContext.BaseDirectory);
-            return false;
-        }
-        catch (FileNotFoundException ex)
-        {
-            Console.Error.WriteLine($"[inject] {ex.Message}");
-            // The installer always ships both injectors, so a missing one was quarantined on an earlier run.
-            if (OperatingSystem.IsWindows())
-                Antivirus.Report(AppContext.BaseDirectory);
-            return false;
-        }
-
         if (Antivirus.Refuses(path))
         {
             Console.Error.WriteLine($"[inject] antivirus blocked {path}");
@@ -98,7 +31,36 @@ internal static class ProcessExtensions
             return false;
         }
 
-        Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} -> PID {pid}: {path}");
+        Console.Error.WriteLine($"[inject] PID {pid}: {path}");
+        var loaded = OperatingSystem.IsWindows()
+            ? await RemoteLoadLibrary.InjectAsync(pid, path, is64Bit)
+            : await RunInjectorAsync(pid, path, is64Bit);
+        if (loaded)
+            return true;
+
+        // Defender often quarantines the mod DLL once the game tries to load it.
+        if ((dllExisted && Antivirus.Removed(path)) || Antivirus.Refuses(path))
+        {
+            Console.Error.WriteLine($"[inject] {path} was blocked by an antivirus");
+            Antivirus.Report(Path.GetDirectoryName(path)!);
+        }
+        return false;
+    }
+
+    /// <summary>Loads the DLL through inject32/64.exe, run in the game's Wine prefix.</summary>
+    private static async Task<bool> RunInjectorAsync(int pid, string path, bool is64Bit)
+    {
+        string executable;
+        try
+        {
+            executable = GetExecutablePath(is64Bit ? "inject64.exe" : "inject32.exe");
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.Error.WriteLine($"[inject] {ex.Message}");
+            return false;
+        }
+
         var inject = new Process();
         inject.StartInfo.FileName = executable;
         inject.StartInfo.Arguments = $"{pid} \"{path}\"";
@@ -109,12 +71,6 @@ internal static class ProcessExtensions
         try
         {
             inject.UseWineBinary().Start();
-        }
-        catch (Exception ex) when (Antivirus.IsBlock(ex) || Antivirus.Removed(executable))
-        {
-            Console.Error.WriteLine($"[inject] antivirus blocked {executable}; allow its folder to load mod DLLs");
-            Antivirus.Report(AppContext.BaseDirectory);
-            return false;
         }
         catch (Exception ex)
         {
@@ -128,22 +84,7 @@ internal static class ProcessExtensions
         if (!string.IsNullOrEmpty(err))
             Console.Error.WriteLine($"[inject stderr]\n{err.TrimEnd()}");
         Console.Error.WriteLine($"[inject] exit code: {inject.ExitCode}");
-        if (inject.ExitCode == 0)
-            return true;
-
-        // Defender often lets the injector start and then kills and quarantines it, or quarantines
-        // the mod DLL once the game tries to load it.
-        if (Antivirus.Removed(executable))
-        {
-            Console.Error.WriteLine($"[inject] {Path.GetFileName(executable)} was removed by an antivirus");
-            Antivirus.Report(AppContext.BaseDirectory);
-        }
-        else if ((dllExisted && Antivirus.Removed(path)) || Antivirus.Refuses(path))
-        {
-            Console.Error.WriteLine($"[inject] {path} was blocked by an antivirus");
-            Antivirus.Report(Path.GetDirectoryName(path)!);
-        }
-        return false;
+        return inject.ExitCode == 0;
     }
 
     private static string GetExecutablePath(string fileName)

@@ -3086,7 +3086,7 @@
 	"antivirus_title": "Mods Blocked by Antivirus",
 	"antivirus_desc": "Windows Security blocked the files Tempest uses to load mod code into the game, so DLL and script mods can't load.",
 	"antivirus_stopped": "The game was closed so it doesn't run with your mods missing.",
-	"antivirus_body": "Tempest's injector looks like malware to antivirus heuristics, but it only loads your installed mods. Excluding these folders lets it run:",
+	"antivirus_body": "Your antivirus blocked files Tempest uses to load your installed mods. Excluding these folders lets them load:",
 	"antivirus_note": "Files Windows Security already quarantined from these folders are restored too.",
 	"antivirus_unrestored": "Some quarantined files couldn't be restored. Reinstall the launcher or the mod they belong to:",
 	"antivirus_add": "Add exclusions",

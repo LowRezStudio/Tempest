@@ -1,7 +1,7 @@
 import type { Command } from "$lib/platform/api";
 import type { Instance } from "$lib/types/instance";
 
-// The CLI prints `[av-blocked] <folder>` when an antivirus blocks the injector or a mod DLL.
+// The CLI prints `[av-blocked] <folder>` when an antivirus blocks a mod DLL.
 const MARKER = /^\[av-blocked\] (.+?)\r?$/gm;
 
 /** `instance` is set when a game launch was stopped over the block, so the dialog can relaunch it. */

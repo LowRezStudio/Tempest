@@ -49,6 +49,12 @@
       <ProjectReference Include="..\Tempest.Protocol\Tempest.Protocol.csproj" />
     </ItemGroup>
 
+    <!-- Under Wine only: on Windows the CLI loads DLLs itself (Launcher/RemoteLoadLibrary.cs), and
+         Defender takes the injector exe for a trojan. -->
+    <PropertyGroup>
+        <ShipInjector Condition="!$([MSBuild]::IsOSPlatform('Windows'))">true</ShipInjector>
+    </PropertyGroup>
+
     <ItemGroup>
         <ZigReference Include="inject\main.zig" />
         <ZigReference Include="inject\build.zig" />
@@ -59,14 +65,14 @@
         <ZigOutput Include="inject\zig-out\bin\inject64.exe" />
     </ItemGroup>
 
-    <Target Name="BuildZigInject" BeforeTargets="CoreCompile" Inputs="@(ZigReference)" Outputs="@(ZigOutput)">
+    <Target Name="BuildZigInject" BeforeTargets="CoreCompile" Condition="'$(ShipInjector)' == 'true'" Inputs="@(ZigReference)" Outputs="@(ZigOutput)">
         <Message Text="Building the zig inject project..." />
         <Exec Command="zig build -Doptimize=ReleaseSmall" WorkingDirectory="inject" />
     </Target>
 
     <ItemGroup>
         <EmbeddedResource Include="Resources/manifests.csv" />
-        <None Include="@(ZigOutput)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <None Include="@(ZigOutput)" Condition="'$(ShipInjector)' == 'true'" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

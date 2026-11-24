@@ -13,7 +13,9 @@ dotnet publish -c Release Tempest.CLI
 ```
 
 The [project](Tempest.CLI.csproj) enables AOT publishing. Building the CLI also
-builds the Zig injection executables; Zig 0.15.2 must be on `PATH`.
+builds the Zig injection executables on Linux/macOS (used under Wine); Zig 0.15.2
+must be on `PATH`. Native Windows loads DLLs from the CLI itself
+(`Launcher/RemoteLoadLibrary.cs`): do not ship an injector exe there, Defender flags it.
 Do not hand-edit generated injection output. See
 [shared development commands](../docs/development.md).
 

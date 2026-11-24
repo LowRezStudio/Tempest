@@ -1,5 +1,5 @@
 // Windows Defender exclusions for folders the CLI reports as blocked (`[av-blocked] <folder>` on
-// stderr): the injector it extracts and mod DLLs. Adding one needs administrator rights, so the
+// stderr): the folders of mod DLLs. Adding one needs administrator rights, so the
 // change runs in an elevated PowerShell behind a single UAC prompt.
 import { execFile } from "node:child_process";
 import fs from "node:fs";
