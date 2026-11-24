@@ -5,6 +5,7 @@
 		Download,
 		Gamepad2,
 		Hourglass,
+		Star,
 		Trash2,
 		TriangleAlert,
 	} from "@lucide/svelte";
@@ -112,6 +113,15 @@
 			>
 				{mod.name}
 			</button>
+			{#if mod.featured}
+				<span
+					class="badge badge-warning badge-soft badge-sm shrink-0 gap-1"
+					title={m.repo_featured_hint()}
+				>
+					<Star size={11} class="fill-current" />
+					{m.repo_featured()}
+				</span>
+			{/if}
 			<span class="shrink-0"><RepoTrustBadge latest={mod.latest} /></span>
 		</div>
 		<p class="text-base-content/70 line-clamp-1 text-sm">{mod.summary}</p>

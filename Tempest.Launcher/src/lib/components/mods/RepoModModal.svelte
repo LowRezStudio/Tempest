@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Check, Download, ExternalLink, LifeBuoy } from "@lucide/svelte";
+	import { Check, Download, ExternalLink, LifeBuoy, Star } from "@lucide/svelte";
 	import { createQuery } from "@tanstack/svelte-query";
 	import ModFileTree from "$lib/components/mods/ModFileTree.svelte";
 	import Modal from "$lib/components/ui/Modal.svelte";
@@ -143,6 +143,15 @@
 							{/if}
 							{mod.owner.displayName}
 						</span>
+						{#if mod.featured}
+							<span
+								class="badge badge-warning badge-soft badge-sm gap-1"
+								title={m.repo_featured_hint()}
+							>
+								<Star size={11} class="fill-current" />
+								{m.repo_featured()}
+							</span>
+						{/if}
 						<RepoTrustBadge latest={mod.latest} />
 						<span class="badge badge-ghost badge-sm">{kindLabel(mod.kind)}</span>
 						{#each mod.tags as tag (tag)}<span class="badge badge-ghost badge-sm"

@@ -8,12 +8,16 @@
 		Search,
 		SearchX,
 		SlidersHorizontal,
+		Smile,
+		Star,
 		X,
 	} from "@lucide/svelte";
 	import {
 		browseFilter as f,
 		clearBrowseFilters,
 		compatibleWith,
+		isHiddenTag,
+		isMemeMod,
 		kinds,
 		matches,
 	} from "$lib/mods/browse.svelte";
@@ -63,19 +67,37 @@
 				).length
 			: 0,
 	);
+	const hiddenMemes = $derived(
+		!f.showMemes && !isHiddenTag(f.tag)
+			? catalog.filter(
+					(mod) => isMemeMod(mod.tags) && matches(mod, { ...f, showMemes: true }, ctx),
+				).length
+			: 0,
+	);
 
 	const tags = $derived.by(() => {
-		const top = (tagsQuery.data ?? []).slice(0, 16).map((t) => t.tag);
+		const top = (tagsQuery.data ?? [])
+			.filter((t) => !isHiddenTag(t.tag))
+			.slice(0, 16)
+			.map((t) => t.tag);
 		return f.tag && !top.includes(f.tag) ? [f.tag, ...top] : top;
 	});
 	const active = $derived(
 		[
 			f.q.trim() && { label: `“${f.q.trim()}”`, clear: () => (f.q = "") },
+			f.featuredOnly && {
+				label: m.repo_featured(),
+				clear: () => (f.featuredOnly = false),
+			},
 			f.kind && { label: kindLabel(f.kind), clear: () => (f.kind = null) },
 			f.tag && { label: `#${f.tag}`, clear: () => (f.tag = null) },
 			f.hideInstalled && {
 				label: m.repo_hide_installed(),
 				clear: () => (f.hideInstalled = false),
+			},
+			f.showMemes && {
+				label: m.repo_show_memes(),
+				clear: () => (f.showMemes = false),
 			},
 		].filter((a) => !!a),
 	);
@@ -217,6 +239,42 @@
 				{/each}
 			</div>
 
+			<div class="flex flex-col gap-0.5" role="group" aria-label={m.repo_catalog()}>
+				<span class="text-base-content/60 px-2 pb-1 text-xs font-semibold"
+					>{m.repo_catalog()}</span
+				>
+				<label
+					class="rounded-field flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm transition-colors {f.featuredOnly
+						? 'bg-base-content/10 font-semibold'
+						: 'hover:bg-base-content/5'}"
+					title={m.repo_featured_hint()}
+				>
+					<Star
+						size={14}
+						class="shrink-0 {f.featuredOnly ? 'text-warning fill-current' : ''}"
+					/>
+					<span class="min-w-0 flex-1 truncate">{m.repo_featured()}</span>
+					<input
+						type="checkbox"
+						class="toggle toggle-xs toggle-warning shrink-0"
+						bind:checked={f.featuredOnly}
+					/>
+				</label>
+				<label
+					class="rounded-field flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm transition-colors {f.showMemes
+						? 'bg-base-content/10 font-semibold'
+						: 'hover:bg-base-content/5'}"
+				>
+					<Smile size={14} class="shrink-0" />
+					<span class="min-w-0 flex-1 truncate">{m.repo_show_memes()}</span>
+					<input
+						type="checkbox"
+						class="toggle toggle-xs toggle-primary shrink-0"
+						bind:checked={f.showMemes}
+					/>
+				</label>
+			</div>
+
 			<div class="flex flex-col gap-2 px-2">
 				<span class="text-base-content/60 text-xs font-semibold">{m.repo_show()}</span>
 				{#if patch}
@@ -315,15 +373,23 @@
 				>
 					<SearchX size={40} />
 					<p>{m.repo_no_results()}</p>
-					{#if otherPatches > 0}
-						<button class="link" onclick={() => (f.compatibleOnly = false)}>
-							{m.repo_other_patches_show({ count: otherPatches })}
-						</button>
-					{:else if active.length > 0}
-						<button class="link" onclick={clearBrowseFilters}>
-							{m.repo_clear_filters()}
-						</button>
-					{/if}
+					<div class="flex flex-wrap items-center justify-center gap-4">
+						{#if hiddenMemes > 0}
+							<button class="link link-primary" onclick={() => (f.showMemes = true)}>
+								{m.repo_memes_show({ count: hiddenMemes })}
+							</button>
+						{/if}
+						{#if otherPatches > 0}
+							<button class="link" onclick={() => (f.compatibleOnly = false)}>
+								{m.repo_other_patches_show({ count: otherPatches })}
+							</button>
+						{/if}
+						{#if active.length > 0}
+							<button class="link" onclick={clearBrowseFilters}>
+								{m.repo_clear_filters()}
+							</button>
+						{/if}
+					</div>
 				</div>
 			{:else}
 				<ul
@@ -348,6 +414,14 @@
 					<p class="text-base-content/60 mt-3 text-center text-xs">
 						{m.repo_other_patches_hidden({ count: otherPatches, patch: patch ?? "" })}
 						<button class="link" onclick={() => (f.compatibleOnly = false)}>
+							{m.repo_show_them()}
+						</button>
+					</p>
+				{/if}
+				{#if hiddenMemes > 0}
+					<p class="text-base-content/60 mt-2 text-center text-xs">
+						{m.repo_memes_hidden({ count: hiddenMemes })}
+						<button class="link" onclick={() => (f.showMemes = true)}>
 							{m.repo_show_them()}
 						</button>
 					</p>

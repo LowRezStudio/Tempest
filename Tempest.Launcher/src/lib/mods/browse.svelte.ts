@@ -8,11 +8,22 @@ export type BrowseFilter = {
 	/** Only mods whose latest version runs on the instance's patch */
 	compatibleOnly: boolean;
 	hideInstalled: boolean;
+	featuredOnly: boolean;
+	showMemes: boolean;
 	sort: RepoSort;
 };
 
+/** Tags hidden from Discover by default unless opted in or filtered directly. */
+export const HIDDEN_TAGS = ["meme", "joke"] as const;
+
+export const isHiddenTag = (tag: string | null | undefined): boolean =>
+	!!tag && (HIDDEN_TAGS as readonly string[]).includes(tag);
+
+export const isMemeMod = (tags: readonly string[]): boolean =>
+	tags.some((t) => (HIDDEN_TAGS as readonly string[]).includes(t));
+
 export const kinds: RepoMod["kind"][] = ["assets", "scripts", "native"];
-export const sorts: RepoSort[] = ["updated", "downloads", "created", "name"];
+export const sorts: RepoSort[] = ["downloads", "updated", "created", "name"];
 
 const defaults = (): BrowseFilter => ({
 	q: "",
@@ -20,7 +31,9 @@ const defaults = (): BrowseFilter => ({
 	tag: null,
 	compatibleOnly: true,
 	hideInstalled: false,
-	sort: "updated",
+	featuredOnly: false,
+	showMemes: false,
+	sort: "downloads",
 });
 
 // Module state, so the filters survive switching tabs and instances.
@@ -37,6 +50,8 @@ export const compatibleWith = (mod: RepoMod, patch: string | undefined) =>
 	!!mod.latest && isCompatible(mod.latest.compat, patch);
 
 export function matches(mod: RepoMod, f: BrowseFilter, ctx: BrowseContext): boolean {
+	if (f.featuredOnly && !mod.featured) return false;
+	if (!f.showMemes && !isHiddenTag(f.tag) && isMemeMod(mod.tags)) return false;
 	if (f.kind && mod.kind !== f.kind) return false;
 	if (f.tag && !mod.tags.includes(f.tag)) return false;
 	if (f.compatibleOnly && ctx.patch && !compatibleWith(mod, ctx.patch)) return false;

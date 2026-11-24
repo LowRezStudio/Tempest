@@ -46,6 +46,7 @@ export type RepoMod = {
 	icon: string | null;
 	owner: { handle: string; displayName: string; avatar: string | null; team: boolean };
 	downloads: number;
+	featured?: boolean;
 	updatedAt: string;
 	latest: RepoVersion | null;
 	url: string;
@@ -93,12 +94,14 @@ async function get<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 }
 
-// The whole listed catalog in the server's order, so browse filters run locally and instantly
-// (like the website's browse page). Creation dates are not in the listing, hence the server sort.
+// The whole listed catalog in the server's order (including meme/joke mods, filtered locally so
+// toggling them is instant). Creation dates are not in the listing, hence the server sort.
 export async function getRepoCatalog(sort: RepoSort): Promise<RepoMod[]> {
 	const items: RepoMod[] = [];
 	for (let page = 1; page <= 20; page++) {
-		const res = await get<RepoPage>(`/api/v1/mods?sort=${sort}&page=${page}&per_page=60`);
+		const res = await get<RepoPage>(
+			`/api/v1/mods?sort=${sort}&memes=1&page=${page}&per_page=60`,
+		);
 		items.push(...res.items);
 		if (res.items.length === 0 || items.length >= res.total) break;
 	}
@@ -183,19 +186,23 @@ export function repoDownloadUrl(modId: string, version: string): string {
 
 export const createRepoCatalogQuery = (sort: () => RepoSort) =>
 	createQuery(() => {
+		const base = repoBase();
 		const s = sort();
 		return {
-			queryKey: ["repo", "catalog", s],
+			queryKey: ["repo", "catalog", base, s],
 			queryFn: () => getRepoCatalog(s),
 			staleTime: 60_000,
 			retry: 1,
-			placeholderData: (previous: RepoMod[] | undefined) => previous,
+			placeholderData: (
+				previous: RepoMod[] | undefined,
+				previousQuery: Query<RepoMod[], Error, RepoMod[], QueryKey> | undefined,
+			) => (previousQuery?.queryKey[2] === base ? previous : undefined),
 		};
 	});
 
 export const createRepoTagsQuery = () =>
 	createQuery(() => ({
-		queryKey: ["repo", "tags"],
+		queryKey: ["repo", "tags", repoBase()],
 		queryFn: getRepoTags,
 		staleTime: 10 * 60_000,
 		retry: 1,
