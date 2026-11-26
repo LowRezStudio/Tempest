@@ -1,6 +1,8 @@
 //! Static light baking for the open map (`light.bake`, toolbar Light): the
 //! scope (meshes added or moved this session, the selection, or whole
-//! levels), the ray counts and bounce albedo, a comparison with the light
+//! levels), the quality (standard, or ray traced: multi-bounce light
+//! coloured by the materials, traced on the GPU when there is one), the ray
+//! counts and bounce albedo, a comparison with the light
 //! maps the meshes had, and the selected mesh's light map as stored
 //! (`light.info`: lights, textures, scales, a decoded irradiance picture
 //! with an exposure slider). Every level written is one undo step.
@@ -29,6 +31,10 @@ pub struct Bake {
     pub sky_samples: u32,
     pub indirect_rays: u32,
     pub albedo: f64,
+    /// Ray traced (`pathTraced`): bounces, and whether the GPU traces.
+    pub path_traced: bool,
+    pub bounces: u32,
+    pub gpu: bool,
     pub compare: bool,
     pub busy: bool,
     pub last: Option<J>,
@@ -42,7 +48,7 @@ pub struct Bake {
 
 impl Default for Bake {
     fn default() -> Bake {
-        Bake { open: false, scope: "edited", levels: HashSet::new(), shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, compare: true, busy: false, last: None, info: None, picture: None, exposure: None, exposure_value: 1.0, _sub: None }
+        Bake { open: false, scope: "edited", levels: HashSet::new(), shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, path_traced: false, bounces: 3, gpu: true, compare: true, busy: false, last: None, info: None, picture: None, exposure: None, exposure_value: 1.0, _sub: None }
     }
 }
 
@@ -72,7 +78,7 @@ impl MapEditor {
             _ => None,
         };
         let levels = levels.or_else(|| (scope == "level").then(|| self.bake.levels.iter().cloned().collect()));
-        let mut params = json!({ "path": path, "scope": scope, "targets": targets, "levels": levels, "shadowSamples": self.bake.shadow_samples, "skySamples": self.bake.sky_samples, "indirectRays": self.bake.indirect_rays, "albedo": self.bake.albedo, "compare": self.bake.compare });
+        let mut params = json!({ "path": path, "scope": scope, "targets": targets, "levels": levels, "shadowSamples": self.bake.shadow_samples, "skySamples": self.bake.sky_samples, "indirectRays": self.bake.indirect_rays, "albedo": self.bake.albedo, "compare": self.bake.compare, "pathTraced": self.bake.path_traced, "bounces": self.bake.bounces, "gpu": self.bake.gpu });
         if let Some(o) = extra.as_object() {
             for (k, v) in o {
                 if !v.is_null() {
@@ -173,6 +179,7 @@ impl MapEditor {
             "sky" => self.bake.sky_samples = (n as u32).clamp(1, 512),
             "indirect" => self.bake.indirect_rays = (n as u32).min(256),
             "albedo" => self.bake.albedo = n.clamp(0.0, 1.0),
+            "bounces" => self.bake.bounces = (n as u32).clamp(1, 16),
             _ => {}
         }
         cx.notify();
@@ -197,7 +204,26 @@ impl MapEditor {
         }
         let _ = window;
         let mut body = v_flex().gap_3().text_xs();
-        body = body.child(div().text_color(theme.muted_foreground).child("Direct light from the map's static lights (point, spot, directional, sky) with ray-traced shadows against every level, stored like Lightmass stores it (new light map textures in the level, the meshes pointed at them). Indirect light is an optional one-bounce approximation, so bakes come out darker than Lightmass in shaded areas."));
+        body = body.child(div().text_color(theme.muted_foreground).child("Direct light from the map's static lights (point, spot, directional, sky) with ray-traced shadows against every level, stored like Lightmass stores it (new light map textures in the level, the meshes pointed at them)."));
+        let mut quality = h_flex().gap_1();
+        for (id, traced, label, detail) in [
+            ("bake-standard", false, "Standard", "Direct light, and optionally one bounce of indirect light off grey surfaces"),
+            ("bake-traced", true, "Ray traced (GI)", "Light bouncing several times, coloured by each material's diffuse texture, traced on the GPU when there is one"),
+        ] {
+            quality = quality.child(Button::new(id).small().label(label).tooltip(detail).selected(self.bake.path_traced == traced).on_click(cx.listener(move |this, _, _, cx| {
+                this.bake.path_traced = traced;
+                if traced && this.bake.indirect_rays == 0 {
+                    this.bake.indirect_rays = 64;
+                }
+                // Each mode's fitted default, unless changed by hand.
+                let (from, to) = if traced { (0.08, 0.06) } else { (0.06, 0.08) };
+                if (this.bake.albedo - from).abs() < 1e-9 {
+                    this.bake.albedo = to;
+                }
+                cx.notify();
+            })));
+        }
+        body = body.child(h_flex().gap_2().child("Quality").child(quality));
         let mut scopes = h_flex().gap_1();
         for (id, label, detail) in [("edited", "Edited", "meshes added or moved this session"), ("selected", "Selected", "the selected mesh or actor"), ("level", "Levels", "every mesh of the levels ticked (slow)")] {
             scopes = scopes.child(Button::new(id).small().label(label).tooltip(detail).selected(self.bake.scope == id).on_click(cx.listener(move |this, _, _, cx| {
@@ -233,10 +259,18 @@ impl MapEditor {
                 .gap_2()
                 .child(row("Shadow rays per light", self.field("bake:shadow", self.bake.shadow_samples.to_string(), 70.0, cx)))
                 .child(row("Sky rays", self.field("bake:sky", self.bake.sky_samples.to_string(), 70.0, cx)))
-                .child(row("Indirect rays (0: none)", self.field("bake:indirect", self.bake.indirect_rays.to_string(), 70.0, cx)))
-                .child(row("Bounce albedo", self.field("bake:albedo", format!("{}", self.bake.albedo), 70.0, cx))),
+                .child(row(if self.bake.path_traced { "Paths per texel (0: none)" } else { "Indirect rays (0: none)" }, self.field("bake:indirect", self.bake.indirect_rays.to_string(), 70.0, cx)))
+                .child(row(if self.bake.path_traced { "Mean albedo" } else { "Bounce albedo" }, self.field("bake:albedo", format!("{}", self.bake.albedo), 70.0, cx)))
+                .when(self.bake.path_traced, |d| d.child(row("Bounces", self.field("bake:bounces", self.bake.bounces.to_string(), 70.0, cx)))),
         );
-        if self.bake.indirect_rays == 0 {
+        if self.bake.path_traced {
+            body = body
+                .child(Checkbox::new("bake-gpu").label("Trace on the GPU").checked(self.bake.gpu).tooltip("Any GPU that runs compute shaders; without one (or unticked) the CPU traces, several times slower").on_click(cx.listener(|this, v: &bool, _, cx| {
+                    this.bake.gpu = *v;
+                    cx.notify();
+                })))
+                .child(div().text_color(theme.muted_foreground).child("Surfaces reflect their material's diffuse texture, scaled so the scene averages the mean albedo; a material without one reflects the mean albedo itself."));
+        } else if self.bake.indirect_rays == 0 {
             body = body.child(div().text_color(theme.muted_foreground).child("Without indirect rays, areas out of direct light come out at about 0.6 of the game's own lighting; 32 to 64 rays bring them close."));
         }
         body = body.child(Checkbox::new("bake-compare").label("Compare with the light maps the meshes had").checked(self.bake.compare).on_click(cx.listener(|this, v: &bool, _, cx| {
@@ -246,13 +280,17 @@ impl MapEditor {
         if let Some(r) = &self.bake.last {
             let lod0: Vec<&J> = r["comparisons"].as_array().into_iter().flatten().filter(|c| c["lod"] == 0).collect();
             let mut res = v_flex().p_2().rounded_md().bg(theme.secondary).child(format!(
-                "{} baked, {} skipped, {} lights, {} shadow triangles, {:.1} s",
+                "{} baked, {} skipped, {} lights, {} shadow triangles, {:.1} s{}",
                 r["baked"].as_array().map(|a| a.len()).unwrap_or(0),
                 r["skipped"].as_array().map(|a| a.len()).unwrap_or(0),
                 r["lights"],
                 r["triangles"],
-                r["seconds"].as_f64().unwrap_or(0.0)
+                r["seconds"].as_f64().unwrap_or(0.0),
+                r["tracer"].as_str().map(|t| format!(", traced on the {t}")).unwrap_or_default()
             ));
+            if let Some(note) = r["tracerNote"].as_str() {
+                res = res.child(div().text_color(theme.warning).child(format!("Not on the GPU: {note}")));
+            }
             if !lod0.is_empty() {
                 let m: f64 = lod0.iter().map(|c| c["stats"]["meanBaked"].as_f64().unwrap_or(0.0)).sum::<f64>() / lod0.len() as f64;
                 let s: f64 = lod0.iter().map(|c| c["stats"]["meanShipped"].as_f64().unwrap_or(0.0)).sum::<f64>() / lod0.len() as f64;

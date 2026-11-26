@@ -106,7 +106,7 @@ fn usage() -> ExitCode {
            upk light export <pkg> <idx|path> <out.png> [--exposure E]   its decoded irradiance\n  \
            upk light stats <pkg>... [-I dir]              encoding checks over every light map of the packages\n  \
            upk light bake <map_P.upk> -o <outdir> [--level <name>]... [--component <level>:<idx>]... [--shadow-samples N]\n  \
-                          [--sky-samples N] [--indirect N] [--compare] [--no-write]   bake static light maps (lightbake/)\n  \
+                          [--sky-samples N] [--indirect N] [--path-traced [--bounces N]] [--compare] [--no-write]   bake static light maps (lightbake/)\n  \
            upk serve                                  JSON-lines RPC over stdin/stdout (the Studio backend)\n\n\
          -I dir: directory holding the script packages (default: the package's own directory)\n\
          -j N: worker threads (default: all cores, or USCRIPT_JOBS)"
@@ -2652,10 +2652,13 @@ fn cmd_light(args: &[String]) -> Res {
                 indirect_rays: opt("--indirect").map(|s| s.parse()).transpose()?.unwrap_or(0),
                 albedo: opt("--albedo").map(|s| s.parse()).transpose()?.unwrap_or(0.08),
                 environment_scale: opt("--environment-scale").map(|s| s.parse()).transpose()?.unwrap_or(1.0),
+                // Path traced on the CPU, every surface at `--albedo` (material colours need the Studio's backend).
+                path_traced: args.iter().any(|a| a == "--path-traced"),
+                bounces: opt("--bounces").map(|s| s.parse()).transpose()?.unwrap_or(3),
             };
             let select = |i: &scene::Instance| want_levels.contains(&i.level) || want_comps.contains(&(i.level, i.export));
             let t = std::time::Instant::now();
-            let out = lightbake::run(&levels, &meshes, &select, &opts, &mut |d, n| {
+            let out = lightbake::run(&levels, &meshes, &select, &opts, lightbake::Extras::default(), &mut |d, n| {
                 if d % 20 == 0 || d == n {
                     eprint!("\rbaking {d}/{n}");
                 }

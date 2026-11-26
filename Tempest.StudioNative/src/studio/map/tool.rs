@@ -401,6 +401,8 @@ impl MapEditor {
                         if self.nav.actors.is_empty() {
                             return Ok(json!({ "$retry": true }));
                         }
+                        self.nav.keep_links = a["keepLinks"].as_bool().unwrap_or(true);
+                        self.nav.find_links = a["findLinks"].as_bool().unwrap_or(true);
                         self.nav_generate(cx);
                     }
                     "moveVertex" => {
@@ -432,7 +434,7 @@ impl MapEditor {
                 };
                 let levels = a["levels"].as_object().map(|o| o.iter().filter(|(_, v)| v.as_bool() == Some(true)).filter_map(|(k, _)| self.level_named(k).map(|l| l.path.clone())).collect());
                 let mut extra = json!({});
-                for k in ["shadowSamples", "skySamples", "indirectRays", "albedo", "environmentScale", "compare"] {
+                for k in ["shadowSamples", "skySamples", "indirectRays", "albedo", "environmentScale", "compare", "pathTraced", "bounces", "gpu"] {
                     extra[k] = a[k].clone();
                 }
                 self.bake_now(scope, targets, levels, extra, cx);

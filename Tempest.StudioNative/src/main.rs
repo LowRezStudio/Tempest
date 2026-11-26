@@ -6,6 +6,7 @@ mod audio;
 mod backend;
 mod driver;
 mod game_material;
+mod gpu_trace;
 mod mcp;
 mod map_render;
 mod mesh_view;

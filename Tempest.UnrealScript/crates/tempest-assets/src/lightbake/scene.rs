@@ -343,6 +343,14 @@ pub struct MeshData {
     pub resolution: i32,
     pub coordinate_index: i32,
     pub has_lightmap_uvs: bool,
+    /// Texture coordinate 0 (what the materials sample), the element of each
+    /// triangle and each element's material (in `package`): the surface
+    /// colour a path-traced bounce picks up.
+    pub uv0: Vec<[f32; 2]>,
+    pub tri_element: Vec<u16>,
+    pub element_materials: Vec<PackageIndex>,
+    /// The package the mesh is an export of (set by the caller).
+    pub package: String,
     /// LODs 1 and up, each baked into its own light map like Lightmass
     /// does (shadows are cast by LOD 0 only).
     pub lower: Vec<Arc<MeshData>>,
@@ -397,16 +405,15 @@ fn lod_data(m: &StaticMesh, c: &Chain, lod: usize) -> Option<MeshData> {
         md.tangent_x.push(tx);
         md.tangent_y.push([ty[0] * w, ty[1] * w, ty[2] * w]);
         md.tangent_z.push(tz);
-        let uv = if has_uvs && uv_off + uv_size <= stride {
+        let read_uv = |off: usize| {
             if full {
-                [f32::from_le_bytes(v[uv_off..uv_off + 4].try_into().unwrap()), f32::from_le_bytes(v[uv_off + 4..uv_off + 8].try_into().unwrap())]
+                [f32::from_le_bytes(v[off..off + 4].try_into().unwrap()), f32::from_le_bytes(v[off + 4..off + 8].try_into().unwrap())]
             } else {
-                [half(u16::from_le_bytes([v[uv_off], v[uv_off + 1]])), half(u16::from_le_bytes([v[uv_off + 2], v[uv_off + 3]]))]
+                [half(u16::from_le_bytes([v[off], v[off + 1]])), half(u16::from_le_bytes([v[off + 2], v[off + 3]]))]
             }
-        } else {
-            [0.0, 0.0]
         };
-        md.uvs.push(uv);
+        md.uvs.push(if has_uvs && uv_off + uv_size <= stride { read_uv(uv_off) } else { [0.0, 0.0] });
+        md.uv0.push(if vb.num_tex_coords > 0 && 8 + uv_size <= stride { read_uv(8) } else { [0.0, 0.0] });
     }
     let ib = &l.index_buffer;
     md.indices = match ib.elem_size {
@@ -416,13 +423,16 @@ fn lod_data(m: &StaticMesh, c: &Chain, lod: usize) -> Option<MeshData> {
     };
     let tris = md.indices.len() / 3;
     md.shadow = vec![true; tris];
-    for e in &l.elements {
-        if e.enable_shadow_casting == 0 {
-            let first = e.first_index as usize / 3;
-            for t in first..(first + e.num_triangles as usize).min(tris) {
+    md.tri_element = vec![0; tris];
+    for (k, e) in l.elements.iter().enumerate() {
+        let first = e.first_index as usize / 3;
+        for t in first..(first + e.num_triangles as usize).min(tris) {
+            md.tri_element[t] = k as u16;
+            if e.enable_shadow_casting == 0 {
                 md.shadow[t] = false;
             }
         }
+        md.element_materials.push(e.material);
     }
     Some(md)
 }
@@ -454,6 +464,10 @@ pub struct Instance {
     pub override_resolution: Option<i32>,
     pub channels: Vec<String>,
     pub two_sided: bool,
+    /// The component's `Materials` (overriding the mesh's per element, null
+    /// where not) and the package it is in.
+    pub materials: Vec<PackageIndex>,
+    pub package: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -589,7 +603,15 @@ pub fn gather(ed: &mut Editor, db: &ClassDb, level_index: usize, path: &str) -> 
                 continue;
             }
             let cc = chain(ed, db, c);
-            let Ok((cm, mesh)) = ed.with_object(c, |pkg, o| (component_matrix(o, pkg), o.property("StaticMesh", pkg).map(|p| p.value.clone()))) else { continue };
+            let Ok((cm, mesh, materials)) = ed.with_object(c, |pkg, o| {
+                let materials = match o.property("Materials", pkg).map(|p| &p.value) {
+                    Some(Value::Array(v)) => v.iter().map(|x| if let Value::Object(m) = x { *m } else { PackageIndex::NONE }).collect(),
+                    _ => Vec::new(),
+                };
+                (component_matrix(o, pkg), o.property("StaticMesh", pkg).map(|p| p.value.clone()), materials)
+            }) else {
+                continue;
+            };
             let Some(Value::Object(mi)) = mesh else { continue };
             if mi.is_null() {
                 continue;
@@ -601,10 +623,11 @@ pub fn gather(ed: &mut Editor, db: &ClassDb, level_index: usize, path: &str) -> 
             if let MeshKey::Export(_, e) = &key {
                 if !out.meshes.contains_key(&key) {
                     let mc = chain(ed, db, *e);
-                    if let Ok(Some(md)) = ed.with_object(*e, |_, o| match &o.native {
+                    if let Ok(Some(mut md)) = ed.with_object(*e, |_, o| match &o.native {
                         Native::StaticMesh(m) => mesh_data(m, &mc),
                         _ => None,
                     }) {
+                        md.package = ed.name.clone();
                         out.meshes.insert(key.clone(), Arc::new(md));
                     }
                 }
@@ -629,6 +652,8 @@ pub fn gather(ed: &mut Editor, db: &ClassDb, level_index: usize, path: &str) -> 
                 override_resolution: ov,
                 channels: primitive_channels(&cc, static_owner),
                 two_sided: cc.member_flag("lightmasssettings", "busetwosidedlighting", false),
+                materials,
+                package: ed.name.clone(),
             });
         }
     }
@@ -638,10 +663,13 @@ pub fn gather(ed: &mut Editor, db: &ClassDb, level_index: usize, path: &str) -> 
 /// A mesh of another package (found by the caller): parse it with its defaults.
 pub fn mesh_from(ed: &mut Editor, db: &ClassDb, i: usize) -> Option<MeshData> {
     let mc = chain(ed, db, i);
-    ed.with_object(i, |_, o| match &o.native {
-        Native::StaticMesh(m) => mesh_data(m, &mc),
-        _ => None,
-    })
-    .ok()
-    .flatten()
+    let mut md = ed
+        .with_object(i, |_, o| match &o.native {
+            Native::StaticMesh(m) => mesh_data(m, &mc),
+            _ => None,
+        })
+        .ok()
+        .flatten()?;
+    md.package = ed.name.clone();
+    Some(md)
 }

@@ -7,6 +7,7 @@ pub mod bake;
 pub mod bvh;
 pub mod encode;
 pub mod scene;
+pub mod trace;
 pub mod write;
 
 use serde_json::{json, Value as J};
@@ -193,6 +194,22 @@ pub struct Output {
     pub skipped: Vec<J>,
     pub triangles: usize,
     pub lights: usize,
+    /// Path-traced mode: what traced the rays, why not a GPU (when one was
+    /// offered and could not be used), the scale the albedos got.
+    pub tracer: Option<String>,
+    pub tracer_note: Option<String>,
+    pub albedo_scale: Option<f32>,
+}
+
+/// What the path-traced mode uses beyond the levels.
+#[derive(Default)]
+pub struct Extras<'a> {
+    /// Material colours, and which one each element of a caster has: by
+    /// (level, component export, element).
+    pub albedos: Vec<Arc<bake::Albedo>>,
+    pub albedo_of: HashMap<(usize, usize, usize), u32>,
+    /// Makes a GPU tracer (else the CPU traces).
+    pub tracer: Option<&'a trace::TracerFactory>,
 }
 
 fn bounds(inst: &Instance, mesh: &MeshData) -> ([f32; 3], f32) {
@@ -221,17 +238,47 @@ fn bounds(inst: &Instance, mesh: &MeshData) -> ([f32; 3], f32) {
 /// Bake every instance `select` picks, against the lights and shadow
 /// casters of all `levels`. `progress(done, total)` is called between
 /// components.
-pub fn run(levels: &[LevelData], meshes: &HashMap<MeshKey, Arc<MeshData>>, select: &dyn Fn(&Instance) -> bool, opts: &bake::Options, progress: &mut dyn FnMut(usize, usize)) -> Output {
+pub fn run(levels: &[LevelData], meshes: &HashMap<MeshKey, Arc<MeshData>>, select: &dyn Fn(&Instance) -> bool, opts: &bake::Options, extras: Extras, progress: &mut dyn FnMut(usize, usize)) -> Output {
     let lights: Vec<scene::Light> = levels.iter().flat_map(|l| l.lights.iter().cloned()).collect();
     let world = levels.iter().find_map(|l| l.world.clone()).unwrap_or(scene::WorldSettings { diffuse_boost: 5.0, ..Default::default() });
     let casters: Vec<(&Instance, Arc<MeshData>)> = levels.iter().flat_map(|l| l.instances.iter()).filter(|i| i.static_lighting).filter_map(|i| meshes.get(&i.mesh).map(|m| (i, m.clone()))).collect();
-    let sc = bake::Scene::build(lights, &casters, world);
-    let mut out = Output { per_level: levels.iter().map(|_| Vec::new()).collect(), report: Vec::new(), skipped: Vec::new(), triangles: sc.bvh.len(), lights: sc.lights.len() };
+    let albedos = if opts.path_traced { extras.albedos } else { Vec::new() };
+    let albedo_of = |i: &Instance, _: &MeshData, e: usize| extras.albedo_of.get(&(i.level, i.export, e)).copied();
+    let mut sc = bake::Scene::build(lights, &casters, world, albedos, &albedo_of);
+    let mut out = Output { per_level: levels.iter().map(|_| Vec::new()).collect(), report: Vec::new(), skipped: Vec::new(), triangles: sc.bvh.len(), lights: sc.lights.len(), tracer: None, tracer_note: None, albedo_scale: None };
+    // Path-traced: the albedos scaled to the fitted mean, a GPU tracer if one can be made.
+    let gpu: Option<Box<dyn trace::Tracer>> = match (opts.path_traced, extras.tracer) {
+        (true, Some(make)) => match make(&sc.bvh) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                out.tracer_note = Some(e);
+                None
+            }
+        },
+        _ => None,
+    };
+    if opts.path_traced {
+        if let Some(m) = sc.albedo_mean {
+            sc.albedo_scale = opts.albedo / m;
+            out.albedo_scale = Some(sc.albedo_scale);
+        }
+    }
+    let cpu = trace::CpuTracer(&sc.bvh);
+    let tracer: &dyn trace::Tracer = match &gpu {
+        Some(g) => g.as_ref(),
+        None => &cpu,
+    };
+    if opts.path_traced {
+        out.tracer = Some(tracer.name());
+    }
+    let bake_one = |target: &bake::Target, rows: &AtomicUsize| if opts.path_traced { bake::bake_traced(&sc, target, opts, tracer, rows) } else { bake::bake(&sc, target, opts, rows) };
     let targets: Vec<&Instance> = levels.iter().flat_map(|l| l.instances.iter()).filter(|i| select(i)).collect();
-    let total = targets.len();
     let rows = AtomicUsize::new(0);
-    for (k, inst) in targets.into_iter().enumerate() {
-        progress(k, total);
+    // What to bake: each component's LOD 0 and lower LODs with light map UVs
+    // (shipped components hold one allocation per LOD, in the same atlas).
+    let mut jobs: Vec<(&Instance, Arc<MeshData>, usize)> = Vec::new();
+    let mut pieces: Vec<(usize, usize, Arc<MeshData>)> = Vec::new();
+    for inst in targets {
         let skip = |why: &str| json!({ "level": inst.level, "export": inst.export, "name": inst.name, "reason": why });
         let Some(mesh) = meshes.get(&inst.mesh) else {
             out.skipped.push(skip("mesh not found"));
@@ -245,29 +292,56 @@ pub fn run(levels: &[LevelData], meshes: &HashMap<MeshKey, Arc<MeshData>>, selec
             out.skipped.push(skip("no light map UVs or resolution (vertex light maps are not baked)"));
             continue;
         };
-        let target = bake::Target { instance: inst, mesh: mesh.clone(), size };
-        let baked = bake::bake(&sc, &target, opts, &rows);
+        pieces.push((jobs.len(), 0, mesh.clone()));
+        for (l, m) in mesh.lower.iter().enumerate().filter(|(_, m)| m.has_lightmap_uvs) {
+            pieces.push((jobs.len(), l + 1, m.clone()));
+        }
+        jobs.push((inst, mesh.clone(), size));
+    }
+    let bake_piece = |(j, _, m): &(usize, usize, Arc<MeshData>)| bake_one(&bake::Target { instance: jobs[*j].0, mesh: m.clone(), size: jobs[*j].2 }, &rows);
+    let baked: Vec<bake::Baked> = if opts.path_traced {
+        // Components side by side: one shades while another's rays are traced.
+        let done = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            let work = s.spawn(|| {
+                tempest_unrealscript::par::map(&pieces, |p| {
+                    let b = bake_piece(p);
+                    if p.1 == 0 {
+                        done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    b
+                })
+            });
+            while !work.is_finished() {
+                progress(done.load(std::sync::atomic::Ordering::Relaxed), jobs.len());
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            work.join().unwrap_or_else(|e| std::panic::resume_unwind(e))
+        })
+    } else {
+        pieces
+            .iter()
+            .map(|p| {
+                if p.1 == 0 {
+                    progress(p.0, jobs.len());
+                }
+                bake_piece(p)
+            })
+            .collect()
+    };
+    for (p, baked) in pieces.iter().zip(baked) {
+        let (inst, mesh, size) = (jobs[p.0].0, &jobs[p.0].1, jobs[p.0].2);
         // Every light that reaches the component is listed, lit or shadowed:
         // a static light missing from the list would light it dynamically.
         let (c, r) = bounds(inst, mesh);
-        let held: Vec<&scene::Light> = sc
-            .lights
-            .iter()
-            .filter(|l| scene::overlaps(&l.channels, &inst.channels))
-            .filter(|l| scene::affects_bounds(l, c, r))
-            .collect();
-        let guids: Vec<_> = held.iter().map(|l| l.lightmap_guid).collect();
-        let lit: Vec<String> = baked.lights.iter().map(|&i| sc.lights[i].name.clone()).collect();
-        let lower: Vec<(usize, &Arc<MeshData>)> = mesh.lower.iter().enumerate().filter(|(_, m)| m.has_lightmap_uvs).map(|(l, m)| (l + 1, m)).collect();
-        out.report.push(json!({ "level": inst.level, "export": inst.export, "name": inst.name, "size": size, "lods": 1 + lower.len(), "mapped": baked.mapped, "lights": held.len(), "lit": lit }));
-        out.per_level[inst.level].push(write::Allocation { component: inst.export, lod: 0, size, samples: baked.samples, light_guids: guids.clone() });
-        // Lower LODs: light maps of their own, of the same size (shipped
-        // components hold one allocation per LOD, in the same atlas).
-        for (lod, m) in lower {
-            let baked = bake::bake(&sc, &bake::Target { instance: inst, mesh: m.clone(), size }, opts, &rows);
-            out.per_level[inst.level].push(write::Allocation { component: inst.export, lod, size, samples: baked.samples, light_guids: guids.clone() });
+        let guids: Vec<_> = sc.lights.iter().filter(|l| scene::overlaps(&l.channels, &inst.channels)).filter(|l| scene::affects_bounds(l, c, r)).map(|l| l.lightmap_guid).collect();
+        if p.1 == 0 {
+            let lit: Vec<String> = baked.lights.iter().map(|&i| sc.lights[i].name.clone()).collect();
+            let lods = 1 + mesh.lower.iter().filter(|m| m.has_lightmap_uvs).count();
+            out.report.push(json!({ "level": inst.level, "export": inst.export, "name": inst.name, "size": size, "lods": lods, "mapped": baked.mapped, "lights": guids.len(), "lit": lit }));
         }
+        out.per_level[inst.level].push(write::Allocation { component: inst.export, lod: p.1, size, samples: baked.samples, light_guids: guids });
     }
-    progress(total, total);
+    progress(jobs.len(), jobs.len());
     out
 }

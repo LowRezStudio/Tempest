@@ -6,7 +6,8 @@
 //! `map.navmeshEdit` into the HavokNavMeshActor of the persistent level: an
 //! unsaved, undoable edit of that package like any other map edit.
 //! Generate (`map.navmeshGenerate`) replaces the whole mesh with one built
-//! from what pawns collide with in the level and its streamed levels.
+//! from what pawns collide with in the level and its streamed levels,
+//! keeping the jump links it had and finding new drop-downs (both optional).
 
 use std::collections::HashSet;
 
@@ -116,11 +117,14 @@ pub struct Nav {
     pub generating: bool,
     /// What the last generation reported (`generated` of the answer).
     pub generated: Option<J>,
+    /// Generation keeps the old jump links / looks for new drop-downs.
+    pub keep_links: bool,
+    pub find_links: bool,
 }
 
 impl Nav {
     pub fn new(_window: &mut Window, _cx: &mut Context<MapEditor>) -> Nav {
-        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3], generating: false, generated: None }
+        Nav { show: false, by_cluster: false, pick: Pick::Off, vertex: None, xray: false, loading: false, error: None, level: None, actors: Vec::new(), current: 0, selected: HashSet::new(), target: [0.0; 3], generating: false, generated: None, keep_links: true, find_links: true }
     }
 
     pub fn reset(&mut self) {
@@ -334,7 +338,7 @@ impl MapEditor {
             return;
         }
         self.nav.generating = true;
-        let call = self.call("map.navmeshGenerate", json!({ "path": level, "index": index }));
+        let call = self.call("map.navmeshGenerate", json!({ "path": level, "index": index, "keepLinks": self.nav.keep_links, "findLinks": self.nav.find_links }));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let r = call.await;
@@ -354,7 +358,16 @@ impl MapEditor {
                         this.rebuild_nav(cx.theme().mode.is_dark());
                         let missing = g["missingLevels"].as_array().map(|a| a.len()).unwrap_or(0);
                         let cover = |k: &str| (g["coverage"][k].as_f64().unwrap_or(0.0) * 100.0).round();
-                        let text = format!("Nav mesh generated: {} faces (was {}), {} clusters; covers {}% of the old one, {}% of it lies on the old one{}", g["faces"], g["oldFaces"], g["clusters"], cover("oldCovered"), cover("newCovered"), if missing > 0 { format!("; {missing} streamed levels are not in the folder") } else { String::new() });
+                        let l = &g["links"];
+                        let n = |k: &str| l[k].as_u64().unwrap_or(0);
+                        let mut links = format!("; jump links: {} kept, {} new", n("kept"), n("found"));
+                        if n("notNeeded") > 0 {
+                            links += &format!(", {} no longer needed (walkable now)", n("notNeeded"));
+                        }
+                        if n("lost") > 0 {
+                            links += &format!(", {} lost (no floor at an end)", n("lost"));
+                        }
+                        let text = format!("Nav mesh generated: {} faces (was {}), {} clusters; covers {}% of the old one, {}% of it lies on the old one{links}{}", g["faces"], g["oldFaces"], g["clusters"], cover("oldCovered"), cover("newCovered"), if missing > 0 { format!("; {missing} streamed levels are not in the folder") } else { String::new() });
                         this.toast(if missing > 0 { Tone::Warning } else { Tone::Success }, text, cx);
                         this.nav.generated = Some(g);
                     }
@@ -483,10 +496,18 @@ impl MapEditor {
                         } else if gen_empty {
                             "This level has no HavokNavMeshActor to populate"
                         } else {
-                            "Replace this nav mesh with one built from what pawns collide with (blocking meshes, volumes, BSP) in the level and its streamed levels; floors no player start or current face reaches are left out, and jump links go. One undoable edit"
+                            "Replace this nav mesh with one built from what pawns collide with (blocking meshes, volumes, BSP) in the level and its streamed levels; floors no player start or current face reaches are left out. One undoable edit"
                         })
                         .on_click(cx.listener(|this, _, _, cx| this.nav_generate(cx))),
                 )
+                .child(Checkbox::new("nav-keep-links").label("Keep jump links").checked(self.nav.keep_links).tooltip("Move the mesh's jump links onto the new faces; links whose two ends land on one face are no longer needed and go").on_click(cx.listener(|this, v: &bool, _, cx| {
+                    this.nav.keep_links = *v;
+                    cx.notify();
+                })))
+                .child(Checkbox::new("nav-find-links").label("Find drop-downs").checked(self.nav.find_links).tooltip("Add drop-down links from ledges onto floors below, laid out like the game's own (landing 190 units out), where nothing is in the way").on_click(cx.listener(|this, v: &bool, _, cx| {
+                    this.nav.find_links = *v;
+                    cx.notify();
+                })))
                 .when_some(self.nav.generated.as_ref(), |d, g| d.child(div().text_color(theme.muted_foreground).child(format!("generated: {} faces, {} ms", g["faces"], g["ms"])))),
         );
         let mut modes = h_flex().gap_0p5();

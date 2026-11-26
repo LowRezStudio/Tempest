@@ -80,6 +80,8 @@ impl Backend {
                 let mut server = Server::with_events(move |e| {
                     let _ = etx.unbounded_send(e);
                 });
+                // Path-traced light bakes trace on the GPU when there is one.
+                server.set_tracer_factory(crate::gpu_trace::factory());
                 for r in rx {
                     let out = server.call_bin(&r.method, &r.params).map(|(json, bins)| Reply { json, bins });
                     let _ = r.reply.send(out);

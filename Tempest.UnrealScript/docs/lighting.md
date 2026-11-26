@@ -61,6 +61,26 @@ three-coefficient layout is the source's `NUM_STORED_LIGHTMAP_COEF`, not a Hi-Re
   0.147 against 0.105 (median ratio 1.90, 207 s with 32 rays instead of 15 s): closer in the
   shadows, too bright in the open, since materials' real albedo is not evaluated. Direct-only stays
   the default.
+- Path traced (`light.bake {pathTraced, bounces, gpu}`, `upk light bake --path-traced --bounces N`,
+  `bake::bake_traced`): rays go through a `trace::Tracer` in batches (the CPU tree, or the native
+  Studio's GPU tracer `gpu_trace.rs`: the same tree in storage buffers, one compute invocation per
+  ray, any GPU with compute). Direct light is the standard mode's exactly: each texel's visibility
+  rays are recorded, traced together and replayed with the same RNG (`--path-traced` without
+  indirect rays writes byte-identical packages; the standard mode is byte-identical to before).
+  Indirect light: `indirectRays` paths per texel (the first ray uniform over the hemisphere as the
+  one-bounce mode, then cosine-weighted, Russian roulette from the third bounce), each hit adding
+  `ρ/π · E_direct` (a shadow ray per light, sky unshadowed, `IndirectLightingScale`), escaped rays
+  `EnvironmentColor · scale / π`; one bounce reproduces the one-bounce mode (Room_D 0.6876 vs
+  0.6874). ρ is the material's base colour texture (`bake_albedos`: the component's or the mesh
+  element's material, `material_ops::material_info` base colour, 64 px, sRGB to linear) at the hit's
+  UV0, scaled so the casters' area-weighted mean luminance is `albedo`, times `DiffuseBoost`, ≤ 0.98;
+  materials without one reflect `albedo` (reported as `materialsWithoutColour`). Fit on Shootingrange's
+  TRM_Room_D and TRM_Courtyard_ABC (48 paths, mean |Δ| over the components against the shipped maps):
+  one grey bounce at 0.08 0.3641 / 0.2885; coloured, 3 bounces at 0.08 0.3639 / 0.2792, 0.06 0.3633
+  / 0.2647, 0.05 0.3651 / 0.2608 (darker): 0.06 is the path-traced default. GPU and CPU agree to the
+  printed precision; on an M1 Pro (debug Studio) 64 paths × 3 bounces: Room_D 14 s vs 29 s,
+  Courtyard_ABC 48 s vs 106 s. Components are baked side by side in this mode. Not done: emissive
+  materials (`bUseEmissiveForStaticLighting`), the material's colour parameters (only its texture).
 - Writing (`write.rs`): allocations shelf-packed on 4-texel boundaries into power-of-two atlases ≤
   1024, two textures per atlas copied from a light map texture of the level (or another level of the
   map), DXT1 mips built like `FLightMapPendingTexture::StartEncoding` (coverage-weighted

@@ -108,8 +108,31 @@ the radius. Pruning: connected parts with no seed go (seeds: `NavigationPoint` a
 mesh's face centres, unless `keepUnreached`): Recast keeps roof tops, wall tops and closed
 interiors. Clusters grow breadth first to 400 units² (the shipped graphs: node near the cluster
 centroid, costs ≥ the straight distance, both ways, `hkHalf16`); our cost is the distance. The tree
-is rebuilt; jump links (user edge pairs, annotations) are dropped with the old faces; the tagfile is
-stored as a read and rewrite gives it (canonical: `upk havok verify` passes).
+is rebuilt; the tagfile is stored as a read and rewrite gives it (canonical: `upk havok verify`
+passes).
+
+Jump links (`havok/links.rs`; `keepLinks`, `findLinks`, both default true; `generated.links`
+counts them). Layout as shipped (checked on TD_Abyss_P): a pair's user edges come after every face's
+own edges, each face's contiguous; the one on face A (take-off, points 0-1) is `USER | ORIGINAL`
+(0x14) with `userEdgeCost` = `costAtoB` (1.0 = `0x3f80`, a truncated float), the one on face B
+(landing, points 2-3) points back and is also `BLOCKED` (0x34, cost 0) when `costBtoA` is 0; each
+has two vertices of its own after the faces' vertices, A's then B's per pair. Annotation `k` belongs
+to pair `k` (`userDataA` = `0x7F900000 + k`); its `tEquation` maps the take-off segment to t 0..1
+(`(d.x, d.y, 0, −d·a0) / |d|²` in the plane). The shipped edge data of user edges is scrambled
+(Havok's insertion order; the A edge does not always hold `userDataA`); ours does. `validate` checks
+user edges too (all 70 shipped meshes pass). Kept links: each segment goes onto the new face nearest
+its middle (within 2 erosion radii across and 3 units up or down), its ends clamped onto that face,
+`tEquation` recomputed; both ends on one face means the new mesh walks across (Recast bridges many of
+the small gaps the shipped jumps cross: "not needed"), an end on no face loses the link. New
+drop-downs follow the shipped ones (5467 on 8.1: horizontal reach 11.85 for nine in ten, drop 1.8-50,
+width 0.2-50): from each boundary edge, every 0.5, the highest face 11.85 out and `maxClimb`..52 lower,
+clear of the level's collision (rays at 1 and half the agent height out, then down); runs over one
+landing face make one link (≥ 0.5 wide, ≤ 50), skipped within 4 of a kept link's take-off; one way,
+cost 1, `DROP_DOWN`. Cluster graph edges are added from the take-off face's cluster to the landing
+face's. An unused library's uninitialised `up` is set to +Z when links are added. On all 69
+generatable 8.1 maps: of 7808 shipped links 6338 kept, 1112 not needed, 358 lost (Serpent Beach the
+most: 36-41), 8357 drop-downs found; every result valid, `upk havok verify` 0 failed. Horizontal
+jumps (type 0) are kept, not found.
 
 Checked on the 69 shipped 8.1 meshes (`map.navmeshGenerate` then `package.save` to a scratch copy):
 every result valid, `upk havok verify` 0 failed, `upk verify` 0 mismatches, 83 s for all (Bazaar 17
@@ -117,7 +140,7 @@ s). Coverage (share of one mesh's area whose face centres lie on the other): med
 shipped mesh covered and 92.5 % of ours on it, 44 maps ≥ 90 % both ways. Low ones are explained:
 Dragon Ruins streams `ruins_*` levels that are not in the folder (`missingLevels`), FT_P_v01 and
 FMM_P_v01_SiegeOnly ship meshes over areas with no geometry left (stale); Marauders, FishMarket and
-IceMines are at 75–80 % (not looked into). Not done: jump links (re-attaching the old pairs by
-position), Havok's own clustering, actors with empty bulk data (TimberMill, MossGarden: a template
+IceMines are at 75–80 % (not looked into). Not done: finding new jumps (only drop-downs), Havok's
+own clustering, actors with empty bulk data (TimberMill, MossGarden: a template
 tagfile from another map would do). Not tested in game.
 

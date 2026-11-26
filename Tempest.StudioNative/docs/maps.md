@@ -45,10 +45,14 @@ look-at group, raw initial, title, property), the curve editor (engine evaluatio
 Shift/Ctrl, tangent handles, wheel zoom, Fit); the preview (`matinee::preview`) poses driven actors,
 scales, tints lights and hides toggled actors with `tempest_assets::matinee_curve` and
 `map::{to_view, from_view, decompose}` (unit-tested round trip). Collision overlay, Light bake
-dialog (scopes, rays, albedo, compare, the selected mesh's light map with an exposure slider), Nav
+dialog (scopes, quality Standard / Ray traced (GI): bounces, Trace on the GPU through
+`gpu_trace.rs`, registered with the backend in `backend.rs`; rays, albedo, compare, the selected
+mesh's light map with an exposure slider), Nav
 mesh panel (colour by region/cluster, X-ray, pick actors/faces/vertex, whole regions, delete faces,
-cut region, move a vertex, Generate from the level: `map.navmeshGenerate`, MCP `studio_map
-{action: "navmesh", navOp: "generate"}`, the answer's `generated` stats in the state), actor palette (Copy / New / Mesh with a `workspace.search` of static
+cut region, move a vertex, Generate from the level with Keep jump links / Find drop-downs:
+`map.navmeshGenerate {keepLinks, findLinks}`, MCP `studio_map {action: "navmesh", navOp:
+"generate", keepLinks?, findLinks?}`, the answer's `generated` stats (`links`: kept, notNeeded,
+lost, found) in the state), actor palette (Copy / New / Mesh with a `workspace.search` of static
 meshes, into a chosen level), Export dialog. Every edit is an unsaved edit of its level
 (`note_edit`: the map's own `dirty` copy, the Studio told on save/discard by `forget_map_edit`), ⌘Z
 in the Map view takes back map edits first, Save writes the map's unsaved levels. Places:

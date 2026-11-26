@@ -187,6 +187,25 @@ impl Bvh {
         self.tris.len()
     }
 
+    /// The tree as plain arrays (a GPU walks it the way [`Bvh::closest`]
+    /// does): per node `[min.x, min.y, min.z, start, max.x, max.y, max.z,
+    /// count]` with `start` and `count` as `u32` bits (`count` 0: inner node,
+    /// children `start` and `start + 1`; else triangles `start..start +
+    /// count`); per triangle its three corners (9 floats) in leaf order; per
+    /// triangle the caller's id.
+    pub fn flat(&self) -> (Vec<[u32; 8]>, Vec<f32>, &[u32]) {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                let (a, b) = (n.bounds.min, n.bounds.max);
+                [a[0].to_bits(), a[1].to_bits(), a[2].to_bits(), n.start, b[0].to_bits(), b[1].to_bits(), b[2].to_bits(), n.count]
+            })
+            .collect();
+        let tris = self.tris.iter().flat_map(|t| t.iter().flat_map(|p| p.iter().copied())).collect();
+        (nodes, tris, &self.ids)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.tris.is_empty()
     }

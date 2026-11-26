@@ -8,6 +8,7 @@
 pub mod build;
 pub mod edit;
 pub mod generate;
+pub mod links;
 pub mod navmesh;
 pub mod studio;
 pub mod tagfile;

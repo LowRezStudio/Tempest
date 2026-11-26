@@ -19,7 +19,7 @@ use std::collections::HashSet;
 
 use tempest_upk::io::{Error, Result};
 
-use super::navmesh::{array_item, set_elements, set_record, NavData, INVALID};
+use super::navmesh::{array_item, set_elements, set_record, NavData, UserEdgePair, INVALID};
 use super::tagfile::{f32_to_half, kind, Rec, Tagfile, Value};
 use super::build;
 
@@ -309,13 +309,13 @@ pub fn write_back(nd: &mut NavData) -> Result<Vec<u8>> {
         let pair_ty = elem_type(tf, lib_ty, "userEdgePairs")?;
         let pairs_item = Rec::new(tf, tf.value(nd.library_item, 0)?).map(|r| r.item("userEdgePairs")).unwrap_or(0);
         if pairs_item != 0 {
-            // Pairs are only dropped or renumbered: rebuild each from its
-            // stored element (found by its old position) with the new faces.
+            // Every member is written; a pair that was stored (found by its
+            // user data) keeps the bytes no member covers.
             let old = super::navmesh::read_library(tf, nd.library_item)?;
             let mut values = Vec::new();
             for p in &l.user_edge_pairs {
-                let j = old.user_edge_pairs.iter().position(|o| o.x == p.x && o.y == p.y && o.z == p.z && o.user_data_a == p.user_data_a).unwrap_or(0);
-                values.push(element(tf, pair_ty, existing(tf, pairs_item, j), &[("faceA", p.face_a as f64), ("faceB", p.face_b as f64)], &[])?);
+                let j = old.user_edge_pairs.iter().position(|o| o.user_data_a == p.user_data_a);
+                values.push(pair_element(tf, pair_ty, j.and_then(|j| existing(tf, pairs_item, j)), p)?);
             }
             set_elements(&mut nd.tf, pairs_item, &values)?;
         }
@@ -324,21 +324,74 @@ pub fn write_back(nd: &mut NavData) -> Result<Vec<u8>> {
     Ok(nd.tf.write())
 }
 
-/// Replace the whole mesh and its cluster graph (a generated mesh): the
-/// jump links (user edge pairs and their annotations) go, since their faces
-/// do; the AABB tree is rebuilt. Returns the serialised tagfile.
-pub fn replace(nd: &mut NavData, mesh: super::navmesh::NavMesh, graph: super::navmesh::Graph) -> Result<Vec<u8>> {
+fn pair_element(tf: &Tagfile, ty: u32, existing: Option<&[u8]>, p: &UserEdgePair) -> Result<Value> {
+    element(
+        tf,
+        ty,
+        existing,
+        &[
+            ("instanceUidA", p.instance_a as f64),
+            ("instanceUidB", p.instance_b as f64),
+            ("faceA", p.face_a as f64),
+            ("faceB", p.face_b as f64),
+            ("userDataA", p.user_data_a as f64),
+            ("userDataB", p.user_data_b as f64),
+            ("costAtoB", p.cost_a_to_b as f64),
+            ("costBtoA", p.cost_b_to_a as f64),
+            ("direction", p.direction as f64),
+        ],
+        &[("x", p.x), ("y", p.y), ("z", p.z)],
+    )
+}
+
+/// Replace the whole mesh and its cluster graph (a generated mesh) and its
+/// jump links (user edge pairs, with annotation `k` for pair `k`; the mesh
+/// already holds their user edges, see `links::add_user_edges`). The AABB
+/// tree is rebuilt. Returns the serialised tagfile.
+pub fn replace(nd: &mut NavData, mesh: super::navmesh::NavMesh, graph: super::navmesh::Graph, links: &[super::links::Link]) -> Result<Vec<u8>> {
     let mut mesh = mesh;
     mesh.has_clearance_seeding = false;
     nd.mesh = mesh;
     if let Some(l) = &mut nd.library {
-        l.user_edge_pairs.clear();
+        l.user_edge_pairs = links.iter().map(|l| l.pair.clone()).collect();
+        l.annotations = links.iter().map(|l| l.annotation.clone()).collect();
+    } else if !links.is_empty() {
+        return Err(err("this nav mesh has no annotation library to hold jump links"));
     }
     if nd.library_item != 0 {
         let library_item = nd.library_item;
-        let has = Rec::new(&nd.tf, nd.tf.value(library_item, 0)?).map(|r| r.item("annotations") != 0).unwrap_or(false);
-        if has {
-            put_array(&mut nd.tf, library_item, "annotations", Vec::new())?;
+        let tf = &nd.tf;
+        let lib_ty = tf.items[library_item as usize].ty;
+        let ann_ty = elem_type(tf, lib_ty, "annotations")?;
+        let has = Rec::new(tf, tf.value(library_item, 0)?).map(|r| r.item("annotations") != 0).unwrap_or(false);
+        if has || !links.is_empty() {
+            let values: Vec<Value> = links
+                .iter()
+                .map(|l| {
+                    let a = &l.annotation;
+                    element(
+                        tf,
+                        ann_ty,
+                        None,
+                        &[("userdata", a.user_data as f64), ("firstPartitionIndex", a.first_partition as f64), ("firstVectorIndex", a.first_vector as f64), ("numPartitions", a.num_partitions as f64), ("numVectors", a.num_vectors as f64), ("traversalType", a.traversal_type as f64)],
+                        &[("tEquation", a.t_equation)],
+                    )
+                })
+                .collect::<Result<_>>()?;
+            put_array(&mut nd.tf, library_item, "annotations", values)?;
+        }
+        if !links.is_empty() {
+            // The pairs are written by `write_back`; an empty library may have
+            // no array yet, and keeps an uninitialised `up`.
+            array_item(&mut nd.tf, library_item, "userEdgePairs")?;
+            let tf = &nd.tf;
+            let mut r = Rec::new(tf, tf.value(library_item, 0)?).ok_or_else(|| err("bad annotation library"))?;
+            r.set("up", Value::Fixed([0.0f32, 0.0, 1.0, 0.0].iter().map(|f| Value::F32(*f)).collect()));
+            let v = r.into_value();
+            set_record(&mut nd.tf, library_item, &v)?;
+            if let Some(l) = &mut nd.library {
+                l.up = [0.0, 0.0, 1.0, 0.0];
+            }
         }
     }
     if nd.graph_item != 0 {

@@ -22,12 +22,23 @@
 //! returning `albedo · DiffuseBoost · E_direct(hit) / π` (one bounce, a
 //! constant albedo since cooked materials keep no diffuse colour the baker
 //! can evaluate), escaped rays the world's `EnvironmentColor`.
+//!
+//! The path-traced mode (`Options::path_traced`, [`bake_traced`]) traces
+//! in batches through a [`Tracer`] (the CPU tree, or a GPU): the direct
+//! light is the same as above (each texel's rays recorded, traced together,
+//! then replayed), the indirect light follows each hemisphere ray for up to
+//! `bounces` bounces (cosine-weighted after the first, Russian roulette from
+//! the third), each hit reflecting the direct light there (a shadow ray per
+//! light, the sky unshadowed) times the surface's colour: its material's
+//! diffuse texture at the hit, scaled so the scene's mean is `albedo` (the
+//! level fitted to Lightmass), times `DiffuseBoost`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use super::bvh::{add, cross, dot, length, normalize, scale, sub, Bvh, V3};
+use super::bvh::{add, cross, dot, length, normalize, scale, sub, Bvh, Hit, V3};
 use super::encode::{convert, Gathered, Sample};
+use super::trace::{Ray, Tracer};
 use super::scene::{overlaps, Instance, Light, LightKind, MeshData, WorldSettings};
 use crate::map::{inverse, Mat};
 
@@ -50,15 +61,63 @@ pub struct Options {
     /// Shootingrange levels (Courtyard_ABC, Room_D, 48 rays) it puts the
     /// mean of shaded meshes at 0.96-1.03 of the shipped light maps (0.15:
     /// 1.15); sunlit meshes land at 0.87-1.26, per mesh within about ×1.6.
+    /// Path traced, the scene's mean (the materials' colours scaled to it):
+    /// 0.06 fits three bounces best on the same levels (mean |difference|
+    /// from the shipped maps 0.363 and 0.265, against 0.364 and 0.289 for
+    /// one grey bounce at 0.08; 0.05 is as close but darker).
     pub albedo: f32,
     /// Scale of the world's `EnvironmentColor` that escaped rays pick up.
     pub environment_scale: f32,
+    /// Trace in batches with multi-bounce indirect light and material colours
+    /// ([`bake_traced`]); `indirect_rays` is then the paths per texel.
+    pub path_traced: bool,
+    /// Bounces of a path (path-traced mode).
+    pub bounces: u32,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, environment_scale: 1.0 }
+        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, environment_scale: 1.0, path_traced: false, bounces: 3 }
     }
+}
+
+/// A material's diffuse colour: its base colour texture, small, in linear light.
+#[derive(Debug)]
+pub struct Albedo {
+    pub width: usize,
+    pub height: usize,
+    pub texels: Vec<[f32; 3]>,
+}
+
+impl Albedo {
+    /// Nearest texel at `uv`, wrapping.
+    pub fn at(&self, uv: [f32; 2]) -> [f32; 3] {
+        if self.texels.is_empty() {
+            return [0.0; 3];
+        }
+        let x = ((uv[0] - uv[0].floor()) * self.width as f32) as usize % self.width;
+        let y = ((uv[1] - uv[1].floor()) * self.height as f32) as usize % self.height;
+        self.texels[y * self.width + x]
+    }
+
+    pub fn mean(&self) -> [f32; 3] {
+        let n = self.texels.len().max(1) as f32;
+        let mut m = [0f32; 3];
+        for t in &self.texels {
+            for k in 0..3 {
+                m[k] += t[k] / n;
+            }
+        }
+        m
+    }
+}
+
+/// What a BVH triangle is made of: an index into the scene's albedos
+/// (`u32::MAX`: none known) and its corners' texture coordinate 0.
+#[derive(Clone, Copy, Debug)]
+pub struct Surface {
+    pub albedo: u32,
+    pub uv: [[f32; 2]; 3],
 }
 
 /// Every shadow-casting triangle of the map in world space.
@@ -68,6 +127,14 @@ pub struct Scene {
     /// World-space geometric normal of each BVH triangle.
     pub normals: Vec<V3>,
     pub world: WorldSettings,
+    /// Per BVH triangle (path-traced mode), and the albedos they name.
+    pub surfaces: Vec<Surface>,
+    pub albedos: Vec<Arc<Albedo>>,
+    /// Multiplies every albedo so their area-weighted mean is `Options::albedo`.
+    pub albedo_scale: f32,
+    /// The area-weighted mean luminance of the albedos over the triangles
+    /// that have one (`None`: no triangle has).
+    pub albedo_mean: Option<f32>,
 }
 
 fn transform_point(m: &Mat, p: V3) -> V3 {
@@ -87,9 +154,14 @@ fn transform_normal(inv: &Mat, n: V3) -> V3 {
 }
 
 impl Scene {
-    pub fn build(lights: Vec<Light>, casters: &[(&Instance, Arc<MeshData>)], world: WorldSettings) -> Scene {
+    /// `albedo(instance, mesh, element)`: the albedo of an element of a
+    /// caster (an index into `albedos`), for the path-traced mode.
+    pub fn build(lights: Vec<Light>, casters: &[(&Instance, Arc<MeshData>)], world: WorldSettings, albedos: Vec<Arc<Albedo>>, albedo: &dyn Fn(&Instance, &MeshData, usize) -> Option<u32>) -> Scene {
         let mut tris = Vec::new();
         let mut normals = Vec::new();
+        let mut surfaces = Vec::new();
+        let means: Vec<[f32; 3]> = albedos.iter().map(|a| a.mean()).collect();
+        let (mut lum_sum, mut lum_area) = (0f64, 0f64);
         for (inst, mesh) in casters {
             if !inst.casts_shadow {
                 continue;
@@ -107,9 +179,63 @@ impl Scene {
                 tris.push(tri);
                 // Unreal winds clockwise seen from the front (left-handed).
                 normals.push(normalize(scale(n, -1.0)));
+                if !albedos.is_empty() {
+                    let element = mesh.tri_element.get(t).copied().unwrap_or(0) as usize;
+                    let uv = |k: usize| mesh.uv0.get(ix[k] as usize).copied().unwrap_or([0.0; 2]);
+                    let a = albedo(inst, mesh, element).unwrap_or(u32::MAX);
+                    if let Some(m) = means.get(a as usize) {
+                        let area = length(n) as f64 * 0.5;
+                        lum_sum += area * (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) as f64;
+                        lum_area += area;
+                    }
+                    surfaces.push(Surface { albedo: a, uv: [uv(0), uv(1), uv(2)] });
+                }
             }
         }
-        Scene { lights, bvh: Bvh::build(tris), normals, world }
+        let albedo_mean = (lum_area > 0.0 && lum_sum > 0.0).then(|| (lum_sum / lum_area) as f32);
+        Scene { lights, bvh: Bvh::build(tris), normals, world, surfaces, albedos, albedo_scale: 1.0, albedo_mean }
+    }
+
+    /// The diffuse reflectance at a hit, `DiffuseBoost` applied.
+    fn reflectance(&self, h: &Hit, opts: &Options) -> [f32; 3] {
+        let boost = self.world.diffuse_boost;
+        let c = match self.surfaces.get(h.tri as usize).and_then(|s| self.albedos.get(s.albedo as usize).map(|a| (s, a))) {
+            Some((s, a)) => {
+                let w = 1.0 - h.u - h.v;
+                let uv = [s.uv[0][0] * w + s.uv[1][0] * h.u + s.uv[2][0] * h.v, s.uv[0][1] * w + s.uv[1][1] * h.u + s.uv[2][1] * h.v];
+                let c = a.at(uv);
+                [c[0] * self.albedo_scale, c[1] * self.albedo_scale, c[2] * self.albedo_scale]
+            }
+            None => [opts.albedo; 3],
+        };
+        c.map(|x| (x * boost).clamp(0.0, 0.98))
+    }
+}
+
+/// Visibility answers: straight from the tree, or recorded (every query
+/// visible) and then replayed from a batch's results. The direct light asks
+/// the same rays whatever the answers, so a replay gives what a direct walk
+/// would.
+enum Vis<'a> {
+    Tree(&'a Bvh),
+    Record(Vec<Ray>),
+    Replay(&'a [bool], usize),
+}
+
+impl Vis<'_> {
+    fn occluded(&mut self, o: V3, d: V3, tmax: f32) -> bool {
+        match self {
+            Vis::Tree(b) => b.occluded(o, d, tmax),
+            Vis::Record(v) => {
+                v.push(Ray { o, d, tmax });
+                false
+            }
+            Vis::Replay(a, i) => {
+                let r = a.get(*i).copied().unwrap_or(false);
+                *i += 1;
+                r
+            }
+        }
     }
 }
 
@@ -226,6 +352,7 @@ pub fn rasterize(mesh: &MeshData, world: &Mat, n: usize) -> Vec<Texel> {
 }
 
 /// Small deterministic generator (xorshift*), seeded per texel.
+#[derive(Clone)]
 struct Rng(u64);
 
 impl Rng {
@@ -289,7 +416,7 @@ fn frame(w: V3) -> (V3, V3) {
 }
 
 /// Fraction of the light visible from `start` (already offset).
-fn transmission(scene: &Scene, l: &Light, start: V3, w: V3, samples: u32, rng: &mut Rng) -> f32 {
+fn transmission(vis: &mut Vis, l: &Light, start: V3, w: V3, samples: u32, rng: &mut Rng) -> f32 {
     if !l.casts_static_shadows {
         return 1.0;
     }
@@ -315,7 +442,7 @@ fn transmission(scene: &Scene, l: &Light, start: V3, w: V3, samples: u32, rng: &
                 (scale(d, 1.0 / len.max(1e-6)), len)
             }
         };
-        if !scene.bvh.occluded(start, dir, (len - VISIBILITY_RAY_OFFSET).max(0.0)) {
+        if !vis.occluded(start, dir, (len - VISIBILITY_RAY_OFFSET).max(0.0)) {
             visible += 1;
         }
     }
@@ -342,7 +469,7 @@ fn irradiance_at(scene: &Scene, p: V3, normal: V3, rng: &mut Rng) -> [f32; 3] {
             continue;
         }
         let start = add(p, add(scale(normal, 1.0), scale(w, VISIBILITY_RAY_OFFSET)));
-        let t = transmission(scene, l, start, w, 1, rng);
+        let t = transmission(&mut Vis::Tree(&scene.bvh), l, start, w, 1, rng);
         for ch in 0..3 {
             e[ch] += i[ch] * c * t * l.indirect_scale;
         }
@@ -352,7 +479,7 @@ fn irradiance_at(scene: &Scene, p: V3, normal: V3, rng: &mut Rng) -> [f32; 3] {
 
 /// Light one texel: every relevant light's `FGatheredLightSample`.
 /// `lit[k]` is set when light `k` added something.
-fn light_texel(scene: &Scene, t: &Texel, inst: &Instance, opts: &Options, rng: &mut Rng, lit: &mut [bool]) -> Gathered {
+fn light_texel(scene: &Scene, t: &Texel, inst: &Instance, opts: &Options, rng: &mut Rng, lit: &mut [bool], vis: &mut Vis) -> Gathered {
     let mut g = Gathered { mapped: true, ..Default::default() };
     let n = t.tz;
     let normal_offset = t.radius.clamp(0.5, 3.0);
@@ -375,7 +502,7 @@ fn light_texel(scene: &Scene, t: &Texel, inst: &Instance, opts: &Options, rng: &
                         continue;
                     }
                     let start = add(t.position, add(scale(n, normal_offset), scale(w, VISIBILITY_RAY_OFFSET)));
-                    if !scene.bvh.occluded(start, w, HALF_WORLD_MAX) {
+                    if !vis.occluded(start, w, HALF_WORLD_MAX) {
                         let c = if w[2] > 0.0 { l.intensity } else { *lower };
                         g.add_weighted(&Gathered::point_light(c, td, [0.0, 0.0, 1.0]), 2.0 / count as f32);
                     }
@@ -390,7 +517,7 @@ fn light_texel(scene: &Scene, t: &Texel, inst: &Instance, opts: &Options, rng: &
             continue;
         }
         let start = add(t.position, add(scale(n, if tl[2] > 0.0 { normal_offset } else { -normal_offset }), scale(w, VISIBILITY_RAY_OFFSET)));
-        let tr = transmission(scene, l, start, w, opts.shadow_samples, rng);
+        let tr = transmission(vis, l, start, w, opts.shadow_samples, rng);
         if tr <= 0.0 {
             continue;
         }
@@ -506,7 +633,7 @@ pub fn bake(scene: &Scene, target: &Target, opts: &Options, rows_done: &AtomicUs
                 continue;
             }
             let mut rng = Rng::new(seed ^ ((y * n + x) as u64).wrapping_mul(0x1000_0000_01B3));
-            row.push(light_texel(scene, t, target.instance, opts, &mut rng, &mut lit));
+            row.push(light_texel(scene, t, target.instance, opts, &mut rng, &mut lit, &mut Vis::Tree(&scene.bvh)));
         }
         rows_done.fetch_add(1, Ordering::Relaxed);
         (row, lit)
@@ -523,4 +650,205 @@ pub fn bake(scene: &Scene, target: &Target, opts: &Options, rows_done: &AtomicUs
     let gathered = if padded { pad(&inner, n) } else { inner };
     let samples = gathered.iter().map(convert).collect();
     Baked { size, gathered, samples, lights: lit.iter().enumerate().filter(|(_, b)| **b).map(|(i, _)| i).collect(), mapped }
+}
+
+/// One path of the path-traced indirect light.
+struct Path {
+    /// Index into the bake's mapped texels.
+    texel: usize,
+    /// The first direction, in the texel's tangent space.
+    first: V3,
+    /// Throughput, and radiance gathered so far (the reflected direct light).
+    weight: [f32; 3],
+    radiance: [f32; 3],
+    rng: Rng,
+}
+
+/// A cosine-weighted direction around `n`.
+fn cosine_dir(n: V3, rng: &mut Rng) -> V3 {
+    let (u, v) = frame(n);
+    let r = rng.next().sqrt();
+    let a = std::f32::consts::TAU * rng.next();
+    let z = (1.0 - r * r).max(0.0).sqrt();
+    normalize(add(scale(n, z), add(scale(u, r * a.cos()), scale(v, r * a.sin()))))
+}
+
+/// [`bake`] traced in batches through `tracer`, with multi-bounce indirect
+/// light coloured by the materials (see the module comment).
+pub fn bake_traced(scene: &Scene, target: &Target, opts: &Options, tracer: &dyn Tracer, rows_done: &AtomicUsize) -> Baked {
+    let size = target.size;
+    let padded = size > 2;
+    let n = if padded { size - 2 } else { size };
+    let texels = rasterize(&target.mesh, &target.instance.world, n);
+    let seed = target.instance.export as u64 * 7919 + target.instance.level as u64 * 104_729;
+    let mapped: Vec<usize> = (0..texels.len()).filter(|&i| texels[i].mapped).collect();
+    let rng_of = |i: usize| Rng::new(seed ^ (i as u64).wrapping_mul(0x1000_0000_01B3));
+    let inst = target.instance;
+    let nl = scene.lights.len();
+    // Direct light: each texel's rays recorded, traced together, replayed.
+    let direct_opts = Options { indirect_rays: 0, ..opts.clone() };
+    let recorded: Vec<Vec<Ray>> = tempest_unrealscript::par::map(&mapped, |&i| {
+        let mut vis = Vis::Record(Vec::new());
+        light_texel(scene, &texels[i], inst, &direct_opts, &mut rng_of(i), &mut vec![false; nl], &mut vis);
+        match vis {
+            Vis::Record(r) => r,
+            _ => Vec::new(),
+        }
+    });
+    let offsets: Vec<usize> = recorded.iter().scan(0, |at, r| {
+        let o = *at;
+        *at += r.len();
+        Some(o)
+    }).collect();
+    let answers = tracer.occluded(&recorded.concat());
+    let jobs: Vec<(usize, usize)> = mapped.iter().copied().zip(offsets).collect();
+    let directs: Vec<(Gathered, Vec<bool>, Rng)> = tempest_unrealscript::par::map(&jobs, |&(i, at)| {
+        let mut rng = rng_of(i);
+        let mut lit = vec![false; nl];
+        let g = light_texel(scene, &texels[i], inst, &direct_opts, &mut rng, &mut lit, &mut Vis::Replay(&answers[at..], 0));
+        (g, lit, rng)
+    });
+    rows_done.fetch_add(n / 2, Ordering::Relaxed);
+    // Indirect light: paths, all advanced one bounce at a time.
+    let count = opts.indirect_rays;
+    let mut indirect: Vec<Gathered> = vec![Gathered::default(); mapped.len()];
+    let mut occluded = vec![0u32; mapped.len()];
+    if count > 0 {
+        let mut paths: Vec<Path> = Vec::with_capacity(mapped.len() * count as usize);
+        let mut rays: Vec<Ray> = Vec::with_capacity(paths.capacity());
+        for (k, &i) in mapped.iter().enumerate() {
+            let t = &texels[i];
+            let normal_offset = t.radius.clamp(0.5, 3.0);
+            let mut rng = directs[k].2.clone();
+            for _ in 0..count {
+                // As the one-bounce mode: uniform over the hemisphere.
+                let mut w = rng.unit();
+                if dot(w, t.tz) < 0.0 {
+                    w = scale(w, -1.0);
+                }
+                rays.push(Ray { o: add(t.position, add(scale(t.tz, normal_offset), scale(w, VISIBILITY_RAY_OFFSET))), d: w, tmax: HALF_WORLD_MAX });
+                paths.push(Path { texel: k, first: to_tangent(t, w), weight: [1.0; 3], radiance: [0.0; 3], rng: Rng::new(rng.0 ^ 0x5851_F42D_4C95_7F2D) });
+                rng.next();
+            }
+        }
+        // Escaped rays see the environment: L = EnvironmentColor · scale / π
+        // (the one-bounce mode's 2πL = 2 · EnvironmentColor · scale).
+        let env = scale(scene.world.environment, opts.environment_scale / std::f32::consts::PI);
+        let mut alive: Vec<usize> = (0..paths.len()).collect();
+        for bounce in 0..opts.bounces.max(1) {
+            if alive.is_empty() {
+                break;
+            }
+            let hits = tracer.closest(&rays);
+            let mut next_alive = Vec::new();
+            let mut next_rays = Vec::new();
+            // (path, contribution) of each shadow ray towards a light.
+            let mut nee: Vec<(usize, [f32; 3])> = Vec::new();
+            let mut nee_rays = Vec::new();
+            for (&pi, (ray, hit)) in alive.iter().zip(rays.iter().zip(hits)) {
+                let p = &mut paths[pi];
+                let Some(h) = hit else {
+                    for ((r, w), e) in p.radiance.iter_mut().zip(p.weight).zip(env) {
+                        *r += w * e;
+                    }
+                    continue;
+                };
+                if bounce == 0 && h.t < scene.world.max_occlusion_distance {
+                    occluded[p.texel] += 1;
+                }
+                let hn = scene.normals[h.tri as usize];
+                if dot(hn, ray.d) >= 0.0 {
+                    continue;
+                }
+                let hp = add(ray.o, scale(ray.d, h.t));
+                let rho = scene.reflectance(&h, opts);
+                // The direct light at the hit, reflected: ρ/π · E.
+                let k = [p.weight[0] * rho[0] / std::f32::consts::PI, p.weight[1] * rho[1] / std::f32::consts::PI, p.weight[2] * rho[2] / std::f32::consts::PI];
+                for l in &scene.lights {
+                    if let LightKind::Sky { lower } = &l.kind {
+                        let d = hn[2];
+                        let (up, lo) = ((0.5 + 0.5 * d).powi(2), (0.5 - 0.5 * d).powi(2));
+                        for ch in 0..3 {
+                            p.radiance[ch] += k[ch] * (l.intensity[ch] * up + lower[ch] * lo) * l.indirect_scale;
+                        }
+                        continue;
+                    }
+                    let Some((i, w, dist)) = direct(l, hp) else { continue };
+                    let c = dot(w, hn);
+                    if c <= 0.0 {
+                        continue;
+                    }
+                    let e = [k[0] * i[0] * c * l.indirect_scale, k[1] * i[1] * c * l.indirect_scale, k[2] * i[2] * c * l.indirect_scale];
+                    if !l.casts_static_shadows {
+                        for (r, x) in p.radiance.iter_mut().zip(e) {
+                            *r += x;
+                        }
+                        continue;
+                    }
+                    let start = add(hp, add(scale(hn, 1.0), scale(w, VISIBILITY_RAY_OFFSET)));
+                    nee.push((pi, e));
+                    nee_rays.push(Ray { o: start, d: w, tmax: (dist - 1.0 - VISIBILITY_RAY_OFFSET).max(0.0) });
+                }
+                // On: cosine-weighted, the throughput times ρ (the pdf cancels
+                // the cosine and 1/π); Russian roulette from the third bounce.
+                if bounce + 1 < opts.bounces {
+                    let mut wgt = [p.weight[0] * rho[0], p.weight[1] * rho[1], p.weight[2] * rho[2]];
+                    if bounce >= 2 {
+                        let q = wgt[0].max(wgt[1]).max(wgt[2]).min(0.95);
+                        if p.rng.next() >= q {
+                            continue;
+                        }
+                        wgt = wgt.map(|x| x / q);
+                    }
+                    p.weight = wgt;
+                    let d = cosine_dir(hn, &mut p.rng);
+                    next_rays.push(Ray { o: add(hp, add(scale(hn, 0.5), scale(d, VISIBILITY_RAY_OFFSET))), d, tmax: HALF_WORLD_MAX });
+                    next_alive.push(pi);
+                }
+            }
+            for ((pi, e), blocked) in nee.into_iter().zip(tracer.occluded(&nee_rays)) {
+                if !blocked {
+                    for (r, x) in paths[pi].radiance.iter_mut().zip(e) {
+                        *r += x;
+                    }
+                }
+            }
+            alive = next_alive;
+            rays = next_rays;
+        }
+        // 2πL over N uniform hemisphere rays, as the one-bounce mode.
+        for p in &paths {
+            let c = scale(p.radiance, std::f32::consts::TAU);
+            indirect[p.texel].add_weighted(&Gathered::point_light(c, p.first, [0.0, 0.0, 1.0]), 1.0 / count as f32);
+        }
+    }
+    let w = &scene.world;
+    let mut inner = vec![Gathered::default(); n * n];
+    let mut lit = vec![false; nl];
+    for (k, &i) in mapped.iter().enumerate() {
+        let mut g = directs[k].0;
+        for (a, b) in lit.iter_mut().zip(&directs[k].1) {
+            *a |= *b;
+        }
+        if count > 0 {
+            let (mut direct_k, mut indirect_k) = (1.0, 1.0);
+            if w.ambient_occlusion {
+                let frac = (occluded[k] as f32 / (w.fully_occluded_fraction.max(1e-3) * count as f32)).min(1.0);
+                let occ = (0.5 * (w.occlusion_exponent + 1.0) * frac.powf(w.occlusion_exponent)).clamp(0.0, 1.0);
+                direct_k = 1.0 - w.direct_occlusion * occ;
+                indirect_k = 1.0 - w.indirect_occlusion * occ;
+            }
+            for c in 0..4 {
+                for ch in 0..3 {
+                    g.c[c][ch] = g.c[c][ch] * direct_k + indirect[k].c[c][ch] * indirect_k;
+                }
+            }
+        }
+        inner[i] = g;
+    }
+    rows_done.fetch_add(n - n / 2, Ordering::Relaxed);
+    let mapped_count = inner.iter().filter(|g| g.mapped).count();
+    let gathered = if padded { pad(&inner, n) } else { inner };
+    let samples = gathered.iter().map(convert).collect();
+    Baked { size, gathered, samples, lights: lit.iter().enumerate().filter(|(_, b)| **b).map(|(i, _)| i).collect(), mapped: mapped_count }
 }

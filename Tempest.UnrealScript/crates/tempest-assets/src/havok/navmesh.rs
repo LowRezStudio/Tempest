@@ -404,6 +404,39 @@ pub fn validate(m: &NavMesh) -> Vec<String> {
                 }
             }
         }
+        // User edges (jump links): in range, each pointing at a user edge of
+        // its opposite face that points back.
+        if f.num_user_edges > 0 {
+            if f.start_user_edge < 0 || f.start_user_edge + f.num_user_edges as i32 > ne {
+                out.push(format!("face {fi}: user edges {}+{} out of range", f.start_user_edge, f.num_user_edges));
+                continue;
+            }
+            for k in 0..f.num_user_edges as i32 {
+                let ei = f.start_user_edge + k;
+                let e = &m.edges[ei as usize];
+                if e.a < 0 || e.a >= nv || e.b < 0 || e.b >= nv {
+                    out.push(format!("face {fi} user edge {ei}: vertex out of range"));
+                }
+                if e.flags & edge_flags::USER == 0 {
+                    out.push(format!("face {fi} user edge {ei}: not flagged as a user edge"));
+                }
+                if e.opposite_edge == INVALID {
+                    continue;
+                }
+                match (m.edges.get(e.opposite_edge as usize), m.faces.get(e.opposite_face as usize)) {
+                    (Some(o), Some(off)) => {
+                        if o.opposite_edge as i32 != ei {
+                            out.push(format!("user edge {ei}: opposite {} does not point back", e.opposite_edge));
+                        }
+                        let oe = e.opposite_edge as i32;
+                        if oe < off.start_user_edge || oe >= off.start_user_edge + off.num_user_edges as i32 {
+                            out.push(format!("user edge {ei}: opposite {oe} is not a user edge of face {}", e.opposite_face));
+                        }
+                    }
+                    _ => out.push(format!("user edge {ei}: opposite {}/{} out of range", e.opposite_edge, e.opposite_face)),
+                }
+            }
+        }
     }
     out
 }

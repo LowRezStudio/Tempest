@@ -140,6 +140,9 @@ pub struct Server {
     /// what it was made from: a project autosaves after every edit, and only
     /// the packages that changed since are compared again.
     twrk_deltas: HashMap<String, (TwrkStamp, Result<Vec<u8>, String>)>,
+    /// Makes a GPU ray tracer for path-traced light bakes (set by a host
+    /// with a GPU, [`Server::set_tracer_factory`]; else the CPU traces).
+    tracer_factory: Option<Box<crate::lightbake::trace::TracerFactory>>,
     /// Moves whenever a marshal document may change (every mutable access
     /// to the assembly): `twrk_marshals` answers only for the same value.
     mcts_rev: u64,
@@ -324,12 +327,17 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), twrk_deltas: HashMap::new(), mcts_rev: 0, twrk_marshals: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), twrk_deltas: HashMap::new(), tracer_factory: None, mcts_rev: 0, twrk_marshals: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
     /// A server hosted in-process (the native Studio): events are handed to
     /// `on_event` instead of being written to stdout.
+    /// A GPU ray tracer for path-traced light bakes (`light.bake {pathTraced, gpu}`).
+    pub fn set_tracer_factory(&mut self, f: Box<crate::lightbake::trace::TracerFactory>) {
+        self.tracer_factory = Some(f);
+    }
+
     pub fn with_events(on_event: impl FnMut(J) + Send + 'static) -> Server {
         let mut s = Server::new();
         s.on_event = Some(Box::new(on_event));
@@ -2633,12 +2641,10 @@ impl Server {
         let pruned = generate::prune(&mut polys, &seeds, settings.agent_height, settings.max_climb * 2.0);
         let seed_count = seeds.len();
         let mut mesh = generate::nav_mesh(&polys, settings.agent_radius);
-        let graph = generate::cluster(&mut mesh, settings.cluster_area);
-        if let Some(problem) = crate::havok::navmesh::validate(&mesh).first() {
-            return Err(format!("the generated nav mesh is invalid: {problem}").into());
-        }
+        let mut graph = generate::cluster(&mut mesh, settings.cluster_area);
         let mut bins = std::mem::take(&mut self.bins);
         let r = (|| -> Res<J> {
+            use crate::havok::links;
             let ed = self.editor(&path)?;
             let i = match opt_u(p, "index") {
                 Some(i) => i,
@@ -2646,8 +2652,30 @@ impl Server {
             };
             let mut nd = studio::read(ed, i)?.ok_or("this actor holds no nav mesh to replace")?;
             let old = nd.mesh.clone();
+            // Jump links: the old mesh's moved onto the new faces (unless
+            // `keepLinks` is false), and new drop-downs from the ledges
+            // (unless `findLinks` is false). Both need the annotation library.
+            let mut report = links::Report::default();
+            let mut found_links = Vec::new();
+            if let Some(library) = &nd.library {
+                if opt_b(p, "keepLinks").unwrap_or(true) {
+                    found_links = links::reattach(library, &mesh, settings.agent_radius * 2.0, 3.0, &mut report);
+                }
+                if opt_b(p, "findLinks").unwrap_or(true) {
+                    let blockers = crate::lightbake::bvh::Bvh::build(havok.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect());
+                    let found = links::detect(&mesh, &found_links, Some(&blockers), settings.max_climb, settings.agent_height, 4.0);
+                    report.found = found.len();
+                    found_links.extend(found);
+                }
+            }
+            let mut links = found_links;
+            links::add_user_edges(&mut mesh, &mut links);
+            links::link_clusters(&mut graph, &mesh, &links);
+            if let Some(problem) = crate::havok::navmesh::validate(&mesh).first() {
+                return Err(format!("the generated nav mesh is invalid: {problem}").into());
+            }
             let clusters = graph.nodes.len();
-            let bytes = edit::replace(&mut nd, mesh, graph)?;
+            let bytes = edit::replace(&mut nd, mesh, graph, &links)?;
             // Stored in the form a read and rewrite gives (the emptied arrays' items laid out as the writer lays them).
             let nd = NavData::read(&bytes)?;
             let bytes = nd.tf.write();
@@ -2659,7 +2687,7 @@ impl Server {
             ed.replace_object(i, obj)?;
             let mut v = studio::actor_json(ed, i, &nd, &mut bins);
             v["dirty"] = J::from(true);
-            v["generated"] = json!({ "triangles": tris.len() / 3, "parts": parts, "faces": nd.mesh.faces.len(), "clusters": clusters, "skippedOutlines": skipped, "seeds": seed_count, "pruned": pruned, "missingLevels": missing, "gatherMs": gathered, "recastMs": recast, "ms": t.elapsed().as_millis() as u64, "coverage": coverage, "oldFaces": old.faces.len() });
+            v["generated"] = json!({ "triangles": tris.len() / 3, "parts": parts, "faces": nd.mesh.faces.len(), "clusters": clusters, "skippedOutlines": skipped, "seeds": seed_count, "pruned": pruned, "missingLevels": missing, "gatherMs": gathered, "recastMs": recast, "ms": t.elapsed().as_millis() as u64, "coverage": coverage, "oldFaces": old.faces.len(), "links": { "kept": report.kept, "notNeeded": report.not_needed, "lost": report.lost, "found": report.found } });
             Ok(v)
         })();
         self.bins = bins;
@@ -2988,15 +3016,23 @@ impl Server {
             shadow_samples: opt_u(p, "shadowSamples").unwrap_or(8) as u32,
             sky_samples: opt_u(p, "skySamples").unwrap_or(64) as u32,
             indirect_rays: opt_u(p, "indirectRays").unwrap_or(0) as u32,
-            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(0.08) as f32,
+            // Fitted to Lightmass on two Shootingrange levels: 0.08 for one
+            // grey bounce, 0.06 for three coloured ones (`bake::Options::albedo`).
+            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(if opt_b(p, "pathTraced").unwrap_or(false) { 0.06 } else { 0.08 }) as f32,
             environment_scale: p.get("environmentScale").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+            path_traced: opt_b(p, "pathTraced").unwrap_or(false),
+            bounces: opt_u(p, "bounces").unwrap_or(3).clamp(1, 16) as u32,
         };
+        // Path-traced: the materials' colours, and a GPU unless `gpu` is false.
+        let (albedos, albedo_of, albedo_missing) = if opts.path_traced { self.bake_albedos(&files, &levels, &meshes)? } else { Default::default() };
+        let factory = self.tracer_factory.take();
         // An actor target bakes its components.
         let select = |i: &scene::Instance| wanted.contains(&(i.level, i.export)) || wanted.contains(&(i.level, i.owner));
         let out = {
             let mut last = std::time::Instant::now();
             let me = &mut *self;
-            lightbake::run(&levels, &meshes, &select, &opts, &mut |d, n| {
+            let extras = lightbake::Extras { albedos, albedo_of, tracer: factory.as_deref().filter(|_| opt_b(p, "gpu").unwrap_or(true)) };
+            lightbake::run(&levels, &meshes, &select, &opts, extras, &mut |d, n| {
                 if d == 0 || d == n || last.elapsed().as_millis() > 200 {
                     last = std::time::Instant::now();
                     let mut f = Map::new();
@@ -3006,6 +3042,7 @@ impl Server {
                 }
             })
         };
+        self.tracer_factory = factory;
         let compare = opt_b(p, "compare").unwrap_or(false);
         let mut comparisons = Vec::new();
         let mut written = Vec::new();
@@ -3052,8 +3089,94 @@ impl Server {
             "missingMeshes": not_found,
             "triangles": out.triangles,
             "lights": out.lights,
+            "tracer": out.tracer,
+            "tracerNote": out.tracer_note,
+            "albedoScale": out.albedo_scale,
+            "materialsWithoutColour": albedo_missing,
             "seconds": t0.elapsed().as_secs_f64(),
         }))
+    }
+
+    /// The diffuse colour of every material the shadow casters of a bake
+    /// use (`light.bake {pathTraced}`): the base colour texture at 64 pixels
+    /// at most, in linear light; by (level, component, element). Also the
+    /// materials with no such texture (they reflect the default albedo).
+    #[allow(clippy::type_complexity)]
+    fn bake_albedos(&mut self, files: &[String], levels: &[crate::lightbake::scene::LevelData], meshes: &HashMap<crate::lightbake::scene::MeshKey, std::sync::Arc<crate::lightbake::scene::MeshData>>) -> Res<(Vec<std::sync::Arc<crate::lightbake::bake::Albedo>>, HashMap<(usize, usize, usize), u32>, Vec<String>)> {
+        use crate::lightbake::bake::Albedo;
+        use crate::material_ops::TextureSlot;
+        const SIZE: u32 = 64;
+        let db = self.db()?;
+        let dir = self.dir()?.to_path_buf();
+        self.index_all();
+        let owners = self.path_owners();
+        // The levels as they are in the Studio (edited or not).
+        let mut level_pkgs = Vec::new();
+        for f in files {
+            let ed = self.editor(f)?;
+            let shared = if ed.is_dirty() { None } else { crate::material_ops::file_package(Path::new(f)) };
+            level_pkgs.push((ed.name.clone(), shared.unwrap_or_else(|| std::sync::Arc::new(ed.pkg.clone()))));
+        }
+        let src = self.src.as_ref().ok_or("no workspace open")?;
+        let (index, pkgs) = (&*owners, &self.packages);
+        let mut cache = PackageCache::new(db, &dir);
+        cache.set_lookup(|p| index_lookup(index, pkgs, p));
+        for (name, pkg) in &level_pkgs {
+            cache.insert_arc(name, pkg.clone());
+        }
+        let mut albedos: Vec<std::sync::Arc<Albedo>> = Vec::new();
+        let mut by_material: HashMap<(String, usize), Option<u32>> = HashMap::new();
+        let mut albedo_of = HashMap::new();
+        let mut missing = Vec::new();
+        for l in levels {
+            for inst in l.instances.iter().filter(|i| i.static_lighting && i.casts_shadow) {
+                let Some(mesh) = meshes.get(&inst.mesh) else { continue };
+                for (e, &m) in mesh.element_materials.iter().enumerate() {
+                    let (from, idx) = match inst.materials.get(e) {
+                        Some(o) if !o.is_null() => (inst.package.as_str(), *o),
+                        _ => (mesh.package.as_str(), m),
+                    };
+                    if idx.is_null() {
+                        continue;
+                    }
+                    let Some(at) = cache.resolve(from, idx) else { continue };
+                    let a = match by_material.get(&at) {
+                        Some(a) => *a,
+                        None => {
+                            let info = crate::material_ops::material_info(&mut cache, &at.0, PackageIndex::export(at.1));
+                            let base = info.textures.iter().find(|t| t.slot == TextureSlot::BaseColor && cache.class_name(&t.package, t.export).is_some_and(|c| db.class_is_a(&c, "Texture2D")));
+                            let png = base.and_then(|t| crate::material_ops::texture_png(&mut cache, src, &t.package, t.export, Some(SIZE)).ok());
+                            let albedo = png.and_then(|b| {
+                                let mut d = png::Decoder::new(std::io::Cursor::new(b));
+                                d.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+                                let mut r = d.read_info().ok()?;
+                                let mut buf = vec![0; r.output_buffer_size()];
+                                let f = r.next_frame(&mut buf).ok()?;
+                                let ch = f.color_type.samples();
+                                let lin = |x: u8| (x as f32 / 255.0).powf(2.2);
+                                let texels = buf[..f.buffer_size()].chunks(ch).map(|p| if ch >= 3 { [lin(p[0]), lin(p[1]), lin(p[2])] } else { [lin(p[0]); 3] }).collect();
+                                Some(Albedo { width: f.width as usize, height: f.height as usize, texels })
+                            });
+                            let a = albedo.map(|x| {
+                                albedos.push(std::sync::Arc::new(x));
+                                (albedos.len() - 1) as u32
+                            });
+                            if a.is_none() {
+                                missing.push(cache.describe(from, idx));
+                            }
+                            by_material.insert(at.clone(), a);
+                            a
+                        }
+                    };
+                    if let Some(a) = a {
+                        albedo_of.insert((inst.level, inst.export, e), a);
+                    }
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        Ok((albedos, albedo_of, missing))
     }
 
     /// `kismet.palette {path?}`: every kind of Kismet node the workspace's
