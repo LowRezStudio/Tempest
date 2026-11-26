@@ -842,6 +842,7 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
             for hook in crate::hooks::clear_of(id) {
                 crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Hook(hook));
             }
+            crate::http::forget(lua, Some(id));
             if let Ok(forget) = lua.globals().get::<Table>("tempest").and_then(|t| t.get::<mlua::Function>("_forget")) {
                 let _ = forget.call::<()>(id);
             }
@@ -860,6 +861,7 @@ pub fn reload(lua: &Lua, only: Option<&str>) {
             for id in crate::hooks::clear_all() {
                 crate::lua_api::drop_handler(lua, crate::lua_api::Handler::Hook(id));
             }
+            crate::http::forget(lua, None);
             crate::log::line("loader", "reload all");
             if let Err(e) = crate::lua_api::run_prelude(lua) {
                 crate::log::line("loader", &format!("prelude failed: {e}"));

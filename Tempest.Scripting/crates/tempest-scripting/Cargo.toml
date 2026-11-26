@@ -1,6 +1,6 @@
 [package]
 name = "tempest-scripting"
-version = "1.0.10"
+version = "1.1.0"
 edition = "2021"
 description = "Lua modding API DLL for Paladins (UE3)"
 license = "MIT"
@@ -22,6 +22,8 @@ toml = { version = "0.8", default-features = false, features = ["parse", "displa
 sha2 = "0.10"
 # memory.scan
 memchr = "2"
+# assembly.* / lang.*: the field table gzipped inside MctsInterface.dll
+flate2 = "1"
 
 [build-dependencies]
 # native/: Dear ImGui + cimgui (+ the Win32/DX9/DX11 backends on Windows)

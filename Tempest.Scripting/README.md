@@ -286,7 +286,38 @@ memory.read_c(addr, "uint64_t") / memory.write_c(addr, "float", v) -- FFI-typed 
 memory.alloc(n) memory.free(p)       -- zeroed scratch buffer for pointer arguments
 memory.write_str(p, s) memory.write_wstr(p, s) -- NUL-terminated ANSI / UTF-16 (TCHAR*)
 tempest.object(ptr)                  -- wrap a raw UObject* argument (nil unless it looks live)
+
+json.encode(v, { pretty = true }?)   -- keys 1..n = array, else object (integer keys as strings, sorted)
+json.decode(text) -> v | nil, err    -- null decodes to json.null; arrays come back marked
+json.array(t?) -> t                  -- encode t as an array even when empty: json.encode(json.array()) == "[]"
+
+http.get(url, [opts], fn(res, err))  -- off the game thread; fn runs on it, attributed to the mod
+http.post(url, body, [opts], fn)     -- a table body is sent as JSON
+http.request({ url, method, headers, query = { k = v }, body, timeout = 30 }, fn) -> id
+http.cancel(id)  http.urlencode(s)   -- res = { status, ok, headers (lower-case), body, url }, res:json()
+                                     -- err (res nil) only without a response; a mod's reload drops its pending callbacks
+
+assembly.find("ITEMS", "ITEM_ID", 7204) -> row | nil   -- ChaosGame/CookedPCConsole/assembly.dat ("DATA_SET_" optional)
+assembly.find_all("DEVICES", { REF_BOT_ID = 2420 }) -> { row, ... }
+assembly.rows(set) assembly.sets() assembly.get("DB_VERSION") assembly.version() -- "8.1.5839.0"
+assembly.load() -> true | nil, err  assembly.unload()  assembly.path()
+row.ITEM_ID  row.DATA_SET_BOT_DEVICES (rows)  row:has(f)  row:fields() -- misspelled field names raise
+lang.message(item.NAME_MSG_ID, ext?) -- ChaosGame/Localization/<EXT>/Lang_<EXT>.dat, ext defaults to lang.language()
+lang.find(field, value, ext?) lang.find_all(...) lang.rows(ext?) lang.get("EXT_NAME") lang.languages()
 ```
+
+**Game data.** `assembly` and `lang` read the files the game itself loads,
+as installed (mods that changed them included). A file is checked and kept
+in memory on first use (8.1: assembly.dat about 70 ms and 21 MB,
+Lang_INT.dat 15 ms and 15 MB), shared by every mod until `unload()`; fields
+are decoded when read and the first lookup by a field builds an index of it.
+Field names come from the client's own `MctsInterface.dll` (0.x clients
+number them differently), else the built-in 8.1 table.
+
+**HTTP.** Each request runs on its own thread and its callback is queued to
+the game thread, like `tempest.queue`. Windows uses WinHTTP (system
+certificates and proxy, redirects, gzip); the host build used by the tests
+speaks plain HTTP only. Bodies are capped at 256 MB.
 
 Unknown property reads return `nil` (logged once per call site); writes
 raise a Lua error. Handler errors are logged and never reach the game.
@@ -427,6 +458,9 @@ crates/tempest-scripting/src/
   tls.rs       anti-cheat XOR key (main-thread TLS key table; layout per client)
   unreal.rs    signatures and layouts for both clients, names/objects, reflection, subscriptions, hooks
   lua_api.rs   tempest.* / memory.* / Object proxy
+  json.rs      json.* (serde_json)
+  http.rs      http.*: request threads, WinHTTP (Windows) / plain HTTP (host), callbacks queued to the game thread
+  mcts.rs      assembly.* / lang.*: lazy reader of the game's MCTS marshals (data/mcts-fields.dat: the 8.1 field table)
   loader.rs    scripts/ discovery (installed + dev mods), run, reload
   config.rs    tempest.toml runtime settings, per-mod config files, Lua<->TOML
   watch.rs     hot reload: polls the dev folder and the mod configs, reloads on the game thread
@@ -441,7 +475,7 @@ mods/          one folder per shipped mod (manifest.toml + scripts/), packed to 
   console/     enables the in-game console
   lib/         tempest-scripting-lib: a DLL-less library mod
   dev/         the scratch mod: edit freely (starts as a copy of examples/)
-examples/      00_status .. 11_ui: reference scripts, run by the host smoke test;
+examples/      00_status .. 12_data: reference scripts, run by the host smoke test;
                hot-reload/ and fps-limit/ are dev mods to copy into <game>/mods
 types/         tempest.d.lua (LuaLS API definitions, shipped in scripting and dev);
                types/sdk/ is the in-game `tempest_sdk` output for 8.1 (regenerate after a game update)

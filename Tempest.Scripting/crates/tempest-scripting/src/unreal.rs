@@ -2746,8 +2746,10 @@ fn service_pending_hooks() {
     }
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn drain_queue() {
+/// Run the queued jobs if this is the game thread (the first to call it).
+/// Public for tests, which have no `ProcessEvent` to drain it.
+#[doc(hidden)]
+pub fn drain_queue() {
     static EVENTS: AtomicU32 = AtomicU32::new(0);
     let tid = current_thread_id();
     let mut game = GAME_THREAD.load(Ordering::Acquire);

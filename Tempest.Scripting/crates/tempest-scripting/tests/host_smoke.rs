@@ -365,6 +365,7 @@ fn host_smoke() {
         include_str!("../../../examples/09_address_hook.lua"),
         include_str!("../../../examples/10_lua_natives.lua"),
         include_str!("../../../examples/11_ui.lua"),
+        include_str!("../../../examples/12_data.lua"),
     ] {
         lua.load(src).exec().expect("example runs on host");
     }

@@ -41,11 +41,14 @@ std::arch::global_asm!(".text", ".weak __Unwind_Resume", "__Unwind_Resume:", "  
 
 pub mod config;
 pub mod hooks;
+pub mod http;
 mod imgui_syms;
 pub mod input;
+pub mod json;
 pub mod loader;
 pub mod log;
 pub mod lua_api;
+pub mod mcts;
 pub mod memory;
 pub mod overlay;
 pub mod profile;

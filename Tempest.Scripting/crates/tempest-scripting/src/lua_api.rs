@@ -29,7 +29,7 @@ use crate::unreal::{self, Event, Phase, Prop, PropKind};
 /// A Lua number for a Rust integer: an `Integer` when it fits the VM's
 /// integer type (`i32` on the Win32 client, where LuaJIT's `lua_Integer` is
 /// `ptrdiff_t`), else a `Number` (exact below 2^53). Addresses always fit.
-fn int(v: i64) -> Value {
+pub(crate) fn int(v: i64) -> Value {
     match mlua::Integer::try_from(v) {
         Ok(i) => Value::Integer(i),
         Err(_) => Value::Number(v as f64),
@@ -405,6 +405,9 @@ pub fn register(lua: &Lua) -> mlua::Result<()> {
     register_ui(lua, &t)?;
     lua.globals().set("tempest", t)?;
     lua.globals().set("memory", memory_table(lua)?)?;
+    crate::json::register(lua)?;
+    crate::http::register(lua)?;
+    crate::mcts::register(lua)?;
     run_prelude(lua)
 }
 

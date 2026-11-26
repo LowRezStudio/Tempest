@@ -490,6 +490,183 @@ function tempest.settings() end
 function tempest.toast(msg) end
 
 -- ===========================================================================
+-- json, http: data and the network
+-- ===========================================================================
+
+---@class json
+json = {}
+--- Sentinel for JSON `null` (decoded arrays keep their positions with it).
+---@type lightuserdata
+json.null = nil
+--- Encode a Lua value. A table with keys exactly 1..n is an array, any other an
+--- object (integer keys become strings; keys sorted); an empty table is `{}`
+--- unless marked with json.array. Raises on NaN/inf, functions, cycles.
+---@param value any
+---@param opts? { pretty?: boolean }
+---@return string
+function json.encode(value, opts) end
+--- Decode JSON text; nil and a message when it is not valid. Arrays come back marked (json.array).
+---@param text string
+---@return any value
+---@return string? err
+function json.decode(text) end
+--- Mark `t` (default a new table) to encode as an array even when empty.
+---@generic T: table
+---@param t? T
+---@return T
+function json.array(t) end
+
+---@class http.Response
+---@field status integer
+---@field ok boolean 2xx
+---@field headers table<string, string> lower-case names; repeated headers joined with ", "
+---@field body string
+---@field url string
+local Response = {}
+--- `json.decode(self.body)`.
+---@return any value
+---@return string? err
+function Response:json() end
+
+---@alias http.Callback fun(res: http.Response?, err: string?)
+
+---@class http.Options
+---@field url string
+---@field method? string default GET, or POST with a body
+---@field headers? table<string, string>
+---@field query? table<string, string|number> appended to the URL, percent-encoded
+---@field body? string|table a table is sent as JSON (Content-Type: application/json)
+---@field timeout? number seconds, default 30
+
+--- Requests run on their own thread; the callback runs on the game thread.
+--- `err` (and `res` nil) only when no response came back. Windows: WinHTTP
+--- (system TLS, proxy, redirects, gzip).
+---@class http
+http = {}
+---@param opts http.Options
+---@param callback http.Callback
+---@return integer id for http.cancel
+function http.request(opts, callback) end
+---@param url string
+---@param opts_or_callback http.Options|http.Callback
+---@param callback? http.Callback
+---@return integer id
+function http.get(url, opts_or_callback, callback) end
+---@param url string
+---@param body string|table
+---@param opts_or_callback http.Options|http.Callback
+---@param callback? http.Callback
+---@return integer id
+function http.post(url, body, opts_or_callback, callback) end
+--- Drop a pending request's callback (the request itself still finishes).
+---@param id integer
+function http.cancel(id) end
+---@param s string
+---@return string
+function http.urlencode(s) end
+
+-- ===========================================================================
+-- assembly, lang: the game's data files (assembly.dat, Lang_<EXT>.dat)
+-- ===========================================================================
+
+--- One row of assembly.dat or a Lang file: `row.ITEM_ID`. A misspelled field
+--- raises; a field this row does not carry is nil. Nested row sets
+--- (`bot.DATA_SET_BOT_DEVICES`) come back as arrays of rows.
+---@class McRow
+---@field [string] any
+local McRow = {}
+---@param field string
+---@return boolean
+function McRow:has(field) end
+--- The whole row as a plain table, nested row sets included.
+---@return table<string, any>
+function McRow:fields() end
+
+---@alias McFilter string|table<string, string|number|boolean>
+
+--- `ChaosGame/CookedPCConsole/assembly.dat`: items, devices, bots, skins,
+--- resources... as `DATA_SET_*` row sets ("ITEMS" means "DATA_SET_ITEMS").
+--- Loaded on first use, shared by every mod, kept until assembly.unload().
+---@class assembly
+assembly = {}
+--- Load now: true, or nil and why (missing file, unknown game folder).
+---@return boolean? ok
+---@return string? err
+function assembly.load() end
+---@return boolean was_loaded
+function assembly.unload() end
+---@return string
+function assembly.path() end
+---@return { name: string, rows: integer }[]
+function assembly.sets() end
+---@param set string
+---@return McRow[]
+function assembly.rows(set) end
+--- First row of `set` where `field == value`, or matching every field of a table:
+--- assembly.find("ITEMS", "ITEM_ID", 7204) / assembly.find("DEVICES", { REF_BOT_ID = 2420, SLOT_USED_VALUE_ID = 3 })
+---@param set string
+---@param field McFilter
+---@param value? string|number|boolean
+---@return McRow?
+function assembly.find(set, field, value) end
+---@param set string
+---@param field McFilter
+---@param value? string|number|boolean
+---@return McRow[]
+function assembly.find_all(set, field, value) end
+--- A top-level value: "DB_VERSION", "GAME_VERSION_RAW".
+---@param field string
+---@return any
+function assembly.get(field) end
+--- "8.1.5839.0" (nil for clients without GAME_VERSION_RAW).
+---@return string?
+function assembly.version() end
+
+--- `ChaosGame/Localization/<EXT>/Lang_<EXT>.dat`: the messages `*_MSG_ID`
+--- fields point at. `ext` is optional everywhere: the game's language by default.
+---@class lang
+lang = {}
+--- The game's language: `-language=XXX` on its command line, else "INT".
+---@return string
+function lang.language() end
+--- The languages installed ("DEU", "FRA", "INT"...).
+---@return string[]
+function lang.languages() end
+---@param id integer
+---@param ext? string
+---@return string?
+function lang.message(id, ext) end
+--- Rows: { MSG_ID, NAME, MESSAGE, LANG_ID, SYS_MSG_VER_ID, SOUND_RES_ID? }.
+---@param ext? string
+---@return McRow[]
+function lang.rows(ext) end
+---@param field McFilter
+---@param value? string|number
+---@param ext? string
+---@return McRow?
+function lang.find(field, value, ext) end
+---@param field McFilter
+---@param value? string|number
+---@param ext? string
+---@return McRow[]
+function lang.find_all(field, value, ext) end
+--- A top-level value: "EXT_NAME", "CULTURE_CODE", "LANG_ID".
+---@param field string
+---@param ext? string
+---@return any
+function lang.get(field, ext) end
+---@param ext? string
+---@return boolean? ok
+---@return string? err
+function lang.load(ext) end
+---@param ext? string
+---@return boolean was_loaded
+function lang.unload(ext) end
+---@param ext? string
+---@return string
+function lang.path(ext) end
+
+-- ===========================================================================
 -- ui: Dear ImGui (see types/imgui.d.lua for the raw ui.C API)
 -- ===========================================================================
 
