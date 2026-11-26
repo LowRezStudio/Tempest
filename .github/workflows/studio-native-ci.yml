@@ -9,13 +9,11 @@ on:
     paths:
       - "Tempest.StudioNative/**"
       - "Tempest.UnrealScript/**"
-      - "Tempest.Studio/ruffle/**"
       - ".github/workflows/studio-native-ci.yml"
   pull_request:
     paths:
       - "Tempest.StudioNative/**"
       - "Tempest.UnrealScript/**"
-      - "Tempest.Studio/ruffle/**"
       - ".github/workflows/studio-native-ci.yml"
   workflow_dispatch:
 

@@ -13,7 +13,7 @@ Electron movie editor at parity. Ruffle's Rust core and wgpu renderer (v0.7.1, t
 the Studio) run on a `ruffle` thread (a player is not `Send` and takes ~1 s to make; stills: build,
 12 frames, capture, drop, `transparent` for non-root targets and PNG exports via `set_window_mode`;
 one live player for the Movie node and Play, `advance`/`pointer`); `scripts/fetch-ruffle.sh` clones
-the tag into gitignored `vendor/ruffle` with `Tempest.Studio/ruffle/*.patch` (9-slice), run by the
+the tag into gitignored `vendor/ruffle` with `ruffle/*.patch` (9-slice), run by the
 just recipes, `bundle.sh` and the release workflow. A SwfMovie selects the inspector's **Movie** tab
 (Properties and References stay); one editor per movie export (`Studio::movies`, made on first view,
 kept while the package is open, re-read on `reload_tables`); the first one opened turns Focus on

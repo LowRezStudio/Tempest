@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ruffle's Rust sources for the movie player (`src/swf_player.rs`): the release
-# in RUFFLE_TAG with the Electron Studio's patches (Tempest.Studio/ruffle/*.patch,
+# in RUFFLE_TAG with our patches (ruffle/*.patch,
 # 9-slice scaling) applied, into vendor/ruffle/ (gitignored), which Cargo.toml
 # uses as path dependencies. Run once after cloning, and again when the tag or a
 # patch changes (`just studio-native` and scripts/bundle.sh run it).
@@ -9,7 +9,7 @@ set -euo pipefail
 RUFFLE_TAG=v0.7.1
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-patches=$here/../Tempest.Studio/ruffle
+patches=$here/ruffle
 out=$here/vendor/ruffle
 sha256() { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; }
 stamp=$( (echo "$RUFFLE_TAG"; cat "$patches"/*.patch) | sha256 | cut -d' ' -f1)
