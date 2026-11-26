@@ -1227,6 +1227,19 @@ impl<'a> Editor<'a> {
         self.pkg.to_bytes(&WriteOptions { compress: self.was_compressed, obscure: self.obscured })
     }
 
+    /// The bytes Save would write, before compression: what a comparison
+    /// (a delta, a change check) reads back. Compressing only to decompress
+    /// again was most of the time a delta of an unsaved package took.
+    pub fn bytes_uncompressed(&mut self) -> Vec<u8> {
+        self.flush();
+        let s = &self.pkg.summary;
+        let kept = (s.compression_flags, s.package_flags, s.compressed_chunks.clone());
+        let out = self.pkg.to_bytes(&WriteOptions { compress: false, obscure: false });
+        let s = &mut self.pkg.summary;
+        (s.compression_flags, s.package_flags, s.compressed_chunks) = kept;
+        out
+    }
+
     /// The package was saved to its own file: everything journaled so far is
     /// on disk now (undoing it will dirty the package again).
     pub fn mark_saved(&mut self) {

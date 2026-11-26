@@ -200,6 +200,8 @@ impl Studio {
         use std::sync::atomic::Ordering;
         let mut seen = crate::backend::EDITS.load(Ordering::SeqCst);
         let mut changed: Option<std::time::Instant> = None;
+        // Spaced like the project's autosave (`project::GAP`).
+        let mut last: Option<std::time::Instant> = None;
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             let stamp = crate::backend::EDITS.load(Ordering::SeqCst);
@@ -208,10 +210,11 @@ impl Studio {
                 changed = Some(std::time::Instant::now());
                 continue;
             }
-            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) {
+            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) || last.is_some_and(|t| t.elapsed() < super::project::GAP) {
                 continue;
             }
             changed = None;
+            last = Some(std::time::Instant::now());
             let alive = this.update(cx, |this, cx| {
                 let Some(dir) = this.dir.clone() else { return };
                 let Some(file) = Self::recovery_file(&dir) else { return };

@@ -23,6 +23,11 @@ use crate::backend::EDITS;
 
 /// How long the project waits after the last change before saving itself.
 const SETTLE: Duration = Duration::from_millis(1500);
+/// The least time between two autosaves: a save compares every edited
+/// package and runs on the backend thread, so saving after each of a quick
+/// series of edits (an agent's batch) would hold every next edit back.
+/// Quitting, closing the project and ⌘S still save at once.
+pub(super) const GAP: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -131,7 +136,8 @@ impl Studio {
                         this.project_saving = Saving::Pending;
                         cx.notify();
                     }
-                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) {
+                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) && this.project_autosaved.is_none_or(|t| t.elapsed() >= GAP) {
+                    this.project_autosaved = Some(Instant::now());
                     this.save_project(cx);
                 }
             });

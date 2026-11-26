@@ -84,15 +84,56 @@ pub enum Base<'a> {
     Digest(&'a J),
 }
 
+/// A row of the base: its hash (a digest), or the row itself, hashed only
+/// when the edited row differs (most of a marshal is unchanged, and hashing
+/// prints every row as JSON first).
+enum BaseRow<'a> {
+    Hash(&'a str),
+    Row(&'a Row),
+}
+
+impl BaseRow<'_> {
+    fn hash(&self, tokens: &Tokens) -> String {
+        match self {
+            BaseRow::Hash(h) => h.to_string(),
+            BaseRow::Row(r) => row_hash(tokens, r),
+        }
+    }
+}
+
+/// One row set of the base: its key column and rows by key, in file order.
+struct BaseTable<'a> {
+    key: Option<String>,
+    rows: HashMap<String, BaseRow<'a>>,
+}
+
+/// The base's row sets in file order and its header, read from a marshal or a digest.
+fn base_tables<'a>(tokens: &Tokens, base: &Base<'a>) -> (Vec<(String, BaseTable<'a>)>, serde_json::Map<String, J>) {
+    match base {
+        Base::Marshal(m) => {
+            let mut tables = Vec::new();
+            for (t, v) in &m.root.entries {
+                let Value::Rows(rows) = v else { continue };
+                let key = key_column(tokens, rows);
+                let by_key = rows.iter().enumerate().map(|(i, r)| (key_of(r, key, i), BaseRow::Row(r))).collect();
+                tables.push((tokens.name(*t), BaseTable { key: key.map(|k| tokens.name(k)), rows: by_key }));
+            }
+            (tables, header_fields(tokens, m))
+        }
+        Base::Digest(d) => {
+            let tables = d["tables"].as_object().into_iter().flatten().map(|(name, b)| {
+                let rows = b["rows"].as_object().map(|m| m.iter().filter_map(|(k, h)| Some((k.clone(), BaseRow::Hash(h.as_str()?)))).collect()).unwrap_or_default();
+                (name.clone(), BaseTable { key: b["key"].as_str().map(str::to_string), rows })
+            });
+            (tables.collect(), d["header"].as_object().cloned().unwrap_or_default())
+        }
+    }
+}
+
 /// What `edited` changed against its base.
 pub fn create(tokens: &Tokens, base: Base, edited: &Marshal, target: &str) -> Result<Delta> {
-    let base_digest = match base {
-        Base::Marshal(m) => digest(tokens, m),
-        Base::Digest(d) => d.clone(),
-    };
-    let empty = serde_json::Map::new();
-    let base_tables = base_digest["tables"].as_object().unwrap_or(&empty);
-    let base_header = base_digest["header"].as_object().unwrap_or(&empty);
+    let (base_tables, base_header) = base_tables(tokens, &base);
+    let by_name: HashMap<&str, &BaseTable> = base_tables.iter().map(|(n, b)| (n.as_str(), b)).collect();
 
     let mut header_ops = serde_json::Map::new();
     for (name, v) in header_fields(tokens, edited) {
@@ -101,28 +142,34 @@ pub fn create(tokens: &Tokens, base: Base, edited: &Marshal, target: &str) -> Re
         }
     }
 
+    let no_rows = HashMap::new();
     let mut tables: Vec<J> = Vec::new();
     for (t, v) in &edited.root.entries {
         let Value::Rows(rows) = v else { continue };
         let name = tokens.name(*t);
-        let base_table = base_tables.get(&name);
+        let base_table = by_name.get(name.as_str());
         // The base's key column keeps the keys comparable; a new table picks its own.
-        let key = match base_table.and_then(|b| b["key"].as_str()) {
+        let key = match base_table.and_then(|b| b.key.as_deref()) {
             Some(k) => tokens.token(k),
             None => key_column(tokens, rows),
         };
-        let base_rows = base_table.and_then(|b| b["rows"].as_object()).unwrap_or(&empty);
+        let base_rows = base_table.map(|b| &b.rows).unwrap_or(&no_rows);
         let mut ops: Vec<J> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for (i, r) in rows.iter().enumerate() {
             let k = key_of(r, key, i);
-            seen.insert(k.clone());
-            let h = row_hash(tokens, r);
-            match base_rows.get(&k).and_then(|v| v.as_str()) {
+            match base_rows.get(&k) {
                 None => ops.push(json!({ "op": "add", "key": k, "row": row_json(tokens, r) })),
-                Some(bh) if bh != h => ops.push(json!({ "op": "set", "key": k, "base": bh, "row": row_json(tokens, r) })),
-                Some(_) => {}
+                // Equal rows print (and hash) the same: no need to hash them.
+                Some(BaseRow::Row(b)) if *b == r => {}
+                Some(b) => {
+                    let (bh, h) = (b.hash(tokens), row_hash(tokens, r));
+                    if bh != h {
+                        ops.push(json!({ "op": "set", "key": k, "base": bh, "row": row_json(tokens, r) }));
+                    }
+                }
             }
+            seen.insert(k);
         }
         let mut deleted: Vec<&String> = base_rows.keys().filter(|k| !seen.contains(*k)).collect();
         deleted.sort();
@@ -135,11 +182,11 @@ pub fn create(tokens: &Tokens, base: Base, edited: &Marshal, target: &str) -> Re
     }
     // Tables the edited file no longer has at all.
     let edited_names: HashSet<String> = edited.root.entries.iter().filter(|(_, v)| matches!(v, Value::Rows(_))).map(|(t, _)| tokens.name(*t)).collect();
-    for (name, b) in base_tables {
+    for (name, b) in &base_tables {
         if !edited_names.contains(name) {
-            let mut keys: Vec<&String> = b["rows"].as_object().map(|m| m.keys().collect()).unwrap_or_default();
+            let mut keys: Vec<&String> = b.rows.keys().collect();
             keys.sort();
-            tables.push(json!({ "table": name, "key": b["key"], "ops": keys.into_iter().map(|k| json!({ "op": "delete", "key": k })).collect::<Vec<_>>() }));
+            tables.push(json!({ "table": name, "key": b.key, "ops": keys.into_iter().map(|k| json!({ "op": "delete", "key": k })).collect::<Vec<_>>() }));
         }
     }
 

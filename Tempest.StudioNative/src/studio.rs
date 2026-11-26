@@ -223,6 +223,8 @@ pub struct Studio {
     project_saving: project::Saving,
     project_seen: usize,
     project_changed: Option<std::time::Instant>,
+    /// When the project last saved itself (autosaves are spaced, see `project::GAP`).
+    project_autosaved: Option<std::time::Instant>,
     /// A workspace file put assembly edits back (closing a project discards them).
     applied_docs: bool,
     /// A package to open once the folder is (a `.upk` given at start).
@@ -405,6 +407,7 @@ impl Studio {
             project_saving: project::Saving::Saved,
             project_seen: 0,
             project_changed: None,
+            project_autosaved: None,
             applied_docs: false,
             _subscriptions: subscriptions,
         };

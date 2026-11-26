@@ -17,6 +17,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value as J};
+use sha2::{Digest, Sha256};
 use tempest_unrealscript::toolchain::{build_order, compile_package_dir, decompile_package, script_packages, CompileOptions, DecompiledPackage, OrderedPackage};
 use tempest_upk::flags::{compression, pkg as pkgf};
 use tempest_upk::io::PackageIndex;
@@ -135,6 +136,15 @@ pub struct Server {
     /// Wwise `.pck` files with replaced media, by key: unsaved like a
     /// package's edits until `package.save` writes them.
     pck_edits: HashMap<String, PckEdit>,
+    /// Each package's last `twrk.save` delta (or why it was stored whole), by
+    /// what it was made from: a project autosaves after every edit, and only
+    /// the packages that changed since are compared again.
+    twrk_deltas: HashMap<String, (TwrkStamp, Result<Vec<u8>, String>)>,
+    /// Moves whenever a marshal document may change (every mutable access
+    /// to the assembly): `twrk_marshals` answers only for the same value.
+    mcts_rev: u64,
+    /// Each marshal document's last `twrk.save` delta, by `mcts_rev` and file.
+    twrk_marshals: HashMap<String, ((u64, FileStamp, String), Result<Vec<u8>, String>)>,
     /// Wwise object names from the AkEvent / AkBank exports of the workspace,
     /// by FNV id (built from the search index on first use).
     ak_names: Option<HashMap<u32, String>>,
@@ -168,6 +178,10 @@ type IndexJob = (HashMap<String, SearchIndex>, Owners);
 /// A file's size and modification time: whether a background result made from
 /// it still applies.
 type FileStamp = Option<(u64, std::time::SystemTime)>;
+
+/// What a `twrk.save` delta was made from: the edited package's hash, the
+/// game file, the class database and the target path.
+type TwrkStamp = ([u8; 32], FileStamp, usize, String);
 
 /// Returns freed memory to the system. Opening a folder frees hundreds of
 /// megabytes of file images and scratch tables that the allocator would
@@ -310,7 +324,7 @@ impl Server {
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), twrk_deltas: HashMap::new(), mcts_rev: 0, twrk_marshals: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
@@ -810,6 +824,7 @@ impl Server {
             "mcts.collectionAdd" => Ok(self.mcts_mut()?.collection_add(p)?),
             "mcts.scaffold" => Ok(self.mcts_mut()?.scaffold(p)?),
             "mcts.close" => {
+                self.mcts_rev += 1;
                 self.mcts = None;
                 Ok(json!(true))
             }
@@ -836,6 +851,7 @@ impl Server {
     }
 
     fn mcts_mut(&mut self) -> Res<&mut mcts::workspace::Workspace> {
+        self.mcts_rev += 1;
         self.mcts.as_mut().ok_or_else(|| "no assembly open (mcts.open first)".into())
     }
 
@@ -861,6 +877,7 @@ impl Server {
                 None => mcts::workspace::Workspace::open(&dir)?,
             };
             // Freeing the old marshals (millions of rows) takes a while: off this thread.
+            self.mcts_rev += 1;
             if let Some(old) = self.mcts.replace(fresh) {
                 std::thread::spawn(move || {
                     drop(old);
@@ -911,6 +928,7 @@ impl Server {
         // thread, the databases its editors borrow after them (tuple order).
         let mut dbs = std::mem::take(&mut self.old_dbs);
         dbs.extend(self.db.take().filter(|old| !std::sync::Arc::ptr_eq(old, &db)));
+        self.mcts_rev += 1;
         let old = (std::mem::take(&mut self.editors), std::mem::take(&mut self.index), self.mcts.take(), std::mem::take(&mut self.scripts), dbs);
         self.owners = None;
         std::thread::spawn(move || {
@@ -1196,34 +1214,58 @@ impl Server {
         };
         // Packages.
         let keys: Vec<String> = self.editors.iter().filter(|(_, e)| e.is_dirty()).map(|(k, _)| k.clone()).collect();
+        self.twrk_deltas.retain(|k, _| keys.contains(k));
+        // What each package is compared as, and the deltas to make again (the
+        // packages changed since the last save), made on every core.
+        let mut stamps: HashMap<&str, TwrkStamp> = HashMap::new();
+        let mut jobs: Vec<(&str, Vec<u8>, PathBuf, String)> = Vec::new();
+        for k in &keys {
+            let path = PathBuf::from(k);
+            let ed = self.editors.get_mut(k).unwrap();
+            if portable || ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0 || !path.exists() {
+                continue;
+            }
+            let target = relative(&root, &path).unwrap_or_else(|| crate::basestore::game_relative(&path));
+            // Compared as Save would write it: the in-memory package can
+            // differ from its saved form in ways a delta would count.
+            let bytes = ed.bytes_uncompressed();
+            let stamp: TwrkStamp = (Sha256::digest(&bytes).into(), file_stamp(&path), db as *const ClassDb as usize, target.clone());
+            if self.twrk_deltas.get(k).is_none_or(|(s, _)| *s != stamp) {
+                jobs.push((k, bytes, path, target));
+            }
+            stamps.insert(k, stamp);
+        }
+        let made = crate::delta::parallel_map(&jobs, |(_, bytes, path, target)| -> Result<Vec<u8>, String> {
+            let base = tempest_upk::PackageFile::open(path).and_then(|f| f.load()).map_err(|e| e.to_string())?;
+            let edited = Package::parse(bytes).map_err(|e| e.to_string())?;
+            match crate::delta::create(db, crate::delta::Base::Package(&base), &edited, target) {
+                Ok((d, w)) if w.is_empty() => Ok(d.to_bytes()),
+                Ok((_, w)) => Err(w.join("; ")),
+                Err(e) => Err(e.to_string()),
+            }
+        });
+        for ((k, ..), made) in jobs.iter().zip(made) {
+            self.twrk_deltas.insert(k.to_string(), (stamps[k].clone(), made));
+        }
         for k in &keys {
             let path = PathBuf::from(k);
             let rel = relative(&root, &path);
             let ed = self.editors.get_mut(k).unwrap();
-            let is_script = ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0;
-            let target = rel.clone().unwrap_or_else(|| crate::basestore::game_relative(&path));
             let mut meta = json!({ "kind": "upk", "path": path.to_string_lossy(), "rel": rel });
             if !path.exists() {
                 // Made in the Studio and not saved: recreated from these bytes on load.
                 meta["new"] = J::Bool(true);
             }
             let mut delta = None;
-            if !portable && !is_script && path.exists() {
-                // Compared as Save would write it: the in-memory package can
-                // differ from its saved form in ways a delta would count.
-                let edited = Package::parse(&ed.bytes());
-                match tempest_upk::PackageFile::open(&path).and_then(|f| f.load()).and_then(|b| edited.map(|e| (b, e))) {
-                    Ok((base, edited)) => match crate::delta::create(db, crate::delta::Base::Package(&base), &edited, &target) {
-                        Ok((d, w)) if w.is_empty() => delta = Some(d.to_bytes()),
-                        Ok((_, w)) => warnings.push(format!("{}: stored whole ({})", ed.name, w.join("; "))),
-                        Err(e) => warnings.push(format!("{}: stored whole ({e})", ed.name)),
-                    },
-                    Err(e) => warnings.push(format!("{}: stored whole ({e})", ed.name)),
+            if stamps.contains_key(k.as_str()) {
+                match &self.twrk_deltas[k].1 {
+                    Ok(d) => delta = Some(d.clone()),
+                    Err(why) => warnings.push(format!("{}: stored whole ({why})", ed.name)),
                 }
             }
             let base = if portable { crate::basestore::read(&path) } else { None };
             match delta {
-                Some(bytes) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), bytes, base),
+                Some(d) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), d, base),
                 None => {
                     let bytes = ed.bytes();
                     push(&mut files, &mut entries, with_field(&meta, "stored", "full"), bytes, base);
@@ -1251,9 +1293,12 @@ impl Server {
             }
         }
         // Marshal files.
-        if let Some(ws) = self.mcts.as_mut() {
+        let rev = self.mcts_rev;
+        let cache = &mut self.twrk_marshals;
+        cache.retain(|id, _| self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(d, doc)| d == id && doc.dirty)));
+        if let Some(ws) = self.mcts.as_ref() {
             let tokens = ws.tokens.clone();
-            for (id, doc) in ws.docs.iter_mut() {
+            for (id, doc) in ws.docs.iter() {
                 if !doc.dirty {
                     continue;
                 }
@@ -1262,12 +1307,21 @@ impl Server {
                 let meta = json!({ "kind": "mcts", "doc": id, "path": doc.path.to_string_lossy(), "rel": rel });
                 let mut delta = None;
                 if !portable {
-                    let base = std::fs::read(&doc.path).map_err(tempest_upk::io::Error::from).and_then(|b| mcts::parse_obscured(&b, &tokens));
-                    match base {
-                        Ok(base) => match mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &doc.marshal, &target) {
-                            Ok(d) => delta = Some(d.to_bytes()),
-                            Err(e) => warnings.push(format!("{id}: stored whole ({e})")),
-                        },
+                    let stamp = (rev, file_stamp(&doc.path), target.clone());
+                    let made = match cache.get(id) {
+                        Some((s, made)) if *s == stamp => made.clone(),
+                        _ => {
+                            let base = std::fs::read(&doc.path).map_err(tempest_upk::io::Error::from).and_then(|b| mcts::parse_obscured(&b, &tokens));
+                            let made = match base {
+                                Ok(base) => mcts::delta::create(&tokens, mcts::delta::Base::Marshal(&base), &doc.marshal, &target).map(|d| d.to_bytes()).map_err(|e| e.to_string()),
+                                Err(e) => Err(e.to_string()),
+                            };
+                            cache.insert(id.clone(), (stamp, made.clone()));
+                            made
+                        }
+                    };
+                    match made {
+                        Ok(d) => delta = Some(d),
                         Err(e) => warnings.push(format!("{id}: stored whole ({e})")),
                     }
                 }
@@ -1349,6 +1403,7 @@ impl Server {
                 if self.mcts.is_none() {
                     self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
                 }
+                self.mcts_rev += 1;
                 let ws = self.mcts.as_mut().unwrap();
                 let id = meta["doc"].as_str().unwrap_or_default().to_string();
                 let tokens = ws.tokens.clone();
@@ -4588,6 +4643,7 @@ impl Server {
             if self.mcts.is_none() {
                 self.mcts = Some(mcts::workspace::Workspace::open(&dir)?);
             }
+            self.mcts_rev += 1;
             let raw = self.mcts.as_mut().unwrap().sound_owners()?;
             self.sound_owners = Some(owners_with_banks(&raw, &dir));
         }
@@ -5232,18 +5288,25 @@ impl Server {
         package_item(db, &edited_bytes, &target, &rel, share, preview).map_err(|e| e.into())
     }
 
-    /// What a cooker item's result depends on, for the caches: `None` when it
-    /// has unsaved edits in memory (always made again).
-    fn item_stamp(&self, it: &J) -> Option<String> {
+    /// What a cooker item's result depends on, for the caches: `None` for
+    /// unsaved Wwise media (always made again).
+    fn item_stamp(&mut self, it: &J) -> Option<String> {
         let source = it["source"].as_str().unwrap_or_default().to_string();
         let target = it["target"].as_str().unwrap_or_default().to_string();
         let sk = key(&source);
-        if self.editors.get(&sk).is_some_and(|e| e.is_dirty()) || self.pck_edits.contains_key(&sk) || self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)) {
+        if self.pck_edits.contains_key(&sk) {
             return None;
         }
+        // Unsaved edits: a package by what Save would write, a marshal file by
+        // the assembly's revision (the Mod view previews its changes again
+        // after every edit of anything).
+        let unsaved = match self.editors.get_mut(&sk).filter(|e| e.is_dirty()) {
+            Some(e) => Some(format!("{:x}", Sha256::digest(e.bytes_uncompressed()))),
+            None => self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)).then(|| format!("mcts@{}", self.mcts_rev)),
+        };
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{}:{:?}", m.len(), m.modified().ok()));
         let t = Path::new(&target);
-        Some(format!("{source}|{target}|{}|{}|{:?}|{:?}|{:?}|{:?}", it["mode"], it["kind"], stamp(Path::new(&source)), stamp(t), crate::basestore::launcher_backup(t).as_deref().and_then(stamp), crate::basestore::read(t).map(|d| d.to_string().len())))
+        Some(format!("{source}|{target}|{}|{}|{:?}|{:?}|{:?}|{:?}|{unsaved:?}", it["mode"], it["kind"], stamp(Path::new(&source)), stamp(t), crate::basestore::launcher_backup(t).as_deref().and_then(stamp), crate::basestore::read(t).map(|d| d.to_string().len())))
     }
 
     /// [`Server::mod_item`] for several items, the package comparisons (the
@@ -5268,7 +5331,7 @@ impl Server {
             let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
             let sk = key(&source.to_string_lossy());
             let bytes = match self.editors.get_mut(&sk) {
-                Some(ed) if ed.is_dirty() => Ok(ed.bytes()),
+                Some(ed) if ed.is_dirty() => Ok(ed.bytes_uncompressed()),
                 _ => std::fs::read(&source),
             };
             match bytes {

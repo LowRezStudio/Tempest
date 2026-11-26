@@ -37,3 +37,8 @@ ttf-parser = "0.25"
 # Nav mesh generation from level geometry (Recast, pure Rust): walkable polygons for `havok::generate`.
 rerecast = { version = "=0.5.0", default-features = false, features = ["std"] }
 glam = "0.33"
+
+# The ARMv8 SHA-256 instructions (x86 finds SHA-NI on its own): deltas, the
+# cooker and project saves hash every object, about 6x faster on Apple silicon.
+[target.'cfg(all(target_arch = "aarch64", not(target_env = "msvc")))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
