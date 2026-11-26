@@ -291,8 +291,11 @@ impl Tokens {
         self.functions.get(&hash).map(|s| s.as_str())
     }
 
+    /// The wire value of a function: its hash in the game's table (not
+    /// always FNV-1 of the name: `UNKNOWN` is 0, what the language files
+    /// hold), else FNV-1 of the name.
     pub fn function(&self, name: &str) -> u32 {
-        fnv1_32(name.as_bytes())
+        self.functions.iter().find(|(_, n)| n.as_str() == name).map(|(h, _)| *h).unwrap_or_else(|| fnv1_32(name.as_bytes()))
     }
 
     pub fn field_count(&self) -> usize {
@@ -916,6 +919,9 @@ mod tests {
         assert!(t.field_count() > 3000);
         assert_eq!(t.token("DATA_SET_ITEMS").map(|k| t.kind(k)), Some(Kind::RowSet));
         assert_eq!(t.function("GET_DATA_ASSEMBLY"), 0x2E2EC0E9);
+        // The language files' function: named UNKNOWN in the table, stored as 0.
+        assert_eq!(t.function_name(0), Some("UNKNOWN"));
+        assert_eq!(t.function("UNKNOWN"), 0);
         assert_eq!(t.function_name(0x2E2EC0E9), Some("GET_DATA_ASSEMBLY"));
         assert_eq!(t.kind(t.token("ITEM_ID").unwrap()), Kind::Dword);
     }
