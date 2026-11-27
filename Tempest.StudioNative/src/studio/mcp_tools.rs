@@ -106,12 +106,24 @@ impl Studio {
                 _ => Ok(json!({ "project": self.project.as_ref().map(|p| json!({ "file": p.file, "name": p.name, "id": p.id, "version": p.version, "files": p.files })), "state": self.project_saving.label() })),
             },
             "studio_mod" => {
-                self.set_view(View::Mod, window, cx);
+                let action = s("action");
+                // Status is a read (an agent waiting for a build asks again and
+                // again): it shows the Mod view only when there is none yet.
+                if action.as_deref() != Some("status") || self.cooker_entity().is_none() {
+                    self.set_view(View::Mod, window, cx);
+                }
                 let c = self.cooker_entity().ok_or("the Mod view is not open")?;
-                match s("action").as_deref() {
+                match s("compression").as_deref() {
+                    Some("small") => c.update(cx, |c, cx| c.set_fast(false, cx)),
+                    Some("fast") => c.update(cx, |c, cx| c.set_fast(true, cx)),
+                    Some(other) => return Err(format!("compression is small or fast, not {other}")),
+                    None => {}
+                }
+                match action.as_deref() {
                     Some("refresh") => c.update(cx, |c, cx| c.refresh(cx)),
-                    Some("build") => c.update(cx, |c, cx| c.build_now(cx)),
-                    _ => {}
+                    // Built from the list as it is now: read again first when edits made it stale.
+                    Some("build") => c.update(cx, |c, cx| c.refresh_then(cx, |c, cx| c.build_now(cx))),
+                    _ => c.update(cx, |c, cx| c.refresh_then(cx, |_, _| {})),
                 }
                 Ok(c.read(cx).summary(cx))
             }

@@ -23,7 +23,8 @@ sha2 = "0.10"
 xz2 = { version = "0.1", features = ["static"] }
 zstd = "0.13"
 png = "0.17"
-texpresso = "2.0"
+# rayon: ClusterFit encodes a texture on every core (a 4096 import with mips 13.6 s -> 2.6 s, same bytes).
+texpresso = { version = "2.0", features = ["rayon"] }
 # preserve_order: marshal rows travel through JSON (deltas, import/export) and
 # must come back with their fields in the original order to rewrite byte-identically.
 serde_json = { version = "1", features = ["preserve_order"] }

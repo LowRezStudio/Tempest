@@ -23,11 +23,23 @@ use crate::backend::EDITS;
 
 /// How long the project waits after the last change before saving itself.
 const SETTLE: Duration = Duration::from_millis(1500);
-/// The least time between two autosaves: a save compares every edited
-/// package and runs on the backend thread, so saving after each of a quick
-/// series of edits (an agent's batch) would hold every next edit back.
-/// Quitting, closing the project and ⌘S still save at once.
+/// The least time between two autosaves, or three times the last save when
+/// that is longer: a save reads every edited package on the backend thread,
+/// so saving after each of a quick series of edits (an agent's batch) would
+/// hold every next edit back. Quitting, closing the project and ⌘S still
+/// save at once.
 pub(super) const GAP: Duration = Duration::from_secs(20);
+/// An autosave waits for the backend to be idle and for agents to pause this
+/// long between calls (an agent's batch is not cut by a save)…
+const QUIET: Duration = Duration::from_secs(4);
+/// …unless changes have waited this long for their save.
+const LONGEST: Duration = Duration::from_secs(120);
+
+/// Whether an autosave of changes waiting since `pending` may start now:
+/// nothing in flight and no agent call for `QUIET`, or waiting for `LONGEST`.
+pub(super) fn autosave_may_start(pending: Option<Instant>) -> bool {
+    crate::backend::is_quiet(QUIET) || pending.is_some_and(|t| t.elapsed() >= LONGEST)
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,9 +146,10 @@ impl Studio {
                     this.project_changed = Some(Instant::now());
                     if this.project_saving != Saving::Pending {
                         this.project_saving = Saving::Pending;
+                        this.project_pending.get_or_insert_with(Instant::now);
                         cx.notify();
                     }
-                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) && this.project_autosaved.is_none_or(|t| t.elapsed() >= GAP) {
+                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) && this.autosave_due() {
                     this.project_autosaved = Some(Instant::now());
                     this.save_project(cx);
                 }
@@ -146,6 +159,15 @@ impl Studio {
             }
         })
         .detach();
+    }
+
+    /// Whether the pending changes may be autosaved now (see `GAP` and `autosave_may_start`).
+    fn autosave_due(&self) -> bool {
+        let gap = GAP.max(self.project_save_took * 3);
+        if self.project_autosaved.is_some_and(|t| t.elapsed() < gap) {
+            return false;
+        }
+        autosave_may_start(self.project_pending)
     }
 
     /// Write the project file now (a linked workspace file with the project's details).
@@ -160,15 +182,23 @@ impl Studio {
         }
         self.project_saving = Saving::Writing;
         let stamp = EDITS.load(Ordering::SeqCst);
+        let started = Instant::now();
         let call = self.backend.call("twrk.save", json!({ "out": p.file, "mode": "linked", "state": self.twrk_state() }));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
+                this.project_save_took = started.elapsed();
                 match r {
                     Ok(_) => {
                         // Edits made while it was written are saved next time.
-                        this.project_saving = if EDITS.load(Ordering::SeqCst) == stamp { Saving::Saved } else { Saving::Pending };
+                        if EDITS.load(Ordering::SeqCst) == stamp {
+                            this.project_saving = Saving::Saved;
+                            this.project_pending = None;
+                        } else {
+                            this.project_saving = Saving::Pending;
+                            this.project_pending = Some(started);
+                        }
                     }
                     Err(e) => {
                         let why = super::ui::explain_error(&e);
@@ -199,6 +229,7 @@ impl Studio {
         p.file = file.to_string();
         self.project = Some(p);
         self.project_saving = Saving::Saved;
+        self.project_pending = None;
         self.project_seen = EDITS.load(Ordering::SeqCst);
         self.cooker = None;
         self.prefs.projects.retain(|f| f != file);
@@ -482,6 +513,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| {
                 this.project = None;
                 this.project_saving = Saving::Saved;
+                this.project_pending = None;
                 this.applied_docs = false;
                 this.dirty.clear();
                 this.movies.clear();

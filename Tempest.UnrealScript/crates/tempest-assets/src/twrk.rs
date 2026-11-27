@@ -46,8 +46,8 @@ pub fn write(out: &Path, manifest: &J, entries: &[Entry]) -> Result<()> {
         z.write_all(&serde_json::to_vec_pretty(manifest).unwrap_or_default())?;
         for e in entries {
             let name = e.meta["entry"].as_str().unwrap_or_default();
-            // Packages and marshals are compressed already: store them as is.
-            let method = if name.starts_with("files/") { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+            // Packages, marshals and deltas are compressed already: store them as is.
+            let method = if name.starts_with("files/") || name.starts_with("deltas/") { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
             z.start_file(name, zip::write::SimpleFileOptions::default().compression_method(method).large_file(e.bytes.len() as u64 > u32::MAX as u64)).map_err(err)?;
             z.write_all(&e.bytes)?;
         }

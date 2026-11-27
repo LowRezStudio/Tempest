@@ -83,7 +83,9 @@ delta). The cooker (`mod_cook`): a discovery pass (`Sharing::All`, `fast`) finds
 more items hold, then each item is made once, sharing only those (`Sharing::Only`), package diffs in
 parallel (`mod_items`/`package_item`), every part of every delta and the new object files encoded in
 one `pack_all` (`encode_pending`, `Payload::Delta` until then); results are cached for the session
-by `item_stamp` (source, target, launcher backup sizes and times, base record) and sharing set.
+by `item_stamp` (source, target, launcher backup sizes and times, base record, an unsaved package's
+`content_hash`) and sharing set; an unsaved package's uncompressed bytes are made once per request
+(`unsaved_bytes`, `item_bytes`) for its stamp and its comparison.
 `mod_preview` uses the same parallel path and a cache. Cassie Bow (5 packages, 230 MB edited, 1300
 objects): 61 MB (74.6 MB without sharing, 80.8 MB sharing every large object), cooked in about 25 s
 (it was 80 s), under a second when rebuilt unchanged; the launcher applies it in 4.6 s, identical to

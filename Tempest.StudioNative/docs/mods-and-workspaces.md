@@ -15,7 +15,7 @@ launching), ⋯ (Build only…, Install here anyway, Install elsewhere…, Save 
 Publish…) and **Build & install** (a fast build, into a temporary folder for an unnamed mod, then
 `mod install` into this game unless files saved in place would hide whether the mod works); tabs
 Files (game files you changed, each named in words with its counts on its line: `mod.preview`
-runs for the first 8 files after every refresh; What changed unfolds the list of changes under a
+runs for the first 8 files after every refresh, in one call; What changed unfolds the list of changes under a
 file and keeps it unfolded across refreshes; errors shown in the file's row; with two files or
 more, a bar above them ticks or unticks every file and removes the unticked ones from the list or
 project in one go (`remove_left_out`, after a confirm; a file with unsaved edits always stays
@@ -34,7 +34,9 @@ or Specific (clicks pick and unpick), on a timeline of every patch in the Launch
 `patches`/`patchFrom`/`patchTo` and sent as `--patch`/`--from`/`--to`;
 signing and account); a right column on every tab with the mod card as the mod list shows it,
 Publish… (Publish tab), the problems with a way to each fix, and the last build with its log.
-Underneath: `mod.changes` per game file (re-read whenever `backend::EDITS` moves), source and delta/whole choice, `mod.preview`, a `…` menu per file (show the
+Underneath: `mod.changes` per game file (re-read once `backend::EDITS` moves and edits settle for a
+second while the view is shown; hidden, it is only marked stale and read when shown, or when MCP
+`studio_mod` asks for a status or a build), source and delta/whole choice, `mod.preview`, a `…` menu per file (show the
 changes, leave out, whole file, Discard my edits, Forget the copy, remove from the list or project:
 `dismissed` by modified time), Other files (Add files…: Lua → `scripts/`, DLLs → `dlls/64/`,
 `.upk`/`.dat`/`.pck` matched with `mod.match` + `mod.addCopy`, else shipped as a new file), Details
@@ -60,7 +62,9 @@ argument opens one).
 **Mod projects** (`project.rs`): New/Open/Close project, a folder with `<id>.twrk` (linked;
 `state.project` holds name, id, author, version and the edited file names), `mod-files/`, `builds/`,
 `README.txt`; the file saves itself 1.5 s after the last edit (`backend::EDITS` counts successful
-mutating calls), ⌘S saves the project and Write into the game folder is its own command, the header
+mutating calls), at most every 20 s or three times the last save's duration, once the backend is idle
+and no agent called a tool for 4 s (`backend::is_quiet`; changes waiting 2 minutes save anyway; the
+recovery draft waits the same way), ⌘S saves the project and Write into the game folder is its own command, the header
 shows the project chip (save state, menu) and Build mod; closing saves or discards, then unloads the
 edits (`package.discard`, `mcts.discard`); the cooker lists only the project's files (plus unsaved
 ones), takes its details, ships `mod-files/` as an extra and builds into `builds/`.

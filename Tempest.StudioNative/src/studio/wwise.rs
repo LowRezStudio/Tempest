@@ -344,7 +344,7 @@ impl Studio {
             }
         }
         if let Some(c) = self.cooker.clone() {
-            c.update(cx, |c, cx| c.refresh(cx));
+            c.update(cx, |c, cx| c.mark_stale(cx));
         }
     }
 
