@@ -463,7 +463,7 @@ impl Studio {
                         this.select_export(i, cx);
                     }
                     if let Some(c) = this.cooker.clone() {
-                        c.update(cx, |c, cx| c.refresh(cx));
+                        c.update(cx, |c, cx| c.mark_stale(cx));
                     }
                 }
                 if let Some((prop, e)) = failed {
@@ -525,7 +525,7 @@ impl Studio {
                     }
                     this.sync_cooker(cx);
                     if let Some(c) = this.cooker.clone() {
-                        c.update(cx, |c, cx| c.refresh(cx));
+                        c.update(cx, |c, cx| c.mark_stale(cx));
                     }
                     this.set_status(format!("{} updated", d.prop), cx);
                     // The inspector shows the module's properties: read them again.

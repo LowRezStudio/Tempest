@@ -1240,6 +1240,13 @@ impl<'a> Editor<'a> {
         out
     }
 
+    /// How Save writes this package: what turns [`Editor::bytes_uncompressed`]
+    /// into [`Editor::bytes`] without the editor (on another thread).
+    pub fn save_form(&self) -> SaveForm {
+        let s = &self.pkg.summary;
+        SaveForm { compress: self.was_compressed, obscure: self.obscured, compression_flags: s.compression_flags, package_flags: s.package_flags }
+    }
+
     /// The package was saved to its own file: everything journaled so far is
     /// on disk now (undoing it will dirty the package again).
     pub fn mark_saved(&mut self) {
@@ -1247,6 +1254,26 @@ impl<'a> Editor<'a> {
         for e in self.undo.iter_mut().chain(self.redo.iter_mut()) {
             e.saved = true;
         }
+    }
+}
+
+/// The storage settings of an editor's package (see [`Editor::save_form`]).
+#[derive(Clone, Debug)]
+pub struct SaveForm {
+    compress: bool,
+    obscure: bool,
+    compression_flags: u32,
+    package_flags: u32,
+}
+
+impl SaveForm {
+    /// The bytes Save would write, from the bytes `bytes_uncompressed` gave.
+    pub fn bytes(&self, uncompressed: &[u8]) -> Result<Vec<u8>> {
+        let mut pkg = Package::parse(uncompressed)?;
+        // The uncompressed form leaves the storage flags out.
+        pkg.summary.compression_flags = self.compression_flags;
+        pkg.summary.package_flags = self.package_flags;
+        Ok(pkg.to_bytes(&WriteOptions { compress: self.compress, obscure: self.obscure }))
     }
 }
 
@@ -1656,6 +1683,26 @@ mod tests {
         ed.rename(0, "redo_test_other").unwrap();
         assert_eq!(ed.redo(), None);
         assert!(ed.redo_labels().is_empty());
+    }
+
+    /// `SaveForm::bytes` of the uncompressed form is what `bytes` writes
+    /// (a compressed, obscured game package, when present).
+    #[test]
+    fn save_form_compresses_like_save() {
+        let Some(home) = std::env::var_os("HOME") else { return };
+        let path = Path::new(&home).join("Games/Tempest/8.1/ChaosGame/CookedPCConsole/DEVICE27309_LOBBY_ASSETS_SF.upk");
+        if !path.exists() {
+            eprintln!("skipped: no {}", path.display());
+            return;
+        }
+        let db = ClassDb::new();
+        let mut ed = Editor::open(&db, &path).unwrap();
+        ed.begin_undo("rename");
+        ed.rename(0, "save_form_test_name").unwrap();
+        ed.end_undo();
+        let form = ed.save_form();
+        let uncompressed = ed.bytes_uncompressed();
+        assert_eq!(form.bytes(&uncompressed).unwrap(), ed.bytes());
     }
 
     #[test]

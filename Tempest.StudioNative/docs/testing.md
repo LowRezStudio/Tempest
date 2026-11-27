@@ -15,7 +15,8 @@ window, `screencapture -l` on macOS, `PrintWindow` on Windows, none on Linux yet
 `maxWidth`, optional `out`), `upk_call` (straight to the backend, binary payloads as base64),
 `studio_open_workspace`, `studio_open_package`, `studio_select`, `studio_set_mode`,
 `studio_commands`, `studio_run_command`, `studio_open_table`, `studio_close_dialog`,
-`studio_project`, `studio_mod` (status/refresh/build), `studio_map` ([map reference](maps.md)); UI
+`studio_project`, `studio_mod` (status/refresh/build, optional `compression` small|fast kept with
+the details; status reads the list again only when stale and does not switch views), `studio_map` ([map reference](maps.md)); UI
 tools run on the UI thread through a channel and answer once no work is in flight.
 
 ## Test driver

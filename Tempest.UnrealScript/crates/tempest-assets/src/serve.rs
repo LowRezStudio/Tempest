@@ -126,6 +126,10 @@ pub struct Server {
     holds_cache: HashMap<String, Vec<String>>,
     /// Compressed shared object files, by hash and compression.
     packed_cache: HashMap<String, Vec<u8>>,
+    /// The bytes Save would write (uncompressed) of the dirty packages this
+    /// request's cooker items read: made once per package and request, not
+    /// for each stamp and comparison. Emptied around every request.
+    item_bytes: HashMap<String, std::sync::Arc<Vec<u8>>>,
     /// How the mod being cooked is compressed (`mod.cook {compression}`).
     compression: crate::delta::Compression,
     out: std::io::Stdout,
@@ -139,7 +143,7 @@ pub struct Server {
     /// Each package's last `twrk.save` delta (or why it was stored whole), by
     /// what it was made from: a project autosaves after every edit, and only
     /// the packages that changed since are compared again.
-    twrk_deltas: HashMap<String, (TwrkStamp, Result<Vec<u8>, String>)>,
+    twrk_deltas: TwrkDeltas,
     /// Makes a GPU ray tracer for path-traced light bakes (set by a host
     /// with a GPU, [`Server::set_tracer_factory`]; else the CPU traces).
     tracer_factory: Option<Box<crate::lightbake::trace::TracerFactory>>,
@@ -185,6 +189,160 @@ type FileStamp = Option<(u64, std::time::SystemTime)>;
 /// What a `twrk.save` delta was made from: the edited package's hash, the
 /// game file, the class database and the target path.
 type TwrkStamp = ([u8; 32], FileStamp, usize, String);
+
+/// Each package's last `twrk.save` delta (or why it was stored whole), by
+/// what it was made from, shared with the saves being written.
+type TwrkDeltas = std::sync::Arc<std::sync::Mutex<HashMap<String, (TwrkStamp, Result<Vec<u8>, String>)>>>;
+
+/// A `twrk.save` once the editors were read ([`Server::twrk_save_job`]):
+/// [`TwrkSave::run`] makes the deltas and writes the file, on any thread.
+pub struct TwrkSave {
+    out: PathBuf,
+    manifest: J,
+    /// The database the deltas are made with, alive while they are.
+    db: std::sync::Arc<ClassDb>,
+    deltas: TwrkDeltas,
+    parts: Vec<TwrkPart>,
+    warnings: Vec<String>,
+}
+
+enum TwrkPart {
+    /// An entry as it is stored: meta, bytes and the recorded base (portable).
+    Entry(J, Vec<u8>, Option<J>),
+    /// A package compared with its game file in `run` (again only when it changed since the last save).
+    Package(Box<TwrkPackage>),
+}
+
+struct TwrkPackage {
+    key: String,
+    name: String,
+    meta: J,
+    /// The game file's size and time when the editors were read.
+    file: FileStamp,
+    /// The package as Save would write it, uncompressed.
+    bytes: Vec<u8>,
+    path: PathBuf,
+    target: String,
+    /// Stored whole when no delta can be made: compressed like Save.
+    form: crate::edit::SaveForm,
+}
+
+impl TwrkSave {
+    /// The workspace file it writes.
+    pub fn out(&self) -> &Path {
+        &self.out
+    }
+
+    /// Make the deltas and write the file: the `twrk.save` result. A panic becomes an error.
+    pub fn run(self) -> Result<J, String> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.write())) {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(panic) => Err(format!("internal error in twrk.save: {}", panic_text(&*panic))),
+        }
+    }
+
+    fn write(self) -> Res<J> {
+        use crate::twrk::Entry;
+        let TwrkSave { out, mut manifest, db, deltas, parts, mut warnings } = self;
+        // What each package is compared as, and the deltas to make again: the
+        // packages changed since the last save, on every core.
+        let packages: Vec<&TwrkPackage> = parts.iter().filter_map(|p| if let TwrkPart::Package(job) = p { Some(&**job) } else { None }).collect();
+        let stamps: Vec<TwrkStamp> = crate::delta::parallel_map(&packages, |job| (content_hash(&job.bytes), job.file, std::sync::Arc::as_ptr(&db) as usize, job.target.clone()));
+        let mut made: HashMap<String, Result<Vec<u8>, String>> = HashMap::new();
+        let mut jobs: Vec<(&TwrkPackage, TwrkStamp)> = Vec::new();
+        {
+            let cache = deltas.lock().unwrap_or_else(|e| e.into_inner());
+            for (job, stamp) in packages.into_iter().zip(stamps) {
+                match cache.get(&job.key) {
+                    Some((s, r)) if *s == stamp => {
+                        made.insert(job.key.clone(), r.clone());
+                    }
+                    _ => jobs.push((job, stamp)),
+                }
+            }
+        }
+        let results = crate::delta::parallel_map(&jobs, |(job, _)| -> Result<Vec<u8>, String> {
+            let base = tempest_upk::PackageFile::open(&job.path).and_then(|f| f.load()).map_err(|e| e.to_string())?;
+            let edited = Package::parse(&job.bytes).map_err(|e| e.to_string())?;
+            // A workspace file is for this machine, written again on every autosave: zstd and no
+            // payloads against their base (LZMA took 50 s for a package with a few 4096 textures).
+            let opts = crate::delta::CreateOptions { fast: true, compression: crate::delta::Compression::Fast, ..Default::default() };
+            match crate::delta::create_with(&db, crate::delta::Base::Package(&base), &edited, &job.target, opts) {
+                Ok((d, w)) if w.is_empty() => Ok(d.to_bytes()),
+                Ok((_, w)) => Err(w.join("; ")),
+                Err(e) => Err(e.to_string()),
+            }
+        });
+        {
+            let mut cache = deltas.lock().unwrap_or_else(|e| e.into_inner());
+            for ((job, stamp), r) in jobs.into_iter().zip(results) {
+                cache.insert(job.key.clone(), (stamp, r.clone()));
+                made.insert(job.key.clone(), r);
+            }
+        }
+        let mut files: Vec<J> = Vec::new();
+        let mut entries: Vec<Entry> = Vec::new();
+        let mut n = 0usize;
+        let mut push = |files: &mut Vec<J>, entries: &mut Vec<Entry>, mut meta: J, bytes: Vec<u8>, base: Option<J>| {
+            n += 1;
+            let stored = meta["stored"].as_str().unwrap_or("full").to_string();
+            let name = Path::new(meta["path"].as_str().unwrap_or("file")).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+            let entry = if stored == "delta" { format!("deltas/{n:04}-{name}.tdelta") } else { format!("files/{n:04}-{name}") };
+            meta["entry"] = J::from(entry.clone());
+            meta["bytes"] = J::from(bytes.len());
+            entries.push(Entry { meta: meta.clone(), bytes });
+            if let Some(b) = base {
+                let be = format!("bases/{n:04}-{name}.json");
+                meta["base"] = J::from(be.clone());
+                entries.push(Entry { meta: json!({ "entry": be }), bytes: serde_json::to_vec(&b).unwrap_or_default() });
+            }
+            files.push(meta);
+        };
+        for part in parts {
+            match part {
+                TwrkPart::Entry(meta, bytes, base) => push(&mut files, &mut entries, meta, bytes, base),
+                TwrkPart::Package(job) => match made.remove(&job.key) {
+                    Some(Ok(d)) => push(&mut files, &mut entries, with_field(&job.meta, "stored", "delta"), d, None),
+                    other => {
+                        let why = match other {
+                            Some(Err(why)) => why,
+                            _ => "no delta was made".to_string(),
+                        };
+                        warnings.push(format!("{}: stored whole ({why})", job.name));
+                        let bytes = job.form.bytes(&job.bytes)?;
+                        push(&mut files, &mut entries, with_field(&job.meta, "stored", "full"), bytes, None);
+                    }
+                },
+            }
+        }
+        manifest["files"] = J::Array(files);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::twrk::write(&out, &manifest, &entries)?;
+        let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        Ok(json!({ "out": out.to_string_lossy(), "mode": manifest["mode"], "files": manifest["files"], "size": size, "warnings": warnings }))
+    }
+}
+
+/// A SHA-256 of `bytes` in 4 MiB pieces hashed on every core (a package
+/// of a few hundred megabytes in a fraction of the time one core takes):
+/// what the in-memory stamps of edited packages compare, never stored.
+fn content_hash(bytes: &[u8]) -> [u8; 32] {
+    let pieces: Vec<&[u8]> = bytes.chunks(4 << 20).collect();
+    let digests = tempest_unrealscript::par::map(&pieces, |p| <[u8; 32]>::from(Sha256::digest(p)));
+    let mut h = Sha256::new();
+    h.update((bytes.len() as u64).to_le_bytes());
+    for d in &digests {
+        h.update(d);
+    }
+    h.finalize().into()
+}
+
+/// What a caught panic says.
+fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into())
+}
 
 /// Returns freed memory to the system. Opening a folder frees hundreds of
 /// megabytes of file images and scratch tables that the allocator would
@@ -324,10 +482,11 @@ impl Server {
     pub fn new() -> Server {
         Server { dir: None, db: None, old_dbs: Vec::new(), db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(), shader_storages: None,
             preview_cache: HashMap::new(),
+            item_bytes: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
-            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), twrk_deltas: HashMap::new(), tracer_factory: None, mcts_rev: 0, twrk_marshals: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
+            compression: crate::delta::Compression::Small, out: std::io::stdout(), on_event: None, wwise: None, pck_edits: HashMap::new(), twrk_deltas: TwrkDeltas::default(), tracer_factory: None, mcts_rev: 0, twrk_marshals: HashMap::new(), ak_names: None, sound_owners: None, mcts: None, bins: BinSink::default(),
             swf_cache: None, swf_embeds: HashMap::new(), swf_libs: HashMap::new(), swf_subset_cache: HashMap::new() }
     }
 
@@ -351,6 +510,7 @@ impl Server {
     pub fn call_bin(&mut self, method: &str, params: &J) -> Result<(J, Vec<Vec<u8>>), String> {
         self.bins.frames = true;
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(method, params)));
+        self.item_bytes.clear();
         let bins = self.bins.take();
         match outcome {
             Ok(Ok(r)) => Ok((r, bins)),
@@ -401,6 +561,7 @@ impl Server {
             // the server down with every unsaved edit of the window: it becomes
             // that request's error.
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(&method, &params)));
+            self.item_bytes.clear();
             let outcome = outcome.unwrap_or_else(|panic| {
                 let what = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
                 Err(format!("internal error in {method}: {what}").into())
@@ -556,6 +717,8 @@ impl Server {
 
     pub fn call(&mut self, method: &str, p: &J) -> Res<J> {
         self.retire_dbs();
+        // Kept by a request that failed half-way (see `call_bin`).
+        self.item_bytes.clear();
         // Anything outside the SWF editor may change a movie or its textures,
         // except these reads (the inspector's tabs, texture thumbnails).
         const READS: &[&str] = &["ping", "package.names", "package.export", "package.tables", "package.undoList", "object.get", "object.text", "object.deps", "texture.info", "texture.preview", "texture.export"];
@@ -1195,66 +1358,34 @@ impl Server {
     /// file (see `twrk.rs`). `include` lists packages opened from outside the
     /// game folder that a portable workspace carries even when unchanged.
     fn twrk_save(&mut self, p: &J) -> Res<J> {
-        use crate::twrk::{relative, Entry};
+        Ok(self.twrk_save_begin(p)?.run()?)
+    }
+
+    /// `twrk.save` for a host that keeps serving while the file is written:
+    /// what reads the editors runs now, the comparisons, compression and the
+    /// zip in [`TwrkSave::run`], on any thread. A panic becomes an error.
+    pub fn twrk_save_job(&mut self, p: &J) -> Result<TwrkSave, String> {
+        self.retire_dbs();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.twrk_save_begin(p))) {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(panic) => Err(format!("internal error in twrk.save: {}", panic_text(&*panic))),
+        }
+    }
+
+    /// The editors' part of `twrk.save`: every dirty package as Save would
+    /// write it (uncompressed, to compare) and the other entries made here.
+    fn twrk_save_begin(&mut self, p: &J) -> Res<TwrkSave> {
+        use crate::twrk::relative;
         let out = PathBuf::from(s(p, "out")?);
         let portable = opt_s(p, "mode").as_deref() == Some("portable");
         let dir = self.dir()?.to_path_buf();
         let root = crate::twrk::game_root(&dir);
-        let db = self.db()?;
-        let mut files: Vec<J> = Vec::new();
-        let mut entries: Vec<Entry> = Vec::new();
+        let db = self.db.clone().ok_or("no workspace open (call workspace.open first)")?;
+        let mut parts: Vec<TwrkPart> = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
-        let mut n = 0usize;
-        let mut push = |files: &mut Vec<J>, entries: &mut Vec<Entry>, mut meta: J, bytes: Vec<u8>, base: Option<J>| {
-            n += 1;
-            let stored = meta["stored"].as_str().unwrap_or("full").to_string();
-            let name = Path::new(meta["path"].as_str().unwrap_or("file")).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-            let entry = if stored == "delta" { format!("deltas/{n:04}-{name}.tdelta") } else { format!("files/{n:04}-{name}") };
-            meta["entry"] = J::from(entry.clone());
-            meta["bytes"] = J::from(bytes.len());
-            entries.push(Entry { meta: meta.clone(), bytes });
-            if let Some(b) = base {
-                let be = format!("bases/{n:04}-{name}.json");
-                meta["base"] = J::from(be.clone());
-                entries.push(Entry { meta: json!({ "entry": be }), bytes: serde_json::to_vec(&b).unwrap_or_default() });
-            }
-            files.push(meta);
-        };
         // Packages.
         let keys: Vec<String> = self.editors.iter().filter(|(_, e)| e.is_dirty()).map(|(k, _)| k.clone()).collect();
-        self.twrk_deltas.retain(|k, _| keys.contains(k));
-        // What each package is compared as, and the deltas to make again (the
-        // packages changed since the last save), made on every core.
-        let mut stamps: HashMap<&str, TwrkStamp> = HashMap::new();
-        let mut jobs: Vec<(&str, Vec<u8>, PathBuf, String)> = Vec::new();
-        for k in &keys {
-            let path = PathBuf::from(k);
-            let ed = self.editors.get_mut(k).unwrap();
-            if portable || ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0 || !path.exists() {
-                continue;
-            }
-            let target = relative(&root, &path).unwrap_or_else(|| crate::basestore::game_relative(&path));
-            // Compared as Save would write it: the in-memory package can
-            // differ from its saved form in ways a delta would count.
-            let bytes = ed.bytes_uncompressed();
-            let stamp: TwrkStamp = (Sha256::digest(&bytes).into(), file_stamp(&path), db as *const ClassDb as usize, target.clone());
-            if self.twrk_deltas.get(k).is_none_or(|(s, _)| *s != stamp) {
-                jobs.push((k, bytes, path, target));
-            }
-            stamps.insert(k, stamp);
-        }
-        let made = crate::delta::parallel_map(&jobs, |(_, bytes, path, target)| -> Result<Vec<u8>, String> {
-            let base = tempest_upk::PackageFile::open(path).and_then(|f| f.load()).map_err(|e| e.to_string())?;
-            let edited = Package::parse(bytes).map_err(|e| e.to_string())?;
-            match crate::delta::create(db, crate::delta::Base::Package(&base), &edited, target) {
-                Ok((d, w)) if w.is_empty() => Ok(d.to_bytes()),
-                Ok((_, w)) => Err(w.join("; ")),
-                Err(e) => Err(e.to_string()),
-            }
-        });
-        for ((k, ..), made) in jobs.iter().zip(made) {
-            self.twrk_deltas.insert(k.to_string(), (stamps[k].clone(), made));
-        }
+        self.twrk_deltas.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| keys.contains(k));
         for k in &keys {
             let path = PathBuf::from(k);
             let rel = relative(&root, &path);
@@ -1264,21 +1395,16 @@ impl Server {
                 // Made in the Studio and not saved: recreated from these bytes on load.
                 meta["new"] = J::Bool(true);
             }
-            let mut delta = None;
-            if stamps.contains_key(k.as_str()) {
-                match &self.twrk_deltas[k].1 {
-                    Ok(d) => delta = Some(d.clone()),
-                    Err(why) => warnings.push(format!("{}: stored whole ({why})", ed.name)),
-                }
+            if portable || ed.pkg.summary.package_flags & pkgf::CONTAINS_SCRIPT != 0 || !path.exists() {
+                let base = if portable { crate::basestore::read(&path) } else { None };
+                parts.push(TwrkPart::Entry(with_field(&meta, "stored", "full"), ed.bytes(), base));
+                continue;
             }
-            let base = if portable { crate::basestore::read(&path) } else { None };
-            match delta {
-                Some(d) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), d, base),
-                None => {
-                    let bytes = ed.bytes();
-                    push(&mut files, &mut entries, with_field(&meta, "stored", "full"), bytes, base);
-                }
-            }
+            let target = rel.unwrap_or_else(|| crate::basestore::game_relative(&path));
+            // Compared as Save would write it: the in-memory package can
+            // differ from its saved form in ways a delta would count.
+            let bytes = ed.bytes_uncompressed();
+            parts.push(TwrkPart::Package(Box::new(TwrkPackage { key: k.clone(), name: ed.name.clone(), meta, file: file_stamp(&path), bytes, path, target, form: ed.save_form() })));
         }
         // Packages from outside the game folder, carried by portable workspaces.
         if portable {
@@ -1288,7 +1414,7 @@ impl Server {
                     continue;
                 }
                 if let Ok(bytes) = std::fs::read(f) {
-                    push(&mut files, &mut entries, json!({ "kind": "upk", "path": f, "rel": null, "stored": "full", "unchanged": true }), bytes, None);
+                    parts.push(TwrkPart::Entry(json!({ "kind": "upk", "path": f, "rel": null, "stored": "full", "unchanged": true }), bytes, None));
                 }
             }
         }
@@ -1297,7 +1423,7 @@ impl Server {
             let rel = relative(&root, &edit.path);
             for (id, wem) in &edit.media {
                 let meta = json!({ "kind": "pck", "path": edit.path.to_string_lossy(), "rel": rel, "media": id, "stored": "media" });
-                push(&mut files, &mut entries, meta, wem.clone(), None);
+                parts.push(TwrkPart::Entry(meta, wem.clone(), None));
             }
         }
         // Marshal files.
@@ -1335,11 +1461,8 @@ impl Server {
                 }
                 let base = if portable { crate::basestore::read(&doc.path) } else { None };
                 match delta {
-                    Some(bytes) => push(&mut files, &mut entries, with_field(&meta, "stored", "delta"), bytes, base),
-                    None => {
-                        let bytes = mcts::write_obscured(&doc.marshal, &tokens);
-                        push(&mut files, &mut entries, with_field(&meta, "stored", "full"), bytes, base);
-                    }
+                    Some(bytes) => parts.push(TwrkPart::Entry(with_field(&meta, "stored", "delta"), bytes, base)),
+                    None => parts.push(TwrkPart::Entry(with_field(&meta, "stored", "full"), mcts::write_obscured(&doc.marshal, &tokens), base)),
                 }
             }
         }
@@ -1349,15 +1472,10 @@ impl Server {
             "mode": if portable { "portable" } else { "linked" },
             "gameDir": dir.to_string_lossy(),
             "saved": saved,
-            "files": files,
+            "files": [],
             "state": p.get("state").cloned().unwrap_or(J::Null),
         });
-        if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        crate::twrk::write(&out, &manifest, &entries)?;
-        let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
-        Ok(json!({ "out": out.to_string_lossy(), "mode": manifest["mode"], "files": manifest["files"], "size": size, "warnings": warnings }))
+        Ok(TwrkSave { out, manifest, db, deltas: self.twrk_deltas.clone(), parts, warnings })
     }
 
     /// `twrk.apply {path}`: put a workspace file's changes into the open
@@ -5424,13 +5542,19 @@ impl Server {
         // Unsaved edits: a package by what Save would write, a marshal file by
         // the assembly's revision (the Mod view previews its changes again
         // after every edit of anything).
-        let unsaved = match self.editors.get_mut(&sk).filter(|e| e.is_dirty()) {
-            Some(e) => Some(format!("{:x}", Sha256::digest(e.bytes_uncompressed()))),
+        let unsaved = match self.unsaved_bytes(&sk) {
+            Some(bytes) => Some(content_hash(&bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()),
             None => self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)).then(|| format!("mcts@{}", self.mcts_rev)),
         };
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{}:{:?}", m.len(), m.modified().ok()));
         let t = Path::new(&target);
         Some(format!("{source}|{target}|{}|{}|{:?}|{:?}|{:?}|{:?}|{unsaved:?}", it["mode"], it["kind"], stamp(Path::new(&source)), stamp(t), crate::basestore::launcher_backup(t).as_deref().and_then(stamp), crate::basestore::read(t).map(|d| d.to_string().len())))
+    }
+
+    /// A dirty package's bytes as Save would write them, uncompressed (once per request).
+    fn unsaved_bytes(&mut self, sk: &str) -> Option<std::sync::Arc<Vec<u8>>> {
+        let ed = self.editors.get_mut(sk).filter(|e| e.is_dirty())?;
+        Some(self.item_bytes.entry(sk.to_string()).or_insert_with(|| std::sync::Arc::new(ed.bytes_uncompressed())).clone())
     }
 
     /// [`Server::mod_item`] for several items, the package comparisons (the
@@ -5439,7 +5563,7 @@ impl Server {
         let mut out: Vec<Option<Res<Item>>> = (0..items.len()).map(|_| None).collect();
         struct Job {
             k: usize,
-            bytes: Vec<u8>,
+            bytes: std::sync::Arc<Vec<u8>>,
             target: PathBuf,
             rel: String,
             share: crate::delta::CreateOptions,
@@ -5454,9 +5578,9 @@ impl Server {
             }
             let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
             let sk = key(&source.to_string_lossy());
-            let bytes = match self.editors.get_mut(&sk) {
-                Some(ed) if ed.is_dirty() => Ok(ed.bytes_uncompressed()),
-                _ => std::fs::read(&source),
+            let bytes = match self.unsaved_bytes(&sk) {
+                Some(bytes) => Ok(bytes),
+                None => std::fs::read(&source).map(std::sync::Arc::new),
             };
             match bytes {
                 Ok(bytes) => jobs.push(Job { k, bytes, rel: crate::basestore::game_relative(&target), target, share: share_options(sharing(k), preview, self.compression) }),

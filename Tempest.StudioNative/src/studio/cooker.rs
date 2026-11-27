@@ -78,6 +78,13 @@ pub struct Cooker {
     pub(super) account: Option<super::account::Account>,
     /// The edit count the list was read at: the list follows edits made anywhere.
     seen: usize,
+    /// Since the last change the list does not show yet: read again once
+    /// changes settle while the view is shown (hidden, it waits to be shown).
+    stale: Option<std::time::Instant>,
+    /// A refresh waits for changes to settle.
+    refresh_queued: bool,
+    /// What runs once the list was read again (a build asked for while stale).
+    after_refresh: Vec<AfterRefresh>,
     /// The tab shown: what goes in, the details, publishing.
     tab: ModTab,
     /// The mod is installed in this game (`tempest mod list`): Remove from game shows.
@@ -94,6 +101,9 @@ pub struct Cooker {
     disk: std::cell::RefCell<Option<Disk>>,
     _subs: Vec<Subscription>,
 }
+
+/// A step waiting for the list of changes (`Cooker::refresh_then`).
+type AfterRefresh = Box<dyn FnOnce(&mut Cooker, &mut Context<Cooker>)>;
 
 /// What `problems`, `kind` and the file count need from disk, read at most every `Disk::TTL`.
 struct Disk {
@@ -427,7 +437,7 @@ impl Cooker {
         }));
         let extras = saved["extras"].as_array().into_iter().flatten().filter_map(|x| Some((x["src"].as_str()?.to_string(), x["dest"].as_str()?.to_string()))).collect();
         let dismissed = saved["dismissed"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_u64()?))).collect();
-        let mut c = Cooker { backend, studio, movies, unapplied_particles: 0, applying_particles: false, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, built_fast: false, built_as: None, game_patch, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), tab: ModTab::Changes, installed: false, show_log: false, show_timeline: false, compat_mode: CompatMode::Range, anchor: None, disk: Default::default(), _subs: subs };
+        let mut c = Cooker { backend, studio, movies, unapplied_particles: 0, applying_particles: false, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, built_fast: false, built_as: None, game_patch, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), stale: None, refresh_queued: false, after_refresh: Vec::new(), tab: ModTab::Changes, installed: false, show_log: false, show_timeline: false, compat_mode: CompatMode::Range, anchor: None, disk: Default::default(), _subs: subs };
         c.compat_mode = CompatMode::of(&c.meta.compat);
         c.refresh(cx);
         c.load_account(cx);
@@ -571,6 +581,13 @@ impl Cooker {
         let _ = self.studio.update(cx, |_, cx| cx.notify());
     }
 
+    /// Build with zstd (several times faster, about 30 % bigger) instead of LZMA; kept with the details.
+    pub(super) fn set_fast(&mut self, fast: bool, cx: &mut Context<Self>) {
+        self.meta.fast = fast;
+        self.save_meta(cx);
+        cx.notify();
+    }
+
     pub(super) fn mod_id(&self, cx: &App) -> String {
         let typed = self.meta.text("id", cx);
         if typed.is_empty() { super::project::id_of(&self.meta.text("name", cx)) } else { typed }
@@ -581,8 +598,11 @@ impl Cooker {
         if v.is_empty() { "1.0.0".into() } else { v }
     }
 
+    /// Read the list of changes again now (and what changed in the first files).
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.loading = true;
+        self.stale = None;
+        self.seen = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
         let call = self.backend.call("mod.changes", json!({}));
         cx.spawn(async move |this, cx| {
             let r = call.await;
@@ -597,19 +617,76 @@ impl Cooker {
                             list.retain(|f| f["origin"].as_str() == Some("unsaved") || names.contains(&file_name(f["target"].as_str().unwrap_or_default()).to_ascii_lowercase()));
                         }
                         this.set_sources(&files);
-                        // What changed in each file shows without asking (the first few: a big package takes a moment).
-                        for k in 0..this.targets.len().min(8) {
-                            if this.targets[k].included {
-                                this.preview(k, cx);
-                            }
-                        }
+                        // What changed in each file shows without asking (the first few: a big package
+                        // takes a moment), in one call: the packages are compared on every core.
+                        let first: Vec<usize> = (0..this.targets.len().min(8)).filter(|&k| this.targets[k].included).collect();
+                        this.preview_all(&first, cx);
                     }
                     Err(e) => this.toast(Tone::Error, format!("Could not list the changes: {}", super::ui::explain_error(&e)), cx),
+                }
+                for then in std::mem::take(&mut this.after_refresh) {
+                    then(this, cx);
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Something changed (an edit, an undo, a save elsewhere): the list is
+    /// read again once changes settle while the view is shown, else when it is.
+    pub fn mark_stale(&mut self, cx: &mut Context<Self>) {
+        self.stale = Some(std::time::Instant::now());
+        cx.notify();
+    }
+
+    /// Whether the Mod view is the one shown.
+    fn shown(&self, cx: &App) -> bool {
+        self.studio.upgrade().is_some_and(|s| s.read(cx).view == super::View::Mod)
+    }
+
+    /// Refresh once changes have settled for a second (an agent's batch of
+    /// edits reads the list once), and only while the view is shown.
+    fn queue_refresh(&mut self, cx: &mut Context<Self>) {
+        const SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+        if self.refresh_queued {
+            return;
+        }
+        self.refresh_queued = true;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
+            let done = this.update(cx, |this, cx| {
+                if !this.shown(cx) {
+                    this.refresh_queued = false;
+                    return true;
+                }
+                if this.loading || this.stale.is_some_and(|t| t.elapsed() < SETTLE) {
+                    return false;
+                }
+                this.refresh_queued = false;
+                if this.stale.is_some() {
+                    this.refresh(cx);
+                }
+                true
+            });
+            if done.unwrap_or(true) {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// Read the list again first when it is stale, then `then` (a build, a status asked for).
+    pub(super) fn refresh_then(&mut self, cx: &mut Context<Self>, then: impl FnOnce(&mut Cooker, &mut Context<Cooker>) + 'static) {
+        let edits = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
+        if self.stale.is_none() && edits == self.seen && !self.loading {
+            then(self, cx);
+            return;
+        }
+        self.after_refresh.push(Box::new(then));
+        if !self.loading {
+            self.refresh(cx);
+        }
     }
 
     fn set_sources(&mut self, files: &J) {
@@ -691,23 +768,29 @@ impl Cooker {
     }
 
     fn preview(&mut self, k: usize, cx: &mut Context<Self>) {
-        let Some(t) = self.targets.get(k) else { return };
-        let call = self.backend.call("mod.preview", json!({ "items": [Self::item(t)] }));
+        self.preview_all(&[k], cx);
+    }
+
+    /// `mod.preview` of these files, in one call.
+    fn preview_all(&mut self, ks: &[usize], cx: &mut Context<Self>) {
+        let ks: Vec<usize> = ks.iter().copied().filter(|&k| k < self.targets.len()).collect();
+        if ks.is_empty() {
+            return;
+        }
+        let items: Vec<J> = ks.iter().map(|&k| Self::item(&self.targets[k])).collect();
+        // Answers for the files as they were asked about (the list may be read again meanwhile).
+        let asked: Vec<String> = ks.iter().map(|&k| self.targets[k].target.clone()).collect();
+        let call = self.backend.call("mod.preview", json!({ "items": items }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
-                match r {
-                    Ok(r) => {
-                        if let Some(t) = this.targets.get_mut(k) {
-                            t.preview = r.json["items"].as_array().and_then(|a| a.first()).cloned();
-                        }
-                    }
-                    // Shown in the file's card: previews run by themselves, a toast each would pile up.
-                    Err(e) => {
-                        if let Some(t) = this.targets.get_mut(k) {
-                            t.preview = Some(json!({ "error": super::ui::explain_error(&e) }));
-                        }
-                    }
+                for (n, target) in asked.iter().enumerate() {
+                    let Some(t) = this.targets.iter_mut().find(|t| &t.target == target) else { continue };
+                    t.preview = match &r {
+                        Ok(r) => r.json["items"].as_array().and_then(|a| a.get(n)).cloned(),
+                        // Shown in the file's card: previews run by themselves, a toast each would pile up.
+                        Err(e) => Some(json!({ "error": super::ui::explain_error(e) })),
+                    };
                 }
                 cx.notify();
             });
@@ -833,23 +916,23 @@ impl Cooker {
 
     /// Build, asking first when the project already has a package of this version.
     fn build(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.build_with(false, false, window, cx);
+        self.build_with(false, window, cx);
     }
 
-    fn build_with(&mut self, install_after: bool, fast_override: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn build_with(&mut self, install_after: bool, window: &mut Window, cx: &mut Context<Self>) {
         let (id, version) = (self.mod_id(cx), self.version(cx));
         if let Some(out) = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest"))).filter(|o| o.exists()) {
             let me = cx.entity().downgrade();
             super::dialogs::confirm(window, cx, format!("Replace the build of {version}?"), format!("{} already exists. Build again over it, or change the version first (a version already published cannot be uploaded again).", file_name(&out.to_string_lossy())), "Build again", false, move |_, cx| {
-                let _ = me.update(cx, |this, cx| this.build_inner(install_after, fast_override, cx));
+                let _ = me.update(cx, |this, cx| this.build_inner(install_after, cx));
             });
             return;
         }
-        self.build_inner(install_after, fast_override, cx);
+        self.build_inner(install_after, cx);
     }
 
     pub(super) fn build_now(&mut self, cx: &mut Context<Self>) {
-        self.build_inner(false, false, cx);
+        self.build_inner(false, cx);
     }
 
     fn cook_request(&self, staging: &Path, compression: &str, cx: &App) -> (usize, J) {
@@ -872,7 +955,7 @@ impl Cooker {
         (count, json!({ "dir": staging.to_string_lossy(), "id": id, "name": name, "version": version, "authors": authors, "readme": readme, "icon": icon, "dependencies": deps, "items": items, "compression": compression, "extras": extras }))
     }
 
-    fn build_inner(&mut self, install_after: bool, fast_override: bool, cx: &mut Context<Self>) {
+    fn build_inner(&mut self, install_after: bool, cx: &mut Context<Self>) {
         self.refresh_disk();
         if !self.problems(cx).is_empty() {
             return;
@@ -883,7 +966,7 @@ impl Cooker {
         // mod into a temporary one; otherwise ask where.
         let fixed = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest"))).or_else(|| install_after.then(|| std::env::temp_dir().join("tempest-studio-native").join("builds").join(format!("{id}-{version}.tempest"))));
         let target = fixed.is_none().then(|| cx.prompt_for_new_path(&docs, Some(&format!("{id}-{version}.tempest"))));
-        let use_fast = self.meta.fast || fast_override;
+        let use_fast = self.meta.fast;
         let compression = if use_fast { "fast" } else { "small" };
         let staging = std::env::temp_dir().join("tempest-studio-native").join("staging").join(&id);
         let (item_count, req) = self.cook_request(&staging, compression, cx);
@@ -1083,9 +1166,9 @@ impl Cooker {
         Path::new(&self.dir).parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
     }
 
-    /// Build & install: a fast build, then into this game (leaving the saved compression choice untouched).
+    /// Build & install: a build with the chosen compression, then into this game.
     pub(crate) fn build_and_install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.build_with(true, true, window, cx);
+        self.build_with(true, window, cx);
     }
 
     /// After Build & install: into this game, unless files saved in place would hide whether the mod works.
@@ -1909,6 +1992,7 @@ impl Cooker {
             None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
             None => "Take this mod out of the game folder that is open".into(),
         };
+        let fast = self.meta.fast;
         let actions = h_flex()
             .flex_wrap()
             .justify_end()
@@ -1941,6 +2025,12 @@ impl Cooker {
                         }))
                 }),
             )
+            // The compression of every build, in view next to the button (the Electron Studio had it there).
+            .child(
+                h_flex()
+                    .child(Button::new("cook-small").small().ghost().label("Smallest").selected(!fast).tooltip("LZMA: the smallest mod, slower to build (a big mod takes a minute or so). Best for sharing and publishing.").on_click(cx.listener(|this, _, _, cx| this.set_fast(false, cx))))
+                    .child(Button::new("cook-fast").small().ghost().label("Faster").selected(fast).tooltip("zstd: builds several times faster, the mod is about 30 % bigger. Good while testing; Publish repacks it as the smallest.").on_click(cx.listener(|this, _, _, cx| this.set_fast(true, cx)))),
+            )
             .child(
                 div().relative().child(
                     Button::new("cook-build")
@@ -1951,7 +2041,8 @@ impl Cooker {
                         .tooltip(match problems.first() {
                             Some(p) => format!("Before building: {p}"),
                             None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
-                            None => "Build the mod (fast) and install it into this game, ready to play from Tempest Launcher".into(),
+                            None if fast => "Build the mod (faster, bigger file) and install it into this game, ready to play from Tempest Launcher".into(),
+                            None => "Build the mod (smallest file) and install it into this game, ready to play from Tempest Launcher".into(),
                         })
                         .disabled(blocked)
                         .on_click(cx.listener(|this, _, window, cx| this.build_and_install(window, cx))),
@@ -2668,10 +2759,14 @@ impl Render for Cooker {
         if let Some(file) = self.unmatched.take() {
             self.ask_unmatched(file, window, cx);
         }
+        // Shown: changes made anywhere are read once they settle.
         let edits = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
-        if edits != self.seen && !self.loading {
+        if edits != self.seen {
             self.seen = edits;
-            self.refresh(cx);
+            self.stale = Some(std::time::Instant::now());
+        }
+        if self.stale.is_some() {
+            self.queue_refresh(cx);
         }
         let theme = cx.theme().clone();
         let input = |i: &Entity<InputState>| Input::new(i).small();
@@ -2704,14 +2799,6 @@ impl Render for Cooker {
                 let typed_id = self.meta.text("id", cx);
                 let id_fix = Some(super::project::id_of(&typed_id)).filter(|f| !typed_id.is_empty() && *f != typed_id && modmeta::id_ok(f));
                 let lua = self.ships_lua();
-                let fast = self.meta.fast;
-                let pick = |id: &'static str, label: &'static str, tip: &'static str, value: bool, cx: &mut Context<Self>| {
-                    Button::new(id).small().label(label).tooltip(tip).ghost().selected(fast == value).on_click(cx.listener(move |this, _, _, cx| {
-                        this.meta.fast = value;
-                        this.save_meta(cx);
-                        cx.notify();
-                    }))
-                };
                 main.child(
                     crate::studio::ui::panel(gpui_kit_assets::IconName::Pencil, "The mod", "", &theme)
                         .child(h_flex().items_start().gap_3().child(div().flex_grow(1.0).flex_basis(px(0.0)).flex_shrink(1.0).min_w_0().child(crate::studio::ui::field("Name", "", input(&self.meta.name), &theme))).child(div().w(px(140.0)).flex_none().child(crate::studio::ui::field("Version", "", input(&self.meta.version), &theme))))
@@ -2749,14 +2836,7 @@ impl Render for Cooker {
                                     (None, _) => crate::studio::ui::hint(format!("How launchers and other mods name this mod: {id}. Made from the name unless you type one."), &theme).into_any_element(),
                                 }),
                         )
-                        .child(v_flex().gap_1().child(crate::studio::ui::field("Mods it needs", "optional", Textarea::new(&self.meta.deps), &theme)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme)))
-                        .child(
-                            v_flex()
-                                .gap_1()
-                                .child(div().text_xs().text_color(theme.muted_foreground).child("Compression (Build only)"))
-                                .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, cx)))
-                                .child(crate::studio::ui::hint("Build & install always builds fast. Build the smallest file for sharing and publishing.", &theme)),
-                        ),
+                        .child(v_flex().gap_1().child(crate::studio::ui::field("Mods it needs", "optional", Textarea::new(&self.meta.deps), &theme)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme))),
                 )
             }
             ModTab::Publish => {
@@ -2802,7 +2882,8 @@ impl Cooker {
             "version": self.version(cx),
             "problems": self.problems(cx),
             "busy": self.busy,
-            "built": self.built.as_ref().map(|(p, signed)| json!({ "path": p, "signed": signed })),
+            "compression": if self.meta.fast { "fast" } else { "small" },
+            "built": self.built.as_ref().map(|(p, signed)| json!({ "path": p, "signed": signed, "compression": if self.built_fast { "fast" } else { "small" } })),
             "log": self.log.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>(),
         })
     }

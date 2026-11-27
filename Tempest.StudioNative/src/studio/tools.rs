@@ -35,7 +35,7 @@ impl Studio {
         .detach();
     }
 
-    fn open_package_file(&mut self, path: String, cx: &mut Context<Self>) {
+    pub(super) fn open_package_file(&mut self, path: String, cx: &mut Context<Self>) {
         let same = |a: &str, b: &str| std::path::Path::new(a) == std::path::Path::new(b);
         if self.dir.is_none() || path.to_ascii_lowercase().ends_with(".twrk") {
             // No folder yet: the file's folder becomes it.

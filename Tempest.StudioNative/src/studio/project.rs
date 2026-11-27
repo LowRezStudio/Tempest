@@ -23,11 +23,23 @@ use crate::backend::EDITS;
 
 /// How long the project waits after the last change before saving itself.
 const SETTLE: Duration = Duration::from_millis(1500);
-/// The least time between two autosaves: a save compares every edited
-/// package and runs on the backend thread, so saving after each of a quick
-/// series of edits (an agent's batch) would hold every next edit back.
-/// Quitting, closing the project and ⌘S still save at once.
+/// The least time between two autosaves, or three times the last save when
+/// that is longer: a save reads every edited package on the backend thread,
+/// so saving after each of a quick series of edits (an agent's batch) would
+/// hold every next edit back. Quitting, closing the project and ⌘S still
+/// save at once.
 pub(super) const GAP: Duration = Duration::from_secs(20);
+/// An autosave waits for the backend to be idle and for agents to pause this
+/// long between calls (an agent's batch is not cut by a save)…
+const QUIET: Duration = Duration::from_secs(4);
+/// …unless changes have waited this long for their save.
+const LONGEST: Duration = Duration::from_secs(120);
+
+/// Whether an autosave of changes waiting since `pending` may start now:
+/// nothing in flight and no agent call for `QUIET`, or waiting for `LONGEST`.
+pub(super) fn autosave_may_start(pending: Option<Instant>) -> bool {
+    crate::backend::is_quiet(QUIET) || pending.is_some_and(|t| t.elapsed() >= LONGEST)
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,9 +146,10 @@ impl Studio {
                     this.project_changed = Some(Instant::now());
                     if this.project_saving != Saving::Pending {
                         this.project_saving = Saving::Pending;
+                        this.project_pending.get_or_insert_with(Instant::now);
                         cx.notify();
                     }
-                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) && this.project_autosaved.is_none_or(|t| t.elapsed() >= GAP) {
+                } else if this.project_saving == Saving::Pending && this.project_changed.is_some_and(|t| t.elapsed() >= SETTLE) && this.autosave_due() {
                     this.project_autosaved = Some(Instant::now());
                     this.save_project(cx);
                 }
@@ -146,6 +159,15 @@ impl Studio {
             }
         })
         .detach();
+    }
+
+    /// Whether the pending changes may be autosaved now (see `GAP` and `autosave_may_start`).
+    fn autosave_due(&self) -> bool {
+        let gap = GAP.max(self.project_save_took * 3);
+        if self.project_autosaved.is_some_and(|t| t.elapsed() < gap) {
+            return false;
+        }
+        autosave_may_start(self.project_pending)
     }
 
     /// Write the project file now (a linked workspace file with the project's details).
@@ -160,15 +182,23 @@ impl Studio {
         }
         self.project_saving = Saving::Writing;
         let stamp = EDITS.load(Ordering::SeqCst);
+        let started = Instant::now();
         let call = self.backend.call("twrk.save", json!({ "out": p.file, "mode": "linked", "state": self.twrk_state() }));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
+                this.project_save_took = started.elapsed();
                 match r {
                     Ok(_) => {
                         // Edits made while it was written are saved next time.
-                        this.project_saving = if EDITS.load(Ordering::SeqCst) == stamp { Saving::Saved } else { Saving::Pending };
+                        if EDITS.load(Ordering::SeqCst) == stamp {
+                            this.project_saving = Saving::Saved;
+                            this.project_pending = None;
+                        } else {
+                            this.project_saving = Saving::Pending;
+                            this.project_pending = Some(started);
+                        }
                     }
                     Err(e) => {
                         let why = super::ui::explain_error(&e);
@@ -199,6 +229,7 @@ impl Studio {
         p.file = file.to_string();
         self.project = Some(p);
         self.project_saving = Saving::Saved;
+        self.project_pending = None;
         self.project_seen = EDITS.load(Ordering::SeqCst);
         self.cooker = None;
         self.prefs.projects.retain(|f| f != file);
@@ -320,6 +351,49 @@ impl Studio {
                     let _ = me.update(cx, |this, cx| this.create_project(p, PathBuf::from(location), window, cx));
                 }))
         });
+    }
+
+    /// `studio_project create` (MCP): what the Name-your-mod dialog makes, without the dialog. The file it creates.
+    pub(super) fn create_project_from(&mut self, args: &serde_json::Value, window: &mut Window, cx: &mut Context<Self>) -> Result<String, String> {
+        let Some(game) = self.dir.clone() else {
+            return Err("open the game folder the mod is for first (studio_open_workspace)".into());
+        };
+        let arg = |k: &str| args[k].as_str().unwrap_or_default().trim().to_string();
+        let name = arg("name");
+        if name.is_empty() {
+            return Err("missing name".into());
+        }
+        let typed = arg("id");
+        let id = if typed.is_empty() { id_of(&name) } else { typed };
+        if !super::modmeta::id_ok(&id) {
+            return Err(format!("{id} is not a valid mod id"));
+        }
+        let version = match arg("version") {
+            v if v.is_empty() => "1.0.0".to_string(),
+            v => v,
+        };
+        let location = match arg("dir") {
+            d if d.is_empty() => documents().join("Tempest Mods"),
+            d => PathBuf::from(d),
+        };
+        let file = location.join(&id).join(format!("{id}.twrk"));
+        if file.exists() {
+            return Err(format!("{} already exists: open it with action open", file.display()));
+        }
+        // The draft's details (readme, icon…) come along, as with the dialog.
+        let draft = match &self.cooker {
+            Some(c) => c.read(cx).draft_json(cx),
+            None => super::cooker::read_draft_meta(&game),
+        };
+        let mut cooker = if draft.is_object() { draft } else { json!({}) };
+        let author = arg("author");
+        cooker["name"] = json!(&name);
+        cooker["id"] = json!(&id);
+        cooker["author"] = json!(&author);
+        cooker["version"] = json!(&version);
+        let p = Project { file: String::new(), name, id, author, version, files: Vec::new(), cooker };
+        self.create_project(p, location, window, cx);
+        Ok(file.to_string_lossy().to_string())
     }
 
     pub(super) fn create_project(&mut self, mut p: Project, location: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -482,6 +556,7 @@ impl Studio {
             let _ = this.update(cx, |this, cx| {
                 this.project = None;
                 this.project_saving = Saving::Saved;
+                this.project_pending = None;
                 this.applied_docs = false;
                 this.dirty.clear();
                 this.movies.clear();
