@@ -60,7 +60,9 @@ argument opens one).
 **Mod projects** (`project.rs`): New/Open/Close project, a folder with `<id>.twrk` (linked;
 `state.project` holds name, id, author, version and the edited file names), `mod-files/`, `builds/`,
 `README.txt`; the file saves itself 1.5 s after the last edit (`backend::EDITS` counts successful
-mutating calls), ⌘S saves the project and Write into the game folder is its own command, the header
+mutating calls), at most every 20 s or three times the last save's duration, once the backend is idle
+and no agent called a tool for 4 s (`backend::is_quiet`; changes waiting 2 minutes save anyway; the
+recovery draft waits the same way), ⌘S saves the project and Write into the game folder is its own command, the header
 shows the project chip (save state, menu) and Build mod; closing saves or discards, then unloads the
 edits (`package.discard`, `mcts.discard`); the cooker lists only the project's files (plus unsaved
 ones), takes its details, ships `mod-files/` as an extra and builds into `builds/`.

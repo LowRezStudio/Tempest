@@ -5,8 +5,9 @@
 //! bake, map progress) go to a channel the UI drains.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use futures::channel::oneshot;
 use serde_json::Value as J;
@@ -38,6 +39,20 @@ fn is_edit(method: &str) -> bool {
     let verb = method.rsplit('.').next().unwrap_or(method);
     const VERBS: &[&str] = &["set", "add", "remove", "delete", "rename", "duplicate", "copy", "replace", "import", "create", "undo", "discard", "apply", "new", "own", "insert", "edit", "link", "save", "findReplace", "vendorAdd", "collectionAdd"];
     VERBS.iter().any(|v| verb.starts_with(v)) && method != "twrk.save" || matches!(method, "batch.run" | "script.compile" | "sound.replacePcm" | "wwise.replacePcm")
+}
+
+/// When an agent last called a tool (MCP): autosaves wait for a pause.
+static LAST_CALL: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// An agent called a tool.
+pub fn note_call() {
+    *LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+}
+
+/// Nothing is in flight and no agent called for `quiet`: a moment for an
+/// autosave that holds no one back.
+pub fn is_quiet(quiet: Duration) -> bool {
+    WORK.load(Ordering::SeqCst) == 0 && LAST_CALL.lock().unwrap_or_else(|e| e.into_inner()).is_none_or(|t| t.elapsed() >= quiet)
 }
 
 /// Counts as work while alive.

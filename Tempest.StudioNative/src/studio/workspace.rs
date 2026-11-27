@@ -200,20 +200,23 @@ impl Studio {
         use std::sync::atomic::Ordering;
         let mut seen = crate::backend::EDITS.load(Ordering::SeqCst);
         let mut changed: Option<std::time::Instant> = None;
-        // Spaced like the project's autosave (`project::GAP`).
+        // Spaced like the project's autosave (`project::GAP`), and waits for a quiet moment like it.
         let mut last: Option<std::time::Instant> = None;
+        let mut pending: Option<std::time::Instant> = None;
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
             let stamp = crate::backend::EDITS.load(Ordering::SeqCst);
             if stamp != seen {
                 seen = stamp;
                 changed = Some(std::time::Instant::now());
+                pending.get_or_insert_with(std::time::Instant::now);
                 continue;
             }
-            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) || last.is_some_and(|t| t.elapsed() < super::project::GAP) {
+            if !changed.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2)) || last.is_some_and(|t| t.elapsed() < super::project::GAP) || !super::project::autosave_may_start(pending) {
                 continue;
             }
             changed = None;
+            pending = None;
             last = Some(std::time::Instant::now());
             let alive = this.update(cx, |this, cx| {
                 let Some(dir) = this.dir.clone() else { return };

@@ -157,6 +157,7 @@ fn serve(stream: TcpStream, backend: &Backend, tx: &mpsc::UnboundedSender<UiCall
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
         "tools/call" => {
+            crate::backend::note_call();
             let name = req["params"]["name"].as_str().unwrap_or("").to_string();
             let args = req["params"]["arguments"].clone();
             if name == "studio_screenshot" {
@@ -173,6 +174,7 @@ fn serve(stream: TcpStream, backend: &Backend, tx: &mpsc::UnboundedSender<UiCall
                 "studio_map" => map_call(backend, tx, args),
                 _ => ui_call(tx, name, args),
             };
+            crate::backend::note_call();
             Ok(match out {
                 Ok(v) => json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] }),
                 Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
