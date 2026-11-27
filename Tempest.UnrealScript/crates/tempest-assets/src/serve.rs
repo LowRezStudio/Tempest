@@ -126,6 +126,10 @@ pub struct Server {
     holds_cache: HashMap<String, Vec<String>>,
     /// Compressed shared object files, by hash and compression.
     packed_cache: HashMap<String, Vec<u8>>,
+    /// The bytes Save would write (uncompressed) of the dirty packages this
+    /// request's cooker items read: made once per package and request, not
+    /// for each stamp and comparison. Emptied around every request.
+    item_bytes: HashMap<String, std::sync::Arc<Vec<u8>>>,
     /// How the mod being cooked is compressed (`mod.cook {compression}`).
     compression: crate::delta::Compression,
     out: std::io::Stdout,
@@ -478,6 +482,7 @@ impl Server {
     pub fn new() -> Server {
         Server { dir: None, db: None, old_dbs: Vec::new(), db_stamp: None, src: None, packages: Vec::new(), editors: HashMap::new(), closed: Vec::new(), index: HashMap::new(), owners: None, index_job: None, scripts: HashMap::new(), script_jobs: HashMap::new(), mcts_job: None, order: None, png_cache: HashMap::new(), shader_storages: None,
             preview_cache: HashMap::new(),
+            item_bytes: HashMap::new(),
             cook_cache: HashMap::new(),
             holds_cache: HashMap::new(),
             packed_cache: HashMap::new(),
@@ -505,6 +510,7 @@ impl Server {
     pub fn call_bin(&mut self, method: &str, params: &J) -> Result<(J, Vec<Vec<u8>>), String> {
         self.bins.frames = true;
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(method, params)));
+        self.item_bytes.clear();
         let bins = self.bins.take();
         match outcome {
             Ok(Ok(r)) => Ok((r, bins)),
@@ -555,6 +561,7 @@ impl Server {
             // the server down with every unsaved edit of the window: it becomes
             // that request's error.
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(&method, &params)));
+            self.item_bytes.clear();
             let outcome = outcome.unwrap_or_else(|panic| {
                 let what = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
                 Err(format!("internal error in {method}: {what}").into())
@@ -710,6 +717,8 @@ impl Server {
 
     pub fn call(&mut self, method: &str, p: &J) -> Res<J> {
         self.retire_dbs();
+        // Kept by a request that failed half-way (see `call_bin`).
+        self.item_bytes.clear();
         // Anything outside the SWF editor may change a movie or its textures,
         // except these reads (the inspector's tabs, texture thumbnails).
         const READS: &[&str] = &["ping", "package.names", "package.export", "package.tables", "package.undoList", "object.get", "object.text", "object.deps", "texture.info", "texture.preview", "texture.export"];
@@ -5533,13 +5542,19 @@ impl Server {
         // Unsaved edits: a package by what Save would write, a marshal file by
         // the assembly's revision (the Mod view previews its changes again
         // after every edit of anything).
-        let unsaved = match self.editors.get_mut(&sk).filter(|e| e.is_dirty()) {
-            Some(e) => Some(format!("{:x}", Sha256::digest(e.bytes_uncompressed()))),
+        let unsaved = match self.unsaved_bytes(&sk) {
+            Some(bytes) => Some(content_hash(&bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()),
             None => self.mcts.as_ref().is_some_and(|ws| ws.docs.iter().any(|(_, d)| d.dirty && key(&d.path.to_string_lossy()) == sk)).then(|| format!("mcts@{}", self.mcts_rev)),
         };
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{}:{:?}", m.len(), m.modified().ok()));
         let t = Path::new(&target);
         Some(format!("{source}|{target}|{}|{}|{:?}|{:?}|{:?}|{:?}|{unsaved:?}", it["mode"], it["kind"], stamp(Path::new(&source)), stamp(t), crate::basestore::launcher_backup(t).as_deref().and_then(stamp), crate::basestore::read(t).map(|d| d.to_string().len())))
+    }
+
+    /// A dirty package's bytes as Save would write them, uncompressed (once per request).
+    fn unsaved_bytes(&mut self, sk: &str) -> Option<std::sync::Arc<Vec<u8>>> {
+        let ed = self.editors.get_mut(sk).filter(|e| e.is_dirty())?;
+        Some(self.item_bytes.entry(sk.to_string()).or_insert_with(|| std::sync::Arc::new(ed.bytes_uncompressed())).clone())
     }
 
     /// [`Server::mod_item`] for several items, the package comparisons (the
@@ -5548,7 +5563,7 @@ impl Server {
         let mut out: Vec<Option<Res<Item>>> = (0..items.len()).map(|_| None).collect();
         struct Job {
             k: usize,
-            bytes: Vec<u8>,
+            bytes: std::sync::Arc<Vec<u8>>,
             target: PathBuf,
             rel: String,
             share: crate::delta::CreateOptions,
@@ -5563,9 +5578,9 @@ impl Server {
             }
             let target = it["target"].as_str().map(PathBuf::from).unwrap_or_else(|| source.clone());
             let sk = key(&source.to_string_lossy());
-            let bytes = match self.editors.get_mut(&sk) {
-                Some(ed) if ed.is_dirty() => Ok(ed.bytes_uncompressed()),
-                _ => std::fs::read(&source),
+            let bytes = match self.unsaved_bytes(&sk) {
+                Some(bytes) => Ok(bytes),
+                None => std::fs::read(&source).map(std::sync::Arc::new),
             };
             match bytes {
                 Ok(bytes) => jobs.push(Job { k, bytes, rel: crate::basestore::game_relative(&target), target, share: share_options(sharing(k), preview, self.compression) }),
