@@ -12,7 +12,10 @@ writes a `.twrk` zip (`twrk.rs`: `workspace.json` + `deltas/` + `files/` + `base
 makes each package delta from the bytes Save would write, `Package::parse(&ed.bytes())`, since the
 in-memory package can differ from its saved form; the deltas are `Compression::Fast` (zstd) without
 payloads compressed against their base object, and the zip stores `deltas/` and `files/` entries as
-they are: a project autosaves the whole cumulative delta again after every change), `twrk.read`
+they are: a project autosaves the whole cumulative delta again after every change; a host can split it
+with `twrk_save_job`, the editors read into a `TwrkSave` whose `run` makes the deltas and writes the
+zip on another thread; deltas are reused while a package's `content_hash`, file and database match),
+`twrk.read`
 returns the manifest, `twrk.apply`
 applies it to the open workspace (deltas through `delta::apply`, whole packages through
 `Editor::replace_package`, marshals replaced or delta-applied, portable-only external packages
