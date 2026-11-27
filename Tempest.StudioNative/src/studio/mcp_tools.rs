@@ -113,6 +113,12 @@ impl Studio {
                     self.set_view(View::Mod, window, cx);
                 }
                 let c = self.cooker_entity().ok_or("the Mod view is not open")?;
+                match s("compression").as_deref() {
+                    Some("small") => c.update(cx, |c, cx| c.set_fast(false, cx)),
+                    Some("fast") => c.update(cx, |c, cx| c.set_fast(true, cx)),
+                    Some(other) => return Err(format!("compression is small or fast, not {other}")),
+                    None => {}
+                }
                 match action.as_deref() {
                     Some("refresh") => c.update(cx, |c, cx| c.refresh(cx)),
                     // Built from the list as it is now: read again first when edits made it stale.

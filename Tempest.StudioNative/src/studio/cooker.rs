@@ -581,6 +581,13 @@ impl Cooker {
         let _ = self.studio.update(cx, |_, cx| cx.notify());
     }
 
+    /// Build with zstd (several times faster, about 30 % bigger) instead of LZMA; kept with the details.
+    pub(super) fn set_fast(&mut self, fast: bool, cx: &mut Context<Self>) {
+        self.meta.fast = fast;
+        self.save_meta(cx);
+        cx.notify();
+    }
+
     pub(super) fn mod_id(&self, cx: &App) -> String {
         let typed = self.meta.text("id", cx);
         if typed.is_empty() { super::project::id_of(&self.meta.text("name", cx)) } else { typed }
@@ -2786,11 +2793,7 @@ impl Render for Cooker {
                 let lua = self.ships_lua();
                 let fast = self.meta.fast;
                 let pick = |id: &'static str, label: &'static str, tip: &'static str, value: bool, cx: &mut Context<Self>| {
-                    Button::new(id).small().label(label).tooltip(tip).ghost().selected(fast == value).on_click(cx.listener(move |this, _, _, cx| {
-                        this.meta.fast = value;
-                        this.save_meta(cx);
-                        cx.notify();
-                    }))
+                    Button::new(id).small().label(label).tooltip(tip).ghost().selected(fast == value).on_click(cx.listener(move |this, _, _, cx| this.set_fast(value, cx)))
                 };
                 main.child(
                     crate::studio::ui::panel(gpui_kit_assets::IconName::Pencil, "The mod", "", &theme)
@@ -2882,7 +2885,8 @@ impl Cooker {
             "version": self.version(cx),
             "problems": self.problems(cx),
             "busy": self.busy,
-            "built": self.built.as_ref().map(|(p, signed)| json!({ "path": p, "signed": signed })),
+            "compression": if self.meta.fast { "fast" } else { "small" },
+            "built": self.built.as_ref().map(|(p, signed)| json!({ "path": p, "signed": signed, "compression": if self.built_fast { "fast" } else { "small" } })),
             "log": self.log.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>(),
         })
     }
