@@ -1098,6 +1098,7 @@ pub fn create_with(db: &ClassDb, base: Base, edited: &Package, target: &str, opt
                 *i = map_ref(self.edited, self.mini, *i, self.op_of, self.refs, self.memo);
             }
         }
+        ensure_decoded(&p, edited, &edited.object_path(PackageIndex::export(i)))?;
         let mut remap = Remap { edited, mini: &mut mini, op_of: &op_of, refs: &mut refs, memo: &mut ref_memo, names: HashMap::new() };
         for problem in visit_parsed(&mut p, Some(none.index), &mut remap) {
             warnings.push(format!("{}: {problem}", edited.object_path(PackageIndex::export(i))));
@@ -1263,6 +1264,24 @@ fn movie_bytes(v: &crate::value::Value) -> Option<Vec<u8>> {
 /// Apply `delta` to the open package `ed`.
 pub fn apply(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase) -> Result<Applied> {
     apply_with(db, ed, delta, phase, None)
+}
+
+/// An object moving between name tables (into a delta's mini package, or
+/// from it into the target) needs every name inside it remapped; a property
+/// left raw would keep the other table's indices and name the wrong things
+/// (`VectorParameterValues` naming `add_jump`), so it is refused.
+fn ensure_decoded(p: &Parsed, pkg: &Package, what: &str) -> Result<()> {
+    let Parsed::Object(o) = p else { return Ok(()) };
+    let raw = crate::visit::raw_properties(o);
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = raw.iter().map(|n| pkg.fname_to_string(*n)).collect();
+    Err(Error::Format(format!(
+        "{what}: {} could not be decoded (the game's class database is missing or incomplete: keep the package in the game folder or pass -I <CookedPCConsole>), so the names and references in {} cannot be carried between packages",
+        names.join(", "),
+        if names.len() == 1 { "it" } else { "them" }
+    )))
 }
 
 /// [`apply`], with the package as it was before any delta was applied
@@ -1465,6 +1484,7 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
                     }
                 }
                 let mut wrapped = Parsed::Object(pm);
+                ensure_decoded(&wrapped, &mini, &op.path)?;
                 let mut remap = PatchRemap { res: &mut res, ed, paths: &mut paths, names: HashMap::new() };
                 for problem in visit_parsed(&mut wrapped, Some(mini_none.index), &mut remap) {
                     out.warnings.push(format!("{}: {problem}", op.path));
@@ -1588,6 +1608,7 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
                 let mut tres = Resolver { mini: tiny, refs: trefs, target_of: &self_of, memo: HashMap::new(), warnings: Vec::new() };
                 let data = tiny.export_data.first().map(|d| d.as_slice()).unwrap_or(&[]);
                 let mut p = parse_export(db, tiny, mini_layout, 0, data);
+                ensure_decoded(&p, tiny, &op.path)?;
                 let mut remap = Remap { res: &mut tres, ed, paths: &mut paths, names: HashMap::new() };
                 for problem in visit_parsed(&mut p, Some(none_name(tiny).index), &mut remap) {
                     out.warnings.push(format!("{}: {problem}", op.path));
@@ -1599,6 +1620,7 @@ pub fn apply_with(db: &ClassDb, ed: &mut Editor, delta: &Delta, phase: Phase, or
                 let streamed = op.stream.and_then(|(s, o, n)| delta.streams.get(s)?.get(o..o + n));
                 let data = from_data.as_deref().or(streamed).unwrap_or_else(|| mini.export_data.get(k).map(|d| d.as_slice()).unwrap_or(&[]));
                 let mut p = parse_export(db, &mini, mini_layout, k, data);
+                ensure_decoded(&p, &mini, &op.path)?;
                 let mut remap = Remap { res: &mut res, ed, paths: &mut paths, names: HashMap::new() };
                 for problem in visit_parsed(&mut p, Some(mini_none.index), &mut remap) {
                     out.warnings.push(format!("{}: {problem}", op.path));

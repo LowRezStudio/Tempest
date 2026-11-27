@@ -116,7 +116,12 @@ resolver: jobs `{base, deltas, out, dir, game}` in one process, events as JSON l
 <edited>` (create + apply + canonical compare; the test, run on content, recompiled script packages,
 `assembly.dat` and `Lang_*.dat`). The class database must be the game's: `create` warns when an
 object's class is unknown (its references would be copied as indices), and the CLI picks the first
-given package's folder that holds `Core.upk`.
+given package's folder that holds `Core.upk`. Without it, struct and array properties stay raw
+(`Value::Raw`: their layout comes from the database), and a raw property's names and references
+cannot be visited, so moving the object between name tables would keep the other table's indices
+(`VectorParameterValues` naming `add_jump`). `create` and every `apply` path refuse such an object
+(`ensure_decoded`, `visit::raw_properties`), naming the properties: keep the package in the game
+folder or pass `-I <CookedPCConsole>`.
 
 Mod upgrades (`upgrade.rs`, `mod.upgrade` in `serve.rs`, `upk mod upgrade <mod> --game <dir> -o
 <out-dir> [--fast]`, the CLI's `tempest mod upgrade`): `upgrade::unpack` extracts a `.tempest` /

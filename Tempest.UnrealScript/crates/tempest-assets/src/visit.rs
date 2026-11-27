@@ -384,6 +384,30 @@ pub fn visit_parsed(p: &mut Parsed, none_index: Option<u32>, v: &mut dyn Visitor
     }
 }
 
+/// The properties of an object kept as raw bytes, anywhere inside it (a
+/// struct or array whose layout the class database does not give, usually
+/// because there is no database at all): the names and references in them
+/// cannot be visited, so the object cannot move to another name table.
+/// Each top-level property is listed once.
+pub fn raw_properties(o: &Object) -> Vec<FName> {
+    fn raw(v: &Value) -> bool {
+        match v {
+            Value::Raw(_) => true,
+            Value::Struct(StructValue::Tagged(ps)) => ps.iter().any(|p| raw(&p.value)),
+            Value::Struct(StructValue::Binary(ms)) => ms.iter().any(|m| m.elems.iter().any(raw)),
+            Value::Array(items) => items.iter().any(raw),
+            _ => false,
+        }
+    }
+    let mut out: Vec<FName> = Vec::new();
+    for p in o.properties.iter().filter(|p| raw(&p.value)) {
+        if !out.contains(&p.name) {
+            out.push(p.name);
+        }
+    }
+    out
+}
+
 /// Collect every object reference of an object.
 pub fn references(obj: &mut Object) -> Vec<PackageIndex> {
     struct C(Vec<PackageIndex>);
