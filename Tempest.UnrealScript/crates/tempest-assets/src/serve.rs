@@ -1246,7 +1246,10 @@ impl Server {
         let made = crate::delta::parallel_map(&jobs, |(_, bytes, path, target)| -> Result<Vec<u8>, String> {
             let base = tempest_upk::PackageFile::open(path).and_then(|f| f.load()).map_err(|e| e.to_string())?;
             let edited = Package::parse(bytes).map_err(|e| e.to_string())?;
-            match crate::delta::create(db, crate::delta::Base::Package(&base), &edited, target) {
+            // A workspace file is for this machine, written again on every autosave: zstd and no
+            // payloads against their base (LZMA took 50 s for a package with a few 4096 textures).
+            let opts = crate::delta::CreateOptions { fast: true, compression: crate::delta::Compression::Fast, ..Default::default() };
+            match crate::delta::create_with(db, crate::delta::Base::Package(&base), &edited, target, opts) {
                 Ok((d, w)) if w.is_empty() => Ok(d.to_bytes()),
                 Ok((_, w)) => Err(w.join("; ")),
                 Err(e) => Err(e.to_string()),
