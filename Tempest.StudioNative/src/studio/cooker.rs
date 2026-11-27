@@ -916,23 +916,23 @@ impl Cooker {
 
     /// Build, asking first when the project already has a package of this version.
     fn build(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.build_with(false, false, window, cx);
+        self.build_with(false, window, cx);
     }
 
-    fn build_with(&mut self, install_after: bool, fast_override: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn build_with(&mut self, install_after: bool, window: &mut Window, cx: &mut Context<Self>) {
         let (id, version) = (self.mod_id(cx), self.version(cx));
         if let Some(out) = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest"))).filter(|o| o.exists()) {
             let me = cx.entity().downgrade();
             super::dialogs::confirm(window, cx, format!("Replace the build of {version}?"), format!("{} already exists. Build again over it, or change the version first (a version already published cannot be uploaded again).", file_name(&out.to_string_lossy())), "Build again", false, move |_, cx| {
-                let _ = me.update(cx, |this, cx| this.build_inner(install_after, fast_override, cx));
+                let _ = me.update(cx, |this, cx| this.build_inner(install_after, cx));
             });
             return;
         }
-        self.build_inner(install_after, fast_override, cx);
+        self.build_inner(install_after, cx);
     }
 
     pub(super) fn build_now(&mut self, cx: &mut Context<Self>) {
-        self.build_inner(false, false, cx);
+        self.build_inner(false, cx);
     }
 
     fn cook_request(&self, staging: &Path, compression: &str, cx: &App) -> (usize, J) {
@@ -955,7 +955,7 @@ impl Cooker {
         (count, json!({ "dir": staging.to_string_lossy(), "id": id, "name": name, "version": version, "authors": authors, "readme": readme, "icon": icon, "dependencies": deps, "items": items, "compression": compression, "extras": extras }))
     }
 
-    fn build_inner(&mut self, install_after: bool, fast_override: bool, cx: &mut Context<Self>) {
+    fn build_inner(&mut self, install_after: bool, cx: &mut Context<Self>) {
         self.refresh_disk();
         if !self.problems(cx).is_empty() {
             return;
@@ -966,7 +966,7 @@ impl Cooker {
         // mod into a temporary one; otherwise ask where.
         let fixed = self.project.as_ref().map(|p| p.builds().join(format!("{id}-{version}.tempest"))).or_else(|| install_after.then(|| std::env::temp_dir().join("tempest-studio-native").join("builds").join(format!("{id}-{version}.tempest"))));
         let target = fixed.is_none().then(|| cx.prompt_for_new_path(&docs, Some(&format!("{id}-{version}.tempest"))));
-        let use_fast = self.meta.fast || fast_override;
+        let use_fast = self.meta.fast;
         let compression = if use_fast { "fast" } else { "small" };
         let staging = std::env::temp_dir().join("tempest-studio-native").join("staging").join(&id);
         let (item_count, req) = self.cook_request(&staging, compression, cx);
@@ -1166,9 +1166,9 @@ impl Cooker {
         Path::new(&self.dir).parent().and_then(|p| p.parent()).map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
     }
 
-    /// Build & install: a fast build, then into this game (leaving the saved compression choice untouched).
+    /// Build & install: a build with the chosen compression, then into this game.
     pub(crate) fn build_and_install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.build_with(true, true, window, cx);
+        self.build_with(true, window, cx);
     }
 
     /// After Build & install: into this game, unless files saved in place would hide whether the mod works.
@@ -1992,6 +1992,7 @@ impl Cooker {
             None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
             None => "Take this mod out of the game folder that is open".into(),
         };
+        let fast = self.meta.fast;
         let actions = h_flex()
             .flex_wrap()
             .justify_end()
@@ -2024,6 +2025,12 @@ impl Cooker {
                         }))
                 }),
             )
+            // The compression of every build, in view next to the button (the Electron Studio had it there).
+            .child(
+                h_flex()
+                    .child(Button::new("cook-small").small().ghost().label("Smallest").selected(!fast).tooltip("LZMA: the smallest mod, slower to build (a big mod takes a minute or so). Best for sharing and publishing.").on_click(cx.listener(|this, _, _, cx| this.set_fast(false, cx))))
+                    .child(Button::new("cook-fast").small().ghost().label("Faster").selected(fast).tooltip("zstd: builds several times faster, the mod is about 30 % bigger. Good while testing; Publish repacks it as the smallest.").on_click(cx.listener(|this, _, _, cx| this.set_fast(true, cx)))),
+            )
             .child(
                 div().relative().child(
                     Button::new("cook-build")
@@ -2034,7 +2041,8 @@ impl Cooker {
                         .tooltip(match problems.first() {
                             Some(p) => format!("Before building: {p}"),
                             None if !cli => "The mod packer (tempest) is missing from this Studio".into(),
-                            None => "Build the mod (fast) and install it into this game, ready to play from Tempest Launcher".into(),
+                            None if fast => "Build the mod (faster, bigger file) and install it into this game, ready to play from Tempest Launcher".into(),
+                            None => "Build the mod (smallest file) and install it into this game, ready to play from Tempest Launcher".into(),
                         })
                         .disabled(blocked)
                         .on_click(cx.listener(|this, _, window, cx| this.build_and_install(window, cx))),
@@ -2791,10 +2799,6 @@ impl Render for Cooker {
                 let typed_id = self.meta.text("id", cx);
                 let id_fix = Some(super::project::id_of(&typed_id)).filter(|f| !typed_id.is_empty() && *f != typed_id && modmeta::id_ok(f));
                 let lua = self.ships_lua();
-                let fast = self.meta.fast;
-                let pick = |id: &'static str, label: &'static str, tip: &'static str, value: bool, cx: &mut Context<Self>| {
-                    Button::new(id).small().label(label).tooltip(tip).ghost().selected(fast == value).on_click(cx.listener(move |this, _, _, cx| this.set_fast(value, cx)))
-                };
                 main.child(
                     crate::studio::ui::panel(gpui_kit_assets::IconName::Pencil, "The mod", "", &theme)
                         .child(h_flex().items_start().gap_3().child(div().flex_grow(1.0).flex_basis(px(0.0)).flex_shrink(1.0).min_w_0().child(crate::studio::ui::field("Name", "", input(&self.meta.name), &theme))).child(div().w(px(140.0)).flex_none().child(crate::studio::ui::field("Version", "", input(&self.meta.version), &theme))))
@@ -2832,14 +2836,7 @@ impl Render for Cooker {
                                     (None, _) => crate::studio::ui::hint(format!("How launchers and other mods name this mod: {id}. Made from the name unless you type one."), &theme).into_any_element(),
                                 }),
                         )
-                        .child(v_flex().gap_1().child(crate::studio::ui::field("Mods it needs", "optional", Textarea::new(&self.meta.deps), &theme)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme)))
-                        .child(
-                            v_flex()
-                                .gap_1()
-                                .child(div().text_xs().text_color(theme.muted_foreground).child("Compression (Build only)"))
-                                .child(h_flex().gap_1().child(pick("cook-small", "Smallest file", "LZMA: the smallest mod, slower to build (a big mod takes a minute or so)", false, cx)).child(pick("cook-fast", "Faster build", "zstd: builds several times faster, the mod is about 30 % bigger", true, cx)))
-                                .child(crate::studio::ui::hint("Build & install always builds fast. Build the smallest file for sharing and publishing.", &theme)),
-                        ),
+                        .child(v_flex().gap_1().child(crate::studio::ui::field("Mods it needs", "optional", Textarea::new(&self.meta.deps), &theme)).child(crate::studio::ui::hint(if lua { "tempest-scripting>=1.0.0 is added for you: the mod ships Lua." } else { "One per line: an id, then a version requirement like >=1.2.0, ^2 or ~1.2." }, &theme))),
                 )
             }
             ModTab::Publish => {

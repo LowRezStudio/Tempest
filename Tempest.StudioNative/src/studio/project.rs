@@ -353,6 +353,49 @@ impl Studio {
         });
     }
 
+    /// `studio_project create` (MCP): what the Name-your-mod dialog makes, without the dialog. The file it creates.
+    pub(super) fn create_project_from(&mut self, args: &serde_json::Value, window: &mut Window, cx: &mut Context<Self>) -> Result<String, String> {
+        let Some(game) = self.dir.clone() else {
+            return Err("open the game folder the mod is for first (studio_open_workspace)".into());
+        };
+        let arg = |k: &str| args[k].as_str().unwrap_or_default().trim().to_string();
+        let name = arg("name");
+        if name.is_empty() {
+            return Err("missing name".into());
+        }
+        let typed = arg("id");
+        let id = if typed.is_empty() { id_of(&name) } else { typed };
+        if !super::modmeta::id_ok(&id) {
+            return Err(format!("{id} is not a valid mod id"));
+        }
+        let version = match arg("version") {
+            v if v.is_empty() => "1.0.0".to_string(),
+            v => v,
+        };
+        let location = match arg("dir") {
+            d if d.is_empty() => documents().join("Tempest Mods"),
+            d => PathBuf::from(d),
+        };
+        let file = location.join(&id).join(format!("{id}.twrk"));
+        if file.exists() {
+            return Err(format!("{} already exists: open it with action open", file.display()));
+        }
+        // The draft's details (readme, icon…) come along, as with the dialog.
+        let draft = match &self.cooker {
+            Some(c) => c.read(cx).draft_json(cx),
+            None => super::cooker::read_draft_meta(&game),
+        };
+        let mut cooker = if draft.is_object() { draft } else { json!({}) };
+        let author = arg("author");
+        cooker["name"] = json!(&name);
+        cooker["id"] = json!(&id);
+        cooker["author"] = json!(&author);
+        cooker["version"] = json!(&version);
+        let p = Project { file: String::new(), name, id, author, version, files: Vec::new(), cooker };
+        self.create_project(p, location, window, cx);
+        Ok(file.to_string_lossy().to_string())
+    }
+
     pub(super) fn create_project(&mut self, mut p: Project, location: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let dir = location.join(&p.id);
         let file = dir.join(format!("{}.twrk", p.id));

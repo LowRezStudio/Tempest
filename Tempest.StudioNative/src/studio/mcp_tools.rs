@@ -31,7 +31,15 @@ impl Studio {
                 Ok(json!({ "status": "opening" }))
             }
             "studio_open_package" => {
-                let want = s("package").ok_or("missing package")?;
+                // A file anywhere, like Open package file… without the picker: outside the folder it joins the list.
+                if let Some(path) = s("path") {
+                    if !std::path::Path::new(&path).is_file() {
+                        return Err(format!("{path} is not a file"));
+                    }
+                    self.open_package_file(path.clone(), cx);
+                    return Ok(json!({ "status": "opening", "path": path }));
+                }
+                let want = s("package").ok_or("give package (a name in the folder) or path (a file)")?;
                 let p = self
                     .packages
                     .iter()
@@ -95,6 +103,22 @@ impl Studio {
                 Ok(json!({ "status": "closed" }))
             }
             "studio_project" => match s("action").as_deref() {
+                // Like Open a mod… without the picker: an open project is saved and closed first.
+                Some("open") => {
+                    let path = s("path").ok_or("missing path (the project's .twrk file)")?;
+                    if !std::path::Path::new(&path).is_file() {
+                        return Err(format!("{path} is not a file"));
+                    }
+                    self.open_project(path.clone(), cx);
+                    Ok(json!({ "status": "opening", "path": path }))
+                }
+                Some("create") => {
+                    if self.project.is_some() {
+                        return Err("a project is open: close it first (action close)".into());
+                    }
+                    let file = self.create_project_from(args, window, cx)?;
+                    Ok(json!({ "status": "created", "file": file }))
+                }
                 Some("save") => {
                     self.save_project(cx);
                     Ok(json!({ "status": "saving" }))
