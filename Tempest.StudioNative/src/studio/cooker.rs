@@ -78,6 +78,13 @@ pub struct Cooker {
     pub(super) account: Option<super::account::Account>,
     /// The edit count the list was read at: the list follows edits made anywhere.
     seen: usize,
+    /// Since the last change the list does not show yet: read again once
+    /// changes settle while the view is shown (hidden, it waits to be shown).
+    stale: Option<std::time::Instant>,
+    /// A refresh waits for changes to settle.
+    refresh_queued: bool,
+    /// What runs once the list was read again (a build asked for while stale).
+    after_refresh: Vec<AfterRefresh>,
     /// The tab shown: what goes in, the details, publishing.
     tab: ModTab,
     /// The mod is installed in this game (`tempest mod list`): Remove from game shows.
@@ -94,6 +101,9 @@ pub struct Cooker {
     disk: std::cell::RefCell<Option<Disk>>,
     _subs: Vec<Subscription>,
 }
+
+/// A step waiting for the list of changes (`Cooker::refresh_then`).
+type AfterRefresh = Box<dyn FnOnce(&mut Cooker, &mut Context<Cooker>)>;
 
 /// What `problems`, `kind` and the file count need from disk, read at most every `Disk::TTL`.
 struct Disk {
@@ -427,7 +437,7 @@ impl Cooker {
         }));
         let extras = saved["extras"].as_array().into_iter().flatten().filter_map(|x| Some((x["src"].as_str()?.to_string(), x["dest"].as_str()?.to_string()))).collect();
         let dismissed = saved["dismissed"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_u64()?))).collect();
-        let mut c = Cooker { backend, studio, movies, unapplied_particles: 0, applying_particles: false, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, built_fast: false, built_as: None, game_patch, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), tab: ModTab::Changes, installed: false, show_log: false, show_timeline: false, compat_mode: CompatMode::Range, anchor: None, disk: Default::default(), _subs: subs };
+        let mut c = Cooker { backend, studio, movies, unapplied_particles: 0, applying_particles: false, dir, targets: Vec::new(), loading: true, meta, busy: None, log: Vec::new(), built: None, built_fast: false, built_as: None, game_patch, project, extras, dismissed, unmatched: None, choose: Vec::new(), account: None, seen: crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst), stale: None, refresh_queued: false, after_refresh: Vec::new(), tab: ModTab::Changes, installed: false, show_log: false, show_timeline: false, compat_mode: CompatMode::Range, anchor: None, disk: Default::default(), _subs: subs };
         c.compat_mode = CompatMode::of(&c.meta.compat);
         c.refresh(cx);
         c.load_account(cx);
@@ -581,8 +591,11 @@ impl Cooker {
         if v.is_empty() { "1.0.0".into() } else { v }
     }
 
+    /// Read the list of changes again now (and what changed in the first files).
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.loading = true;
+        self.stale = None;
+        self.seen = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
         let call = self.backend.call("mod.changes", json!({}));
         cx.spawn(async move |this, cx| {
             let r = call.await;
@@ -597,19 +610,76 @@ impl Cooker {
                             list.retain(|f| f["origin"].as_str() == Some("unsaved") || names.contains(&file_name(f["target"].as_str().unwrap_or_default()).to_ascii_lowercase()));
                         }
                         this.set_sources(&files);
-                        // What changed in each file shows without asking (the first few: a big package takes a moment).
-                        for k in 0..this.targets.len().min(8) {
-                            if this.targets[k].included {
-                                this.preview(k, cx);
-                            }
-                        }
+                        // What changed in each file shows without asking (the first few: a big package
+                        // takes a moment), in one call: the packages are compared on every core.
+                        let first: Vec<usize> = (0..this.targets.len().min(8)).filter(|&k| this.targets[k].included).collect();
+                        this.preview_all(&first, cx);
                     }
                     Err(e) => this.toast(Tone::Error, format!("Could not list the changes: {}", super::ui::explain_error(&e)), cx),
+                }
+                for then in std::mem::take(&mut this.after_refresh) {
+                    then(this, cx);
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Something changed (an edit, an undo, a save elsewhere): the list is
+    /// read again once changes settle while the view is shown, else when it is.
+    pub fn mark_stale(&mut self, cx: &mut Context<Self>) {
+        self.stale = Some(std::time::Instant::now());
+        cx.notify();
+    }
+
+    /// Whether the Mod view is the one shown.
+    fn shown(&self, cx: &App) -> bool {
+        self.studio.upgrade().is_some_and(|s| s.read(cx).view == super::View::Mod)
+    }
+
+    /// Refresh once changes have settled for a second (an agent's batch of
+    /// edits reads the list once), and only while the view is shown.
+    fn queue_refresh(&mut self, cx: &mut Context<Self>) {
+        const SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+        if self.refresh_queued {
+            return;
+        }
+        self.refresh_queued = true;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
+            let done = this.update(cx, |this, cx| {
+                if !this.shown(cx) {
+                    this.refresh_queued = false;
+                    return true;
+                }
+                if this.loading || this.stale.is_some_and(|t| t.elapsed() < SETTLE) {
+                    return false;
+                }
+                this.refresh_queued = false;
+                if this.stale.is_some() {
+                    this.refresh(cx);
+                }
+                true
+            });
+            if done.unwrap_or(true) {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// Read the list again first when it is stale, then `then` (a build, a status asked for).
+    pub(super) fn refresh_then(&mut self, cx: &mut Context<Self>, then: impl FnOnce(&mut Cooker, &mut Context<Cooker>) + 'static) {
+        let edits = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
+        if self.stale.is_none() && edits == self.seen && !self.loading {
+            then(self, cx);
+            return;
+        }
+        self.after_refresh.push(Box::new(then));
+        if !self.loading {
+            self.refresh(cx);
+        }
     }
 
     fn set_sources(&mut self, files: &J) {
@@ -691,23 +761,29 @@ impl Cooker {
     }
 
     fn preview(&mut self, k: usize, cx: &mut Context<Self>) {
-        let Some(t) = self.targets.get(k) else { return };
-        let call = self.backend.call("mod.preview", json!({ "items": [Self::item(t)] }));
+        self.preview_all(&[k], cx);
+    }
+
+    /// `mod.preview` of these files, in one call.
+    fn preview_all(&mut self, ks: &[usize], cx: &mut Context<Self>) {
+        let ks: Vec<usize> = ks.iter().copied().filter(|&k| k < self.targets.len()).collect();
+        if ks.is_empty() {
+            return;
+        }
+        let items: Vec<J> = ks.iter().map(|&k| Self::item(&self.targets[k])).collect();
+        // Answers for the files as they were asked about (the list may be read again meanwhile).
+        let asked: Vec<String> = ks.iter().map(|&k| self.targets[k].target.clone()).collect();
+        let call = self.backend.call("mod.preview", json!({ "items": items }));
         cx.spawn(async move |this, cx| {
             let r = call.await;
             let _ = this.update(cx, |this, cx| {
-                match r {
-                    Ok(r) => {
-                        if let Some(t) = this.targets.get_mut(k) {
-                            t.preview = r.json["items"].as_array().and_then(|a| a.first()).cloned();
-                        }
-                    }
-                    // Shown in the file's card: previews run by themselves, a toast each would pile up.
-                    Err(e) => {
-                        if let Some(t) = this.targets.get_mut(k) {
-                            t.preview = Some(json!({ "error": super::ui::explain_error(&e) }));
-                        }
-                    }
+                for (n, target) in asked.iter().enumerate() {
+                    let Some(t) = this.targets.iter_mut().find(|t| &t.target == target) else { continue };
+                    t.preview = match &r {
+                        Ok(r) => r.json["items"].as_array().and_then(|a| a.get(n)).cloned(),
+                        // Shown in the file's card: previews run by themselves, a toast each would pile up.
+                        Err(e) => Some(json!({ "error": super::ui::explain_error(e) })),
+                    };
                 }
                 cx.notify();
             });
@@ -2668,10 +2744,14 @@ impl Render for Cooker {
         if let Some(file) = self.unmatched.take() {
             self.ask_unmatched(file, window, cx);
         }
+        // Shown: changes made anywhere are read once they settle.
         let edits = crate::backend::EDITS.load(std::sync::atomic::Ordering::SeqCst);
-        if edits != self.seen && !self.loading {
+        if edits != self.seen {
             self.seen = edits;
-            self.refresh(cx);
+            self.stale = Some(std::time::Instant::now());
+        }
+        if self.stale.is_some() {
+            self.queue_refresh(cx);
         }
         let theme = cx.theme().clone();
         let input = |i: &Entity<InputState>| Input::new(i).small();

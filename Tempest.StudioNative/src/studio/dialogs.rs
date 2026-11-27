@@ -205,7 +205,7 @@ impl Studio {
                     this.map_discarded(&path, cx);
                     this.toast(Tone::Success, format!("Discarded the changes to {}", file_name(&path)), cx);
                     if let Some(c) = this.cooker.clone() {
-                        c.update(cx, |c, cx| c.refresh(cx));
+                        c.update(cx, |c, cx| c.mark_stale(cx));
                     }
                     if this.selected_package.as_deref() == Some(path.as_str()) {
                         this.selected_package = None;

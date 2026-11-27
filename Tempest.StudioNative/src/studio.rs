@@ -719,7 +719,7 @@ impl Studio {
     /// An assembly file was written: the Mod view lists it.
     pub(crate) fn assembly_saved(&mut self, cx: &mut Context<Self>) {
         if let Some(c) = self.cooker.clone() {
-            c.update(cx, |c, cx| c.refresh(cx));
+            c.update(cx, |c, cx| c.mark_stale(cx));
         }
     }
 
@@ -1112,7 +1112,7 @@ impl Studio {
                     (None, true) => this.set_status("Nothing to redo", cx),
                 }
                 if let Some(c) = this.cooker.clone() {
-                    c.update(cx, |c, cx| c.refresh(cx));
+                    c.update(cx, |c, cx| c.mark_stale(cx));
                 }
                 if label.is_some() && this.open.as_ref().map(|t| t.path.as_str()) == Some(path.as_str()) {
                     Some(this.backend.call("package.tables", json!({ "path": path })))
