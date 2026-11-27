@@ -215,11 +215,6 @@ impl MapEditor {
                 if traced && this.bake.indirect_rays == 0 {
                     this.bake.indirect_rays = 64;
                 }
-                // Each mode's fitted default, unless changed by hand.
-                let (from, to) = if traced { (0.08, 0.06) } else { (0.06, 0.08) };
-                if (this.bake.albedo - from).abs() < 1e-9 {
-                    this.bake.albedo = to;
-                }
                 cx.notify();
             })));
         }

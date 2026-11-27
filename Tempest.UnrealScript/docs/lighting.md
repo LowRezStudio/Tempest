@@ -75,11 +75,15 @@ three-coefficient layout is the source's `NUM_STORED_LIGHTMAP_COEF`, not a Hi-Re
   element's material, `material_ops::material_info` base colour, 64 px, sRGB to linear) at the hit's
   UV0, scaled so the casters' area-weighted mean luminance is `albedo`, times `DiffuseBoost`, ≤ 0.98;
   materials without one reflect `albedo` (reported as `materialsWithoutColour`). Fit on Shootingrange's
-  TRM_Room_D and TRM_Courtyard_ABC (48 paths, mean |Δ| over the components against the shipped maps):
-  one grey bounce at 0.08 0.3641 / 0.2885; coloured, 3 bounces at 0.08 0.3639 / 0.2792, 0.06 0.3633
-  / 0.2647, 0.05 0.3651 / 0.2608 (darker): 0.06 is the path-traced default. GPU and CPU agree to the
-  printed precision; on an M1 Pro (debug Studio) 64 paths × 3 bounces: Room_D 14 s vs 29 s,
-  Courtyard_ABC 48 s vs 106 s. Components are baked side by side in this mode. Not done: emissive
+  TRM_Room_D and TRM_Courtyard_ABC against the shipped maps, also by the shaded texels' colour (the
+  first default, albedo 0.06 with the environment at full scale, came out blue-green and blotchy in
+  game): Shootingrange's `EnvironmentColor` (99, 204, 236) × 4.45 (`bEnableAdvancedEnvironmentColor`
+  set, its rule not ported) tinted every escaped ray, while the shipped shade has our direct light's
+  chroma. Defaults now: `environmentScale` 0.1, albedo 0.08, the first rays stratified over (cos θ,
+  φ), the indirect light filtered over 2 texels on the same surface (`denoise`, distance Gaussian ×
+  cos⁸ of the normals): shaded chroma 0.45/0.33/0.22 vs 0.46/0.30/0.24, mean |Δ| 0.375 / 0.250
+  (one grey bounce 0.364 / 0.289). GPU and CPU agree to the printed precision; on an M1 Pro (debug
+  Studio) 64 paths × 3 bounces: Room_D 14 s vs 29 s, Courtyard_ABC 48 s vs 106 s. Components are baked side by side in this mode. Not done: emissive
   materials (`bUseEmissiveForStaticLighting`), the material's colour parameters (only its texture).
 - Writing (`write.rs`): allocations shelf-packed on 4-texel boundaries into power-of-two atlases ≤
   1024, two textures per atlas copied from a light map texture of the level (or another level of the

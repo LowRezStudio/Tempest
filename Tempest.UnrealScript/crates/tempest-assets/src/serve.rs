@@ -3016,12 +3016,13 @@ impl Server {
             shadow_samples: opt_u(p, "shadowSamples").unwrap_or(8) as u32,
             sky_samples: opt_u(p, "skySamples").unwrap_or(64) as u32,
             indirect_rays: opt_u(p, "indirectRays").unwrap_or(0) as u32,
-            // Fitted to Lightmass on two Shootingrange levels: 0.08 for one
-            // grey bounce, 0.06 for three coloured ones (`bake::Options::albedo`).
-            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(if opt_b(p, "pathTraced").unwrap_or(false) { 0.06 } else { 0.08 }) as f32,
-            environment_scale: p.get("environmentScale").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+            // Fitted to Lightmass on two Shootingrange levels (`bake::Options`):
+            // path traced, escaped rays pick up a tenth of the environment.
+            albedo: p.get("albedo").and_then(|v| v.as_f64()).unwrap_or(0.08) as f32,
+            environment_scale: p.get("environmentScale").and_then(|v| v.as_f64()).unwrap_or(if opt_b(p, "pathTraced").unwrap_or(false) { 0.1 } else { 1.0 }) as f32,
             path_traced: opt_b(p, "pathTraced").unwrap_or(false),
             bounces: opt_u(p, "bounces").unwrap_or(3).clamp(1, 16) as u32,
+            denoise_radius: opt_u(p, "denoise").unwrap_or(2).min(8) as u32,
         };
         // Path-traced: the materials' colours, and a GPU unless `gpu` is false.
         let (albedos, albedo_of, albedo_missing) = if opts.path_traced { self.bake_albedos(&files, &levels, &meshes)? } else { Default::default() };

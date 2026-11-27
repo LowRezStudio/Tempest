@@ -61,23 +61,33 @@ pub struct Options {
     /// Shootingrange levels (Courtyard_ABC, Room_D, 48 rays) it puts the
     /// mean of shaded meshes at 0.96-1.03 of the shipped light maps (0.15:
     /// 1.15); sunlit meshes land at 0.87-1.26, per mesh within about ×1.6.
-    /// Path traced, the scene's mean (the materials' colours scaled to it):
-    /// 0.06 fits three bounces best on the same levels (mean |difference|
-    /// from the shipped maps 0.363 and 0.265, against 0.364 and 0.289 for
-    /// one grey bounce at 0.08; 0.05 is as close but darker).
+    /// Path traced, the scene's mean (the materials' colours scaled to it),
+    /// fitted with `environment_scale` below.
     pub albedo: f32,
     /// Scale of the world's `EnvironmentColor` that escaped rays pick up.
+    /// Path traced, 0.1 (with albedo 0.08, 3 bounces): at 1 Shootingrange's
+    /// cyan environment (99, 204, 236) × 4.45 tints the shade blue-green
+    /// (shaded texels' chroma 0.37/0.34/0.29 against the shipped maps'
+    /// 0.46/0.30/0.24, which equals our direct light's: Lightmass' escaped
+    /// rays add next to nothing there; `bEnableAdvancedEnvironmentColor` is
+    /// set and its rule is not ported). At 0.1: 0.45/0.33/0.22, mean
+    /// |difference| 0.375 and 0.250 on Room_D and Courtyard_ABC (0.364 and
+    /// 0.289 for one grey bounce).
     pub environment_scale: f32,
     /// Trace in batches with multi-bounce indirect light and material colours
     /// ([`bake_traced`]); `indirect_rays` is then the paths per texel.
     pub path_traced: bool,
     /// Bounces of a path (path-traced mode).
     pub bounces: u32,
+    /// Path traced: the indirect light is averaged over this many texels
+    /// around each (on the same surface: weighted by distance and normal),
+    /// the direct light left sharp. 0: no filtering.
+    pub denoise_radius: u32,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, environment_scale: 1.0, path_traced: false, bounces: 3 }
+        Options { shadow_samples: 8, sky_samples: 64, indirect_rays: 0, albedo: 0.08, environment_scale: 1.0, path_traced: false, bounces: 3, denoise_radius: 2 }
     }
 }
 
@@ -673,6 +683,58 @@ fn cosine_dir(n: V3, rng: &mut Rng) -> V3 {
     normalize(add(scale(n, z), add(scale(u, r * a.cos()), scale(v, r * a.sin()))))
 }
 
+/// The indirect light of each mapped texel averaged with its neighbours in
+/// the map within `radius` texels that lie on the same surface: weights fall
+/// with the world distance (a Gaussian of two texel sizes) and the normals'
+/// agreement (`cos⁸`), so charts that touch in the map but not in the world,
+/// and creases, keep apart.
+fn denoise(texels: &[Texel], n: usize, mapped: &[usize], indirect: &[Gathered], radius: i64) -> Vec<Gathered> {
+    let mut at = vec![usize::MAX; texels.len()];
+    for (k, &i) in mapped.iter().enumerate() {
+        at[i] = k;
+    }
+    let jobs: Vec<usize> = (0..mapped.len()).collect();
+    tempest_unrealscript::par::map(&jobs, |&k| {
+        let i = mapped[k];
+        let (x, y) = ((i % n) as i64, (i / n) as i64);
+        let t = &texels[i];
+        let sigma2 = (2.0 * t.radius.max(1e-3)).powi(2);
+        let mut sum = Gathered { mapped: true, ..Default::default() };
+        let mut total = 0f32;
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let (xx, yy) = (x + dx, y + dy);
+                if xx < 0 || yy < 0 || xx >= n as i64 || yy >= n as i64 {
+                    continue;
+                }
+                let j = at[(yy as usize) * n + xx as usize];
+                if j == usize::MAX {
+                    continue;
+                }
+                let o = &texels[mapped[j]];
+                let c = dot(t.tz, o.tz);
+                if c <= 0.0 {
+                    continue;
+                }
+                let d = sub(t.position, o.position);
+                let w = (-dot(d, d) / (2.0 * sigma2)).exp() * c.powi(8);
+                sum.add_weighted(&indirect[j], w);
+                total += w;
+            }
+        }
+        if total > 0.0 {
+            for c in sum.c.iter_mut() {
+                for v in c.iter_mut() {
+                    *v /= total;
+                }
+            }
+            sum
+        } else {
+            indirect[k]
+        }
+    })
+}
+
 /// [`bake`] traced in batches through `tracer`, with multi-bounce indirect
 /// light coloured by the materials (see the module comment).
 pub fn bake_traced(scene: &Scene, target: &Target, opts: &Options, tracer: &dyn Tracer, rows_done: &AtomicUsize) -> Baked {
@@ -720,12 +782,16 @@ pub fn bake_traced(scene: &Scene, target: &Target, opts: &Options, tracer: &dyn 
             let t = &texels[i];
             let normal_offset = t.radius.clamp(0.5, 3.0);
             let mut rng = directs[k].2.clone();
-            for _ in 0..count {
-                // As the one-bounce mode: uniform over the hemisphere.
-                let mut w = rng.unit();
-                if dot(w, t.tz) < 0.0 {
-                    w = scale(w, -1.0);
-                }
+            // Uniform over the hemisphere as the one-bounce mode, stratified:
+            // one direction per cell of a grid over (cos θ, φ).
+            let cols = (count as f32).sqrt().ceil().max(1.0) as u32;
+            let rows = count.div_ceil(cols);
+            let (u, v) = frame(t.tz);
+            for j in 0..count {
+                let z = ((j / cols) as f32 + rng.next()) / rows as f32;
+                let phi = std::f32::consts::TAU * ((j % cols) as f32 + rng.next()) / cols as f32;
+                let r = (1.0 - z * z).max(0.0).sqrt();
+                let w = normalize(add(scale(t.tz, z), add(scale(u, r * phi.cos()), scale(v, r * phi.sin()))));
                 rays.push(Ray { o: add(t.position, add(scale(t.tz, normal_offset), scale(w, VISIBILITY_RAY_OFFSET))), d: w, tmax: HALF_WORLD_MAX });
                 paths.push(Path { texel: k, first: to_tangent(t, w), weight: [1.0; 3], radiance: [0.0; 3], rng: Rng::new(rng.0 ^ 0x5851_F42D_4C95_7F2D) });
                 rng.next();
@@ -820,6 +886,9 @@ pub fn bake_traced(scene: &Scene, target: &Target, opts: &Options, tracer: &dyn 
         for p in &paths {
             let c = scale(p.radiance, std::f32::consts::TAU);
             indirect[p.texel].add_weighted(&Gathered::point_light(c, p.first, [0.0, 0.0, 1.0]), 1.0 / count as f32);
+        }
+        if opts.denoise_radius > 0 {
+            indirect = denoise(&texels, n, &mapped, &indirect, opts.denoise_radius as i64);
         }
     }
     let w = &scene.world;

@@ -2655,6 +2655,7 @@ fn cmd_light(args: &[String]) -> Res {
                 // Path traced on the CPU, every surface at `--albedo` (material colours need the Studio's backend).
                 path_traced: args.iter().any(|a| a == "--path-traced"),
                 bounces: opt("--bounces").map(|s| s.parse()).transpose()?.unwrap_or(3),
+                denoise_radius: opt("--denoise").map(|s| s.parse()).transpose()?.unwrap_or(2),
             };
             let select = |i: &scene::Instance| want_levels.contains(&i.level) || want_comps.contains(&(i.level, i.export));
             let t = std::time::Instant::now();

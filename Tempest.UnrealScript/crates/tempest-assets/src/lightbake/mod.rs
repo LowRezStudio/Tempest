@@ -173,7 +173,56 @@ pub fn compare(shipped: &DecodedMap, ours: &[encode::Sample], size: usize) -> Op
     }
     ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let median = ratios.get(ratios.len() / 2).copied();
-    Some(json!({ "texels": n, "meanBaked": sa / n as f64, "meanShipped": sb / n as f64, "meanAbsDiff": abs / n as f64, "maxAbsDiff": max, "medianRatio": median }))
+    // Shaded vs lit: the texels below / above the shipped map's median
+    // (each side's summed light, baked over shipped); and blotchiness: the
+    // mean |texel − its mapped neighbours' mean|, over the mean.
+    let lum_at = |k: usize, baked: bool| -> Option<f64> {
+        let s = ours.get(k)?;
+        if !s.mapped {
+            return None;
+        }
+        Some(if baked { lum(Decoded::of_sample(s).irradiance()) } else { lum(shipped.texels[k].irradiance()) } as f64)
+    };
+    let mut shipped_l: Vec<f64> = (0..ours.len()).filter_map(|k| lum_at(k, false)).collect();
+    shipped_l.sort_by(|a, b| a.total_cmp(b));
+    let cut = shipped_l.get(shipped_l.len() / 2).copied().unwrap_or(0.0);
+    let (mut dark, mut lit) = ([0f64; 2], [0f64; 2]);
+    // The colour of the shaded texels: summed RGB, baked then shipped.
+    let mut shade_rgb = [[0f64; 3]; 2];
+    for (k, sample) in ours.iter().enumerate() {
+        let (Some(b), Some(a)) = (lum_at(k, false), lum_at(k, true)) else { continue };
+        let side = if b < cut { &mut dark } else { &mut lit };
+        side[0] += a;
+        side[1] += b;
+        if b < cut {
+            let (cb, cs) = (Decoded::of_sample(sample).irradiance(), shipped.texels[k].irradiance());
+            for ch in 0..3 {
+                shade_rgb[0][ch] += cb[ch] as f64;
+                shade_rgb[1][ch] += cs[ch] as f64;
+            }
+        }
+    }
+    let chroma = |c: [f64; 3]| {
+        let s = c[0] + c[1] + c[2];
+        (s > 0.0).then(|| [c[0] / s, c[1] / s, c[2] / s])
+    };
+    let noise = |baked: bool| -> Option<f64> {
+        let (mut d, mut m, mut c) = (0f64, 0f64, 0usize);
+        for y in 1..size.saturating_sub(1) {
+            for x in 1..size - 1 {
+                let Some(v) = lum_at(y * size + x, baked) else { continue };
+                let nb: Vec<f64> = [(0, 1), (2, 1), (1, 0), (1, 2)].iter().filter_map(|&(dx, dy)| lum_at((y + dy - 1) * size + x + dx - 1, baked)).collect();
+                if nb.len() < 4 {
+                    continue;
+                }
+                d += (v - nb.iter().sum::<f64>() / 4.0).abs();
+                m += v;
+                c += 1;
+            }
+        }
+        (c > 0 && m > 0.0).then(|| d / m)
+    };
+    Some(json!({ "texels": n, "meanBaked": sa / n as f64, "meanShipped": sb / n as f64, "meanAbsDiff": abs / n as f64, "maxAbsDiff": max, "medianRatio": median, "shadedRatio": (dark[1] > 0.0).then(|| dark[0] / dark[1]), "litRatio": (lit[1] > 0.0).then(|| lit[0] / lit[1]), "noiseBaked": noise(true), "noiseShipped": noise(false), "shadeChromaBaked": chroma(shade_rgb[0]), "shadeChromaShipped": chroma(shade_rgb[1]) }))
 }
 
 // ----------------------------------------------------------------------------
